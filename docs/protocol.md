@@ -491,10 +491,10 @@ JSON 能直接表示的类型原样传。其余类型：
 
 实现时验证，结论回填到本文：
 
-1. `TCPServer.listen(0, "127.0.0.1")` 在 4.3 至 4.7 上是否都能拿到系统分配的端口。不行就在 49152–65535 里随机重试。
-2. `--check-only` 对不继承 `SceneTree` 的普通脚本是否给出完整的解析报错。不行就改为通过编辑器的语言服务器（`--lsp-port`）取诊断。
-3. 无头编辑器宿主里哪些命令不可用（已知：截图）。`editor_status` 要返回 `capabilities` 列表。
-4. Flatpak 等沙箱版 Godot 能否写到 `~/.gdcli`。不能则需要 `GDCLI_HOME` 的文档说明。
-5. `DirAccess.is_link` 对 Windows 的目录联接（junction）是否返回真。不是的话第 4.4 节的链接检查在 Windows 上要另找办法。
-6. 4.3 上是否有可用的 HMAC-SHA256（`Crypto.hmac_digest`）。握手依赖它。
-7. 同一台机器开第二个编辑器时，语言服务器和调试适配器的默认端口会冲突并报错。`gd host start` 已经显式指定端口；带界面的第二个实例是否需要处理，待定。
+1. `--check-only` 对不继承 `SceneTree` 的普通脚本是否给出完整的解析报错。不行就改为通过编辑器的语言服务器（`--lsp-port`）取诊断。
+2. 无头编辑器宿主里哪些命令不可用（已知：截图）。`editor_status` 要返回 `capabilities` 列表。
+3. Flatpak 等沙箱版 Godot 能否写到 `~/.gdcli`。不能则需要 `GDCLI_HOME` 的文档说明。
+4. `DirAccess.is_link` 对 Windows 的目录联接（junction）是否返回真。不是的话第 4.4 节的链接检查在 Windows 上要另找办法。
+5. 同一台机器开第二个编辑器时，语言服务器和调试适配器的默认端口会冲突并报错。`gd host start` 已经显式指定端口；带界面的第二个实例是否需要处理，待定。
+
+已验证（CI，Linux，4.3 至 4.7）：`TCPServer.listen(0, "127.0.0.1")` 能拿到系统分配的端口；`Crypto.hmac_digest` 可用。
