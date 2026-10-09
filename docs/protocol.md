@@ -88,7 +88,7 @@ Godot 可执行文件的查找顺序：`--godot <路径>` 参数 → 环境变�
   "token": "<64 位十六进制>",
   "protocol": 1,
   "bridge_version": "0.1.0",
-  "godot_version": "4.3.stable",
+  "godot_version": "4.3.0-stable",
   "project_path": "C:/Users/me/games/platformer",
   "project_name": "Platformer",
   "headless": false,
@@ -115,7 +115,7 @@ Godot 可执行文件的查找顺序：`--godot <路径>` 参数 → 环境变�
 命令行在把令牌发给任何端口之前，先确认对方确实持有令牌：
 
 1. 命令行生成 16 字节随机数 `nonce`，发 `GET /v1/ping?nonce=<十六进制>`，**不带令牌**。
-2. 桥接返回 `instance_id`、`protocol`、`bridge_version`，以及 `proof = HMAC-SHA256(令牌, nonce + instance_id)`。
+2. 桥接返回 `instance_id`、`protocol`、`bridge_version`，以及 `proof`。`proof` 是 HMAC-SHA256 的十六进制摘要：密钥是令牌（锁文件里那 64 个十六进制字符的 UTF-8 字节，不做解码），消息是 `nonce` 紧接 `instance_id` 两个字符串的 UTF-8 字节。`nonce` 必须是 32 个小写十六进制字符。
 3. 命令行用锁文件里的令牌自己算一遍，一致才继续，之后的请求才带令牌。
 
 这样，编辑器退出后别的进程占了同一个端口，也拿不到令牌和后续命令。
@@ -137,7 +137,8 @@ HTTP 解析是手写的，所以把它能接受的东西限定得很窄，其余
 - `POST` 必须带 `Content-Length`，值是纯十进制数字，不超过 4 MB（超过返回 `413`）。
 - 路径不做百分号解码。命令名必须匹配 `^[a-z][a-z0-9_]*$`。
 - 时限按整个请求计算：连接建立后 1 秒内必须发完请求头，5 秒内必须发完正文。
-- 同时最多 8 个连接。
+- 同时最多 8 个连接。满了以后新连接会挤掉最早的、还没发完请求头的那个，空闲连接占不住位置。
+- 在读完正文之前就给出响应的情况（认证失败、正文过大等），桥接写完响应后再丢弃约 250 毫秒的输入才关闭，避免客户端因连接被重置而收不到响应。
 - **先检查后读正文**：请求头读完就做第 4.2 节的检查，通过了才读正文。没有令牌的连接最多让桥接读 8 KB。
 - 选 HTTP 而不是 WebSocket：`gd` 是无状态的短进程；用 `curl` 就能调试；MCP 服务器放在命令行一侧，桥接不需要长连接。
 
@@ -186,7 +187,7 @@ HTTP 解析是手写的，所以把它能接受的东西限定得很窄，其余
 
 1. 带 `Origin` 或 `Sec-Fetch-Site` 请求头的一律拒绝（`403 FORBIDDEN_ORIGIN`）。`gd` 从不发送这两个头，浏览器发起的请求一定带其中之一。
 2. `Host` 必须是 `127.0.0.1:<端口>` 或 `localhost:<端口>`，否则 `403`。
-3. 除 `ping` 外，必须有 `Authorization: Bearer <令牌>`，不匹配返回 `401 AUTH_FAILED`。比较方式：对收到的值和正确的值各算一次 SHA-256，再比较两个摘要，避免逐字节比较泄露时间信息。
+3. 除 `GET /v1/ping` 外，必须有 `Authorization: Bearer <令牌>`，不匹配返回 `401 AUTH_FAILED`。比较方式：对收到的值和正确的值各算一次 SHA-256，再比较两个摘要，避免逐字节比较泄露时间信息。
 4. `POST` 必须是 `Content-Type: application/json`，否则 `415`。
 5. 任何响应都不带 `Access-Control-*` 头；`OPTIONS` 等其他方法在解析阶段就已拒绝。
 
@@ -224,7 +225,7 @@ HTTP 解析是手写的，所以把它能接受的东西限定得很窄，其余
 所有文件参数，以及 `$res` 引用的路径，都按下面的顺序处理。违反返回 `PATH_NOT_ALLOWED`。
 
 1. 接受 `res://` 路径；`uid://` 先解析成 `res://` 再继续。拒绝 `user://`、绝对路径、盘符、反斜杠。
-2. 路径里出现 `..`、空段、以点或空格结尾的段、`res://` 之后的冒号（Windows 备用数据流）、Windows 保留设备名，直接拒绝。先拒绝再规范化，不靠规范化来"修正"输入。
+2. 路径里出现 `..`、空段、以点或空格结尾的段、`res://` 之后的冒号（Windows 备用数据流）、Windows 保留设备名、形如 `GODOT~1` 的短文件名（波浪号后跟数字），直接拒绝。先拒绝再规范化，不靠规范化来"修正"输入。
 3. 从项目根到目标的每一级都不能是符号链接或重解析点（`DirAccess.is_link`）。仓库可以自带一个指向项目外的链接。
 4. 下面的比较统一折叠大小写后进行，因为 Windows 和 macOS 的默认文件系统不区分大小写。
 
@@ -304,7 +305,7 @@ HTTP 解析是手写的，所以把它能接受的东西限定得很窄，其余
 - `meta.undo` 只在产生了撤销步骤时出现。
 - 输出格式：`--format human`（默认）或 `--format json`（`--json` 是简写）。也可用环境变量 `GDCLI_FORMAT`。
 
-HTTP 状态码与类别对应（`200` 成功、`400` 参数、`401` 认证、`403` 拒绝、`404` 未知命令、`409` 前置条件、`500` 内部错误、`503` 忙），但命令行只依据信封。
+HTTP 状态码与类别对应（`200` 成功、`400` 参数、`401` 认证、`403` 拒绝、`404` 未知命令、`409` 前置条件、`422` 命令执行失败、`500` 内部错误、`503` 忙），但命令行只依据信封。
 
 ### 5.1 错误码
 
@@ -393,7 +394,7 @@ HTTP 状态码与类别对应（`200` 成功、`400` 参数、`401` 认证、`40
 
 - 节点路径相对当前被编辑场景的根，`.` 表示根，如 `Player/Sprite2D`。不接受绝对路径和 `..`。
 - 第 1 版的修改类命令只作用于**当前被编辑的场景**。要改别的场景先 `scene_open`。响应的 `meta.scene` 会回显。
-- 修改不会自动保存。`scene_save` 显式保存；`editor_status` 里有 `unsaved` 列表。
+- 修改不会自动保存。`scene_save` 显式保存。
 
 ### 6.3 撤销
 
@@ -443,12 +444,12 @@ JSON 能直接表示的类型原样传。其余类型：
 
 | 分组 | 命令 | 风险 | 阶段 |
 |---|---|---|---|
-| editor | `editor_status`、`editor_selection`、`editor_errors` | read | 1 |
+| editor | `editor_status`、`editor_selection` | read | 1 |
 | scene | `scene_tree`、`scene_list_open` | read | 1 |
 | node | `node_get`、`node_find` | read | 1 |
 | fs | `fs_list`、`fs_read_text` | read | 1 |
 | project | `project_settings_get`、`project_input_map` | read | 1 |
-| editor | `editor_screenshot` | read | 3 |
+| editor | `editor_screenshot`、`editor_errors`（需要 4.5 的日志接口，更早的版本返回 `UNSUPPORTED_GODOT_VERSION`） | read | 3 |
 | scene | `scene_open`、`scene_new`、`scene_save` | write | 3 |
 | node | `node_create`、`node_set`、`node_rename`、`node_move`、`node_duplicate`、`node_attach_script`、`node_connect_signal`、`node_add_to_group`、`node_instantiate_scene` | write | 3 |
 | node | `node_delete` | write（可撤销） | 3 |

@@ -60,4 +60,4 @@ jobs:
           grep " ${archive}\$" SHA512-SUMS.txt | sha512sum --check --strict -
           unzip -q "${archive}" -d "${RUNNER_TEMP}/godot"
           echo "GODOT_BIN=${RUNNER_TEMP}/godot/Godot_v${GODOT_TAG}_linux.x86_64" >> "${GITHUB_ENV}"
-      - run: node scripts/bridge-smoke.mjs
+      - run: node scripts/bridge-test.mjs

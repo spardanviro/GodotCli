@@ -2,7 +2,7 @@
 
 从命令行和编码智能体里控制 Godot：一个编辑器桥接插件，一个 `gd` 命令行，一个 Claude 插件。
 
-**状态：第 0 阶段。** 目前只有协议文档和仓库骨架，`gd` 还没有可用命令。
+**状态：第 1 阶段。** 桥接已能通过本机 HTTP 提供只读命令；`gd` 命令行还没有可用命令（第 2 阶段）。
 
 ## 文档
 
@@ -31,8 +31,8 @@ npm run verify
 
 `verify` 依次做版本一致性检查、类型检查、代码检查、测试（含覆盖率门槛）和构建。
 
-桥接的冒烟测试需要一个 Godot 编辑器可执行文件：
+桥接的测试（单元测试加端到端）需要一个 Godot 编辑器可执行文件：
 
 ```bash
-GODOT_BIN=/path/to/godot npm run smoke:bridge
+GODOT_BIN=/path/to/godot npm run test:bridge
 ```

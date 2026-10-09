@@ -1,0 +1,11 @@
+[gd_scene format=3]
+
+[node name="Main" type="Node2D"]
+
+[node name="Player" type="CharacterBody2D" parent="."]
+position = Vector2(10, 20)
+
+[node name="Sprite2D" type="Sprite2D" parent="Player"]
+modulate = Color(1, 0.5, 0, 1)
+
+[node name="World" type="Node" parent="." groups=["level"]]
