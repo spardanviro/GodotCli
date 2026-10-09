@@ -1,0 +1,15 @@
+{
+  "name": "godot",
+  "version": "0.0.1",
+  "description": "Skills for building Godot games with coding agents: drive the editor through the gd command line, plus curated Godot 4 knowledge.",
+  "author": {
+    "name": "spardanviro"
+  },
+  "keywords": [
+    "godot",
+    "gamedev",
+    "game-development",
+    "gdscript",
+    "cli"
+  ]
+}

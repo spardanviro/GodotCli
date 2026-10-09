@@ -1,0 +1,42 @@
+{
+  "name": "gdcli",
+  "version": "0.0.1",
+  "description": "Command line for driving the Godot editor and engine, built for coding agents.",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spardanviro/GodotCli.git",
+    "directory": "cli"
+  },
+  "bin": {
+    "gd": "dist/main.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "clean": "node --input-type=module -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true });\"",
+    "build": "npm run clean && tsc -p tsconfig.build.json",
+    "prepack": "npm run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run --coverage"
+  },
+  "keywords": [
+    "godot",
+    "cli",
+    "gamedev",
+    "mcp"
+  ],
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "@vitest/coverage-v8": "^4.1.11",
+    "eslint": "^10.12.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.71.1",
+    "vitest": "^4.1.11"
+  }
+}

@@ -1,0 +1,12 @@
+; Development and test project for the gdcli bridge addon.
+; Only addons/gdcli is shipped to users.
+
+config_version=5
+
+[application]
+
+config/name="gdcli bridge dev"
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/gdcli/plugin.cfg")

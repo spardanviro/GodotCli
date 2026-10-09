@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+*.log
+
+# Godot
+.godot/
+*.translation
+export_presets.cfg
+
+# Local tooling
+.claude/settings.local.json

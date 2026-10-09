@@ -1,0 +1,20 @@
+{
+  "name": "gdcli-workspace",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "cli"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "npm run build --workspace cli",
+    "typecheck": "npm run typecheck --workspace cli",
+    "lint": "npm run lint --workspace cli",
+    "test": "npm run test --workspace cli",
+    "check:versions": "node scripts/check-versions.mjs",
+    "smoke:bridge": "node scripts/bridge-smoke.mjs",
+    "verify": "npm run check:versions && npm run typecheck && npm run lint && npm run test && npm run build"
+  }
+}
