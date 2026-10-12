@@ -2,7 +2,25 @@
 
 从命令行和编码智能体里控制 Godot：一个编辑器桥接插件，一个 `gd` 命令行，一个 Claude 插件。
 
-**状态：第 1 阶段。** 桥接已能通过本机 HTTP 提供只读命令；`gd` 命令行还没有可用命令（第 2 阶段）。
+**状态：第 2 阶段完成，尚未发布。** `gd` 能读取运行中编辑器的状态，也能不开编辑器运行场景、检查脚本、导入、导出、查接口。修改场景的命令在第 3 阶段。
+
+## 用法
+
+目前要从源码构建（见"开发"），然后用 `node cli/dist/main.js` 代替下面的 `gd`。
+
+```bash
+gd bridge install          # 把桥接插件装进当前项目并启用
+gd open                    # 启动编辑器
+gd status                  # 编辑器就绪了吗
+gd list                    # 编辑器提供哪些命令
+gd command scene_tree      # 读场景树
+gd run --headless --seconds 5   # 不开编辑器跑 5 秒，返回报错
+gd check scripts/player.gd      # 检查脚本
+gd api class CharacterBody2D    # 查当前版本的接口
+gd doctor                  # 哪里不对
+```
+
+任何命令加 `--json`，标准输出就是一个信封：`{success, command, data, errors, warnings, meta}`，失败时也是。
 
 ## 文档
 
@@ -35,4 +53,10 @@ npm run verify
 
 ```bash
 GODOT_BIN=/path/to/godot npm run test:bridge
+```
+
+命令行的端到端测试同样需要它，会在临时目录里建项目、装桥接、起一个无头编辑器：
+
+```bash
+GODOT_BIN=/path/to/godot npm run test:e2e
 ```

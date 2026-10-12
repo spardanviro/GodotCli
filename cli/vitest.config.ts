@@ -8,8 +8,9 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       include: ["src/**/*.ts"],
-      // main.ts is the process entry point; everything it does lives in cli.ts.
-      exclude: ["src/main.ts"],
+      // main.ts wires real I/O into cli.ts, and process-runner.ts only starts
+      // and stops child processes; both are exercised by scripts/cli-e2e.mjs.
+      exclude: ["src/main.ts", "src/process-runner.ts"],
       thresholds: {
         lines: MIN_COVERAGE,
         functions: MIN_COVERAGE,

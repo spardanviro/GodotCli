@@ -12,14 +12,15 @@
     "gd": "dist/main.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "addon"
   ],
   "engines": {
     "node": ">=22"
   },
   "scripts": {
     "clean": "node --input-type=module -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true });\"",
-    "build": "npm run clean && tsc -p tsconfig.build.json",
+    "build": "npm run clean && tsc -p tsconfig.build.json && node ../scripts/copy-addon.mjs",
     "prepack": "npm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",

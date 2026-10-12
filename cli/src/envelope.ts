@@ -1,4 +1,4 @@
-import { ExitCode, PROTOCOL_VERSION, exitCodeFor } from "./protocol.js";
+import { type ErrorCode, ExitCode, PROTOCOL_VERSION, exitCodeFor } from "./protocol.js";
 
 export interface EnvelopeError {
   readonly code: string;
@@ -56,6 +56,37 @@ export function failure(
     warnings: [...warnings],
     meta: { protocol: PROTOCOL_VERSION, ...meta },
   };
+}
+
+/**
+ * A failure that still carries a report, e.g. the errors a scene printed
+ * while running. Callers branch on `success`, never on `data`.
+ */
+export function failureWithData<T>(command: string, data: T, errors: readonly EnvelopeError[]): Envelope<T> {
+  return { ...failure(command, errors), data };
+}
+
+export function errorOf(
+  code: ErrorCode,
+  message: string,
+  hint?: string,
+  details?: Readonly<Record<string, unknown>>,
+): EnvelopeError {
+  return {
+    code,
+    message,
+    ...(hint === undefined ? {} : { hint }),
+    ...(details === undefined ? {} : { details }),
+  };
+}
+
+export function isEnvelopeError(value: unknown): value is EnvelopeError {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { code?: unknown }).code === "string" &&
+    typeof (value as { message?: unknown }).message === "string"
+  );
 }
 
 /** A failure without any error entry is malformed and reported as an internal error. */

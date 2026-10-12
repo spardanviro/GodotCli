@@ -301,6 +301,7 @@ HTTP 解析是手写的，所以把它能接受的东西限定得很窄，其余
 - **以 `success` 为准判断成败**，以 `errors[0].code` 分支。`code` 是稳定标识，`message` 可以改措辞。
 - `message` 和 `hint` 是固定文案，具体是哪个节点、哪个文件放在 `details` 里（第 4.5 节）。
 - **失败也写标准输出**。标准错误只放给人看的诊断信息，调用方不要解析。
+- 失败时 `data` 通常是 `null`，但不总是：`gd run`、`gd check`、`gd exec`、`gd import`、`gd export` 在发现报错时返回失败，同时在 `data` 里带上完整报告（`diagnostics` 等）。所以只能用 `success` 判断成败，不能用 `data`。
 - `meta.scene` 总是带上当前被编辑的场景，调用方可以据此发现"改的不是自己以为的那个场景"。
 - `meta.undo` 只在产生了撤销步骤时出现。
 - 输出格式：`--format human`（默认）或 `--format json`（`--json` 是简写）。也可用环境变量 `GDCLI_FORMAT`。
@@ -491,10 +492,11 @@ JSON 能直接表示的类型原样传。其余类型：
 
 实现时验证，结论回填到本文：
 
-1. `--check-only` 对不继承 `SceneTree` 的普通脚本是否给出完整的解析报错。不行就改为通过编辑器的语言服务器（`--lsp-port`）取诊断。
-2. 无头编辑器宿主里哪些命令不可用（已知：截图）。`editor_status` 要返回 `capabilities` 列表。
-3. Flatpak 等沙箱版 Godot 能否写到 `~/.gdcli`。不能则需要 `GDCLI_HOME` 的文档说明。
-4. `DirAccess.is_link` 对 Windows 的目录联接（junction）是否返回真。不是的话第 4.4 节的链接检查在 Windows 上要另找办法。
-5. 同一台机器开第二个编辑器时，语言服务器和调试适配器的默认端口会冲突并报错。`gd host start` 已经显式指定端口；带界面的第二个实例是否需要处理，待定。
+1. 无头编辑器宿主里哪些命令不可用（已知：截图）。`editor_status` 要返回 `capabilities` 列表。
+2. Flatpak 等沙箱版 Godot 能否写到 `~/.gdcli`。不能则需要 `GDCLI_HOME` 的文档说明。
+3. `DirAccess.is_link` 对 Windows 的目录联接（junction）是否返回真。不是的话第 4.4 节的链接检查在 Windows 上要另找办法。
+4. 同一台机器开第二个编辑器时，语言服务器和调试适配器的默认端口会冲突并报错。`gd host start` 已经显式指定端口；带界面的第二个实例是否需要处理，待定。
+
+已验证：`--check-only` 对普通脚本能给出带文件和行号的解析报错，出错时退出码非零。引擎在脚本运行时报错后退出码仍是 0，所以 `gd run` 以解析输出为准。
 
 已验证（CI，Linux，4.3 至 4.7）：`TCPServer.listen(0, "127.0.0.1")` 能拿到系统分配的端口；`Crypto.hmac_digest` 可用。

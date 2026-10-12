@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { exitCodeOf, failure, success } from "../src/envelope.js";
+import { errorOf, exitCodeOf, failure, failureWithData, isEnvelopeError, success } from "../src/envelope.js";
 import { ExitCode, PROTOCOL_VERSION } from "../src/protocol.js";
 
 describe("success", () => {
@@ -57,5 +57,32 @@ describe("failure", () => {
 
   test("reports a failure without errors as an internal error", () => {
     expect(exitCodeOf(failure("node_get", []))).toBe(ExitCode.Internal);
+  });
+
+  test("can carry a report while still being a failure", () => {
+    const envelope = failureWithData("run", { error_count: 2 }, [errorOf("COMMAND_FAILED", "errors")]);
+
+    expect(envelope.success).toBe(false);
+    expect(envelope.data).toEqual({ error_count: 2 });
+    expect(exitCodeOf(envelope)).toBe(ExitCode.CommandFailed);
+  });
+});
+
+describe("errorOf", () => {
+  test("leaves out the optional fields that were not given", () => {
+    expect(errorOf("NO_EDITOR", "none")).toEqual({ code: "NO_EDITOR", message: "none" });
+    expect(errorOf("NO_EDITOR", "none", "open it", { project: "p" })).toEqual({
+      code: "NO_EDITOR",
+      message: "none",
+      hint: "open it",
+      details: { project: "p" },
+    });
+  });
+
+  test("is recognised as an error and plain values are not", () => {
+    expect(isEnvelopeError(errorOf("TIMEOUT", "late"))).toBe(true);
+    expect(isEnvelopeError("C:/project")).toBe(false);
+    expect(isEnvelopeError(null)).toBe(false);
+    expect(isEnvelopeError({ code: 1, message: "x" })).toBe(false);
   });
 });

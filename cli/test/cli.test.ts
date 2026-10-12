@@ -1,217 +1,175 @@
 import { describe, expect, test } from "vitest";
 
-import { type Io, readCliVersion, run } from "../src/cli.js";
-import type { Envelope } from "../src/envelope.js";
+import { readCliVersion, splitGlobals } from "../src/cli.js";
 import { ExitCode, PROTOCOL_VERSION } from "../src/protocol.js";
-
-interface Captured {
-  readonly io: Io;
-  readonly out: () => string;
-  readonly err: () => string;
-}
-
-function capture(env: Readonly<Record<string, string | undefined>> = {}): Captured {
-  const out: string[] = [];
-  const err: string[] = [];
-  return {
-    io: {
-      stdout: (text) => void out.push(text),
-      stderr: (text) => void err.push(text),
-      env,
-    },
-    out: () => out.join(""),
-    err: () => err.join(""),
-  };
-}
-
-function parseEnvelope(text: string): Envelope {
-  return JSON.parse(text) as Envelope;
-}
+import { harness } from "./helpers.js";
 
 describe("gd --version", () => {
-  test("prints the version and protocol number for people", () => {
-    const captured = capture();
+  test("prints the version and protocol number for people", async () => {
+    const gd = harness();
 
-    const exitCode = run(["--version"], captured.io);
+    const result = await gd.text("--version");
 
-    expect(exitCode).toBe(ExitCode.Success);
-    expect(captured.out()).toBe(`gd ${readCliVersion()} (protocol ${PROTOCOL_VERSION})\n`);
-    expect(captured.err()).toBe("");
+    expect(result.exitCode).toBe(ExitCode.Success);
+    expect(result.out).toBe(`gd 9.9.9 (protocol ${PROTOCOL_VERSION})\n`);
+    expect(result.err).toBe("");
   });
 
-  test("prints an envelope with --json", () => {
-    const captured = capture();
-
-    const exitCode = run(["--version", "--json"], captured.io);
+  test("prints an envelope with --json", async () => {
+    const { exitCode, envelope } = await harness().json("--version");
 
     expect(exitCode).toBe(ExitCode.Success);
-    expect(parseEnvelope(captured.out())).toMatchObject({
-      success: true,
-      command: "version",
-      data: { version: readCliVersion(), protocol: PROTOCOL_VERSION },
-    });
+    expect(envelope).toMatchObject({ success: true, command: "version", data: { version: "9.9.9", protocol: PROTOCOL_VERSION } });
+  });
+
+  test("reads the real version from the package manifest", () => {
+    expect(readCliVersion()).toMatch(/^\d+\.\d+\.\d+/u);
   });
 });
 
 describe("gd --help", () => {
-  test("prints usage and exits with zero when no command is given", () => {
-    const captured = capture();
+  test("prints usage and exits with zero when no command is given", async () => {
+    const result = await harness().text();
 
-    const exitCode = run([], captured.io);
-
-    expect(exitCode).toBe(ExitCode.Success);
-    expect(captured.out()).toContain("Usage: gd");
+    expect(result.exitCode).toBe(ExitCode.Success);
+    expect(result.out).toContain("Usage: gd <command>");
   });
 
-  test("prints usage for -h even when a command follows", () => {
-    const captured = capture();
+  test("prints usage for -h even when a command follows", async () => {
+    const result = await harness().text("status", "-h");
 
-    const exitCode = run(["status", "-h"], captured.io);
-
-    expect(exitCode).toBe(ExitCode.Success);
-    expect(captured.out()).toContain("Usage: gd");
+    expect(result.exitCode).toBe(ExitCode.Success);
+    expect(result.out).toContain("Usage: gd <command>");
   });
 });
 
 describe("output format", () => {
-  test("reads the format from the environment", () => {
-    const captured = capture({ GDCLI_FORMAT: "json" });
+  test("reads the format from the environment", async () => {
+    const gd = harness({ env: { GDCLI_FORMAT: "json" } });
 
-    run(["--version"], captured.io);
+    const result = await gd.text("--version");
 
-    expect(parseEnvelope(captured.out()).command).toBe("version");
+    expect(JSON.parse(result.out)).toMatchObject({ command: "version" });
   });
 
-  test("lets --format override both --json and the environment", () => {
-    const captured = capture({ GDCLI_FORMAT: "json" });
+  test("treats an empty environment variable as unset", async () => {
+    const result = await harness({ env: { GDCLI_FORMAT: "" } }).text("--version");
 
-    run(["--version", "--json", "--format", "human"], captured.io);
-
-    expect(captured.out()).toMatch(/^gd /);
+    expect(result.out).toMatch(/^gd /u);
   });
 
-  test("rejects an unknown format with a usage error", () => {
-    const captured = capture();
+  test("lets --format override both --json and the environment", async () => {
+    const result = await harness({ env: { GDCLI_FORMAT: "json" } }).text("--version", "--json", "--format", "human");
 
-    const exitCode = run(["--version", "--format", "yaml"], captured.io);
+    expect(result.out).toMatch(/^gd /u);
+  });
+
+  test("accepts --format=json", async () => {
+    const result = await harness().text("--version", "--format=json");
+
+    expect(JSON.parse(result.out)).toMatchObject({ command: "version" });
+  });
+
+  test("rejects an unknown format with a usage error", async () => {
+    const result = await harness().text("--version", "--format", "yaml");
+
+    expect(result.exitCode).toBe(ExitCode.Usage);
+    expect(result.out).toBe("");
+    expect(result.err).toContain("error[USAGE]");
+    expect(result.err).toContain("yaml");
+  });
+
+  test("keeps --json when the requested format is unusable", async () => {
+    const result = await harness().text("--version", "--format", "xml", "--json");
+
+    expect(JSON.parse(result.out)).toMatchObject({ success: false, errors: [{ code: "USAGE" }] });
+  });
+
+  test("does not take the next option as a missing value", async () => {
+    const { exitCode, envelope } = await harness().json("status", "--timeout", "--yes");
 
     expect(exitCode).toBe(ExitCode.Usage);
-    expect(captured.out()).toBe("");
-    expect(captured.err()).toContain("error[USAGE]");
-    expect(captured.err()).toContain("yaml");
+    expect(envelope.errors[0]?.message).toContain("--timeout needs a value");
+  });
+
+  test("rejects a value option without a value", async () => {
+    const { exitCode, envelope } = await harness().json("status", "--project");
+
+    expect(exitCode).toBe(ExitCode.Usage);
+    expect(envelope.errors[0]?.message).toContain("--project needs a value");
   });
 });
 
-describe("output format edge cases", () => {
-  test("treats an empty environment variable as unset", () => {
-    const captured = capture({ GDCLI_FORMAT: "" });
-
-    const exitCode = run(["--version"], captured.io);
-
-    expect(exitCode).toBe(ExitCode.Success);
-    expect(captured.out()).toMatch(/^gd /);
-  });
-
-  test.each([
-    [["--no-such-option", "--format", "json"]],
-    [["--no-such-option", "--format=json"]],
-    [["--format", "json", "--no-such-option"]],
-  ])("keeps the JSON envelope for unparseable options given %j", (argv) => {
-    const captured = capture();
-
-    const exitCode = run(argv, captured.io);
+describe("--timeout", () => {
+  test.each(["0", "-3", "soon", "99999"])("rejects %s", async (value) => {
+    const { exitCode, envelope } = await harness().json("status", "--timeout", value);
 
     expect(exitCode).toBe(ExitCode.Usage);
-    expect(captured.err()).toBe("");
-    expect(parseEnvelope(captured.out()).errors[0]?.code).toBe("USAGE");
-  });
-
-  test("lets a later --format human override --json when options cannot be parsed", () => {
-    const captured = capture();
-
-    run(["--no-such-option", "--json", "--format", "human"], captured.io);
-
-    expect(captured.out()).toBe("");
-    expect(captured.err()).toContain("error[USAGE]");
-  });
-});
-
-describe("internal errors", () => {
-  const brokenDeps = {
-    readVersion: (): string => {
-      throw new Error("manifest unreadable");
-    },
-  };
-
-  test("answers with an INTERNAL_ERROR envelope instead of a stack trace", () => {
-    const captured = capture();
-
-    const exitCode = run(["--version", "--json"], captured.io, brokenDeps);
-
-    expect(exitCode).toBe(ExitCode.Internal);
-    expect(parseEnvelope(captured.out())).toMatchObject({
-      success: false,
-      errors: [{ code: "INTERNAL_ERROR", message: "manifest unreadable" }],
-    });
-  });
-
-  test("reports the internal error on stderr for people", () => {
-    const captured = capture();
-
-    const exitCode = run(["--version"], captured.io, brokenDeps);
-
-    expect(exitCode).toBe(ExitCode.Internal);
-    expect(captured.out()).toBe("");
-    expect(captured.err()).toContain("error[INTERNAL_ERROR]: manifest unreadable");
+    expect(envelope.errors[0]?.code).toBe("USAGE");
   });
 });
 
 describe("failures", () => {
-  test("reports an unknown command on stderr for people", () => {
-    const captured = capture();
+  test("reports an unknown command on stderr for people", async () => {
+    const result = await harness().text("frobnicate");
 
-    const exitCode = run(["frobnicate"], captured.io);
-
-    expect(exitCode).toBe(ExitCode.Usage);
-    expect(captured.out()).toBe("");
-    expect(captured.err()).toContain('error[UNKNOWN_COMMAND]: Unknown command "frobnicate".');
-    expect(captured.err()).toContain("hint:");
+    expect(result.exitCode).toBe(ExitCode.Usage);
+    expect(result.out).toBe("");
+    expect(result.err).toContain('error[UNKNOWN_COMMAND]: Unknown command "frobnicate".');
+    expect(result.err).toContain("hint:");
   });
 
-  test("writes the failure envelope to stdout with --json", () => {
-    const captured = capture();
-
-    const exitCode = run(["frobnicate", "--json"], captured.io);
+  test("writes the failure envelope to stdout with --json", async () => {
+    const { exitCode, envelope } = await harness().json("frobnicate");
 
     expect(exitCode).toBe(ExitCode.Usage);
-    expect(captured.err()).toBe("");
-    expect(parseEnvelope(captured.out())).toMatchObject({
-      success: false,
-      command: "frobnicate",
-      data: null,
-      errors: [{ code: "UNKNOWN_COMMAND" }],
+    expect(envelope).toMatchObject({ success: false, command: "frobnicate", data: null, errors: [{ code: "UNKNOWN_COMMAND" }] });
+  });
+
+  test("does not treat inherited object keys as commands", async () => {
+    const { envelope } = await harness().json("constructor");
+
+    expect(envelope.errors[0]?.code).toBe("UNKNOWN_COMMAND");
+  });
+
+  test("answers with an INTERNAL_ERROR envelope instead of a stack trace", async () => {
+    const gd = harness({
+      readVersion: () => {
+        throw new Error("manifest unreadable");
+      },
     });
+
+    const { exitCode, envelope } = await gd.json("--version");
+
+    expect(exitCode).toBe(ExitCode.Internal);
+    expect(envelope).toMatchObject({ success: false, errors: [{ code: "INTERNAL_ERROR", details: { reason: "manifest unreadable" } }] });
+    expect(gd.out().match(/"success"/gu)).toHaveLength(1);
   });
 
-  test("still answers with an envelope when the options cannot be parsed", () => {
-    const captured = capture();
+  test("prints details and strips terminal escapes from error text", async () => {
+    const result = await harness().text("bridge", "status", "--project", "no\u001b[31mwhere");
 
-    const exitCode = run(["--no-such-option", "--json"], captured.io);
+    expect(result.exitCode).toBe(ExitCode.Precondition);
+    expect(result.err).toContain("error[NO_PROJECT]");
+    expect(result.err).toContain("details:");
+    expect(result.err).not.toContain("\u001b");
+  });
+});
 
-    expect(exitCode).toBe(ExitCode.Usage);
-    expect(parseEnvelope(captured.out())).toMatchObject({
-      success: false,
-      errors: [{ code: "USAGE" }],
-    });
+describe("splitGlobals", () => {
+  test("pulls global options out from anywhere and keeps the rest in order", () => {
+    const split = splitGlobals(["--json", "command", "scene_tree", "--project", "p", "--max-depth", "2", "--yes"]);
+
+    expect(split.rest).toEqual(["command", "scene_tree", "--max-depth", "2"]);
+    expect(split.values["--project"]).toBe("p");
+    expect([...split.flags].sort()).toEqual(["json", "yes"]);
   });
 
-  test("reports unparseable options on stderr without --json", () => {
-    const captured = capture();
+  test("leaves everything after a literal -- alone", () => {
+    const split = splitGlobals(["exec", "tool.gd", "--", "--json", "--project", "x"]);
 
-    const exitCode = run(["--no-such-option"], captured.io);
-
-    expect(exitCode).toBe(ExitCode.Usage);
-    expect(captured.out()).toBe("");
-    expect(captured.err()).toContain("error[USAGE]");
+    expect(split.rest).toEqual(["exec", "tool.gd", "--", "--json", "--project", "x"]);
+    expect(split.flags.has("json")).toBe(false);
+    expect(split.values["--project"]).toBeUndefined();
   });
 });

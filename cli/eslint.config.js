@@ -9,4 +9,9 @@ export default tseslint.config(
       eqeqeq: "error",
     },
   },
+  {
+    // Tests assert on values they have just set up.
+    files: ["test/**"],
+    rules: { "@typescript-eslint/no-non-null-assertion": "off" },
+  },
 );
