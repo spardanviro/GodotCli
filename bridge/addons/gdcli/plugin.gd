@@ -31,7 +31,7 @@ const TilesetCommands = preload("commands/tileset_commands.gd")
 
 # Kept in step with plugin.cfg, cli/package.json and cli/src/protocol.ts
 # by scripts/check-versions.mjs.
-const BRIDGE_VERSION := "0.2.0"
+const BRIDGE_VERSION := "0.2.1"
 const PROTOCOL := 1
 
 const INSTANCE_ID_BYTES := 8

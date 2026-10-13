@@ -62,7 +62,7 @@ claude --plugin-dir /path/to/gdcli/plugin
 node scripts/import-knowledge.mjs /path/to/godot/modules/ai_assistant/knowledge
 ```
 
-**官方文档没有打包进插件。** 它有一千五百多页、文本就有 36 MB，而且跟引擎版本走；类参考部分 `gd api` 已经能从你装的引擎里直接读到。手册部分（教程、最佳实践、排错）通过 `gd docs` 按需查：在本机放一份文档（官网的离线 HTML 包，或 godot-docs 仓库），`gd docs use <文件夹>` 指过去，之后 `gd docs search`、`gd docs page` 只取用得上的那一页或一节。技能里写了什么时候去查。
+**官方文档没有打包进插件。** 它有一千五百多页、文本就有 36 MB，而且跟引擎版本走；类参考部分 `gd api` 已经能从你装的引擎里直接读到。手册部分（教程、最佳实践、排错）通过 `gd docs` 按需查：`gd docs install` 从官方的 godot-docs 仓库下载**当前所用 Godot 版本**的手册（只取文本，约 36 MB，十秒左右，需要 git），之后 `gd docs search`、`gd docs page` 只取用得上的那一页或一节。已经有一份文档的话用 `gd docs use <文件夹>` 指过去。技能里写了什么时候去查，以及没装时先装。
 
 `godot-cli/references/commands.md` 是从运行中的桥接生成的命令清单。`scripts/bridge-test.mjs` 每次都会核对它与桥接是否一致；命令有变动时这样重新生成：
 

@@ -142,8 +142,8 @@ Do not rewrite a script because it "looks wrong" while the actual values have no
 
 - Search the pitfalls of the area: the `references/gotchas.md` of `godot-physics-gameplay`, `godot-ui`,
   `godot-3d-rendering`, `godot-animation-audio`, `godot-gdscript`, by class or method name.
-- The manual, when a copy is set up on this machine: `gd docs search <words>`, then `gd docs page <page>`.
-  It has troubleshooting pages for physics, exporting and the editor itself.
+- The manual: `gd docs search <words>`, then `gd docs page <page>` (`gd docs install` first, when it says no
+  copy is set up). It has troubleshooting pages for physics, exporting and the editor itself.
 - `gd api class <Name>` for what a class really offers in the installed version.
 
 Say what you checked and what you found, also when the cause is still open. A list of things ruled out is worth

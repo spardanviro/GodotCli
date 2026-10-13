@@ -34,7 +34,7 @@ gd host start              # 没开编辑器时，起一个无头编辑器当宿
 gd run --headless --seconds 5   # 不开编辑器跑 5 秒，返回报错
 gd check scripts/player.gd      # 检查脚本
 gd api class CharacterBody2D    # 查当前版本的接口
-gd docs use ~/godot-docs        # 指向本机的一份官方文档（离线 HTML 包或 godot-docs 仓库）
+gd docs install                 # 下载当前 Godot 版本的官方手册（只取文本，需要 git）
 gd docs search one way collision   # 在手册里找
 gd docs page tutorials/physics/using_character_body_2d --section "Platformer movement"
 gd doctor                  # 哪里不对

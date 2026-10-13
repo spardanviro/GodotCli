@@ -66,6 +66,7 @@ Without an editor (starts the Godot binary):
 The manual (a copy of the Godot documentation on this machine):
   docs search <words> [--limit N] [--classes]
   docs page <page> [--section <heading>]
+  docs install [4.5]         Download the manual for your Godot version (text only; needs git)
   docs use <folder> | docs where
 
 Setup:
