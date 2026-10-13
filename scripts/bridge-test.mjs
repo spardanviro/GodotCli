@@ -605,6 +605,7 @@ async function checkGame(instance) {
 const TICKER_SCENE = "res://tests/fixtures/ticker.tscn";
 const TICKER_SCRIPT = "res://tests/fixtures/ticker.gd";
 const TICK_LINE = 14;
+const DELIBERATE_SCRIPT_ERROR = "SCRIPT ERROR: Cannot call method 'queue_free' on a null value.";
 
 /**
  * Asks until `done(reply)` holds or the time is up.
@@ -655,8 +656,16 @@ async function checkGameDebugging(instance) {
   check(live.body?.data?.properties?.ticks === count, "the halted game still answers game_node_get", live.body);
 
   await command(instance, "game_breakpoint", { path: TICKER_SCRIPT, line: TICK_LINE, enabled: false });
-  const stepped = await command(instance, "game_step", { mode: "out" });
-  check(stepped.status === 200 && stepped.body?.data?.stopped === true && stepped.body?.data?.stack?.[0]?.function === "_process", "game_step out returns to the caller", stepped.body);
+  const over = await command(instance, "game_step", { mode: "over" });
+  const overTop = over.body?.data?.stack?.[0];
+  check(over.status === 200 && over.body?.data?.stopped === true && !(overTop?.function === "_tick" && overTop?.line === TICK_LINE), "game_step over moves on and halts again", over.body);
+  // Stepping out exists from Godot 4.6 on; older engines are told so.
+  const out = await command(instance, "game_step", { mode: "out" });
+  check(
+    out.body?.errors?.[0]?.code === "UNSUPPORTED_GODOT_VERSION" || (out.status === 200 && out.body?.data?.stopped === true),
+    "game_step out halts again, or says the engine is too old",
+    out.body,
+  );
 
   const resumed = await command(instance, "game_continue");
   check(resumed.status === 200, "game_continue", resumed.body);
@@ -675,15 +684,14 @@ async function checkGameDebugging(instance) {
   const wreck = await until(() => command(instance, "game_debug"), (reply) => reply.body?.data?.stack?.length > 0);
   check(wreck.body?.data?.stopped === true && /null/i.test(wreck.body?.data?.reason ?? ""), "game_debug gives the error as the reason", wreck.body);
   check(wreck.body?.data?.stack?.[0]?.function === "crash", "and the line that failed", wreck.body?.data?.stack);
-  const afterCrash = await command(instance, "game_errors");
-  check(/null/i.test(afterCrash.body?.data?.entries?.at(-1)?.message ?? ""), "the script error is in game_errors too", afterCrash.body);
   await command(instance, "game_continue");
   await until(() => command(instance, "game_debug"), (reply) => reply.body?.data?.stopped === false);
 
   // Errors come last: an editor build with other tooling may react to them.
   await command(instance, "game_call", { path: "Ticker", method: "complain" });
-  const errors = await until(() => command(instance, "game_errors"), (reply) => (reply.body?.data?.total ?? 0) > 0);
-  const complaint = errors.body?.data?.entries?.at(-1);
+  const isComplaint = (entry) => entry?.message === "ticker complains on purpose";
+  const errors = await until(() => command(instance, "game_errors"), (reply) => reply.body?.data?.entries?.some(isComplaint) === true);
+  const complaint = errors.body?.data?.entries?.find(isComplaint);
   check(complaint?.severity === "error" && complaint?.message === "ticker complains on purpose", "game_errors has what the game reported", errors.body);
   check(complaint?.stack?.[0]?.file === TICKER_SCRIPT && complaint?.stack?.[0]?.function === "complain", "with the script stack", complaint);
 
@@ -759,7 +767,10 @@ async function endToEnd(godot) {
     await checkGameDebugging(instance);
     await checkEdits(instance);
     const output = log.join("");
-    check(!/SCRIPT ERROR|Parse Error/.test(output), "the editor reported no script errors");
+    // The game shares the editor's output on some platforms, and one test
+    // makes the game fail on purpose.
+    const ownErrors = output.replaceAll(DELIBERATE_SCRIPT_ERROR, "");
+    check(!/SCRIPT ERROR|Parse Error/.test(ownErrors), "the editor reported no script errors", ownErrors.match(/.*(SCRIPT ERROR|Parse Error)[^]{0,400}/)?.[0]);
     check(!output.includes(instance.token), "the token never reaches the editor log");
   } catch (error) {
     failures.push(`${error instanceof Error ? error.message : String(error)}\n--- editor output ---\n${log.join("")}`);

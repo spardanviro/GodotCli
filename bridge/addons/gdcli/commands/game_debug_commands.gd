@@ -13,6 +13,8 @@ const DEFAULT_ERROR_LIMIT := 50
 const MAX_ERROR_LIMIT := 200
 const WAIT_MSEC := 3000
 const _STEP_COMMANDS := {"over": "next", "into": "step", "out": "out"}
+# The game understands "out" from this engine version on (0xMMmmpp).
+const _STEP_OUT_SINCE := 0x040600
 
 
 ## Waits until `ready` says so, then returns what `result` returns.
@@ -225,6 +227,11 @@ func _step(args: Dictionary, options: Dictionary) -> Dictionary:
 	var running := _needs_halted(link)
 	if not running.is_empty():
 		return running
+	if args["mode"] == "out" and Engine.get_version_info()["hex"] < _STEP_OUT_SINCE:
+		return Reply.fail(
+			"UNSUPPORTED_GODOT_VERSION", "Stepping out of a function needs Godot 4.6 or newer.",
+			"Step over until the function returns, or set a breakpoint in the caller.",
+		)
 	return _halt_with(_STEP_COMMANDS[args["mode"]], link)
 
 

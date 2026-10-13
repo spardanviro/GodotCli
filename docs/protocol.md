@@ -556,12 +556,12 @@ gd ──HTTP──▶ 桥接（编辑器进程）──调试器消息 gdcli:re
 | `game_locals` | 停住时某一帧的局部变量、所属对象的成员、全局量。游戏里的对象以 `{"$type":"Object","id":…}` 表示 | read |
 | `game_breakpoint` | 在运行中的游戏里设置或取消断点；只对这一次运行有效，不会出现在脚本编辑器里 | write |
 | `game_pause` | 让游戏在下一行脚本处停住（游戏当时不在跑脚本就要等到它跑） | write |
-| `game_step` | 停住时走一步：`over`（不进函数）、`into`（进函数）、`out`（跑到当前函数返回） | write |
+| `game_step` | 停住时走一步：`over`（不进函数）、`into`（进函数）、`out`（跑到当前函数返回，需要 4.6 及以上，更早的版本返回 `UNSUPPORTED_GODOT_VERSION`） | write |
 | `game_continue` | 继续运行 | write |
 
 - `game_pause`、`game_step` 等游戏再次停住后返回，内容与 `game_debug` 相同；3 秒内没停住则返回当时的状态并带一条警告。
 - **游戏停住时辅助节点仍然应答**，所以停在断点上可以照常用 `game_node_get`、`game_tree`、`game_call`。
-- 从编辑器运行时，**脚本报错会让游戏停在报错处**（这是 Godot 调试器的行为）。此时 `game_debug` 的 `reason` 是报错文本，栈顶是出错的行；看完用 `game_continue` 让它继续。这条报错同时也记在 `game_errors` 里；`game_debug` 的 `errors` 字段是累计数量。
+- 从编辑器运行时，**脚本报错会让游戏停在报错处**（这是 Godot 调试器的行为）。此时 `game_debug` 的 `reason` 是报错文本，栈顶是出错的行；看完用 `game_continue` 让它继续。较新的引擎版本（实测 4.5 起）还会把这条报错同时记进 `game_errors`，4.3、4.4 不会；`game_debug` 的 `errors` 字段是累计数量。
 - 实现上的依赖：读报错、调用栈和变量靠的是编辑器调试面板节点（`ScriptEditorDebugger`）上转发每条调试消息的 `debug_data` 信号。它不在公开的脚本接口里，引擎自己的调试适配器也用它。某个版本里找不到时，这几条命令返回 `UNSUPPORTED_GODOT_VERSION`，`game_tree` 等不受影响。
 - 条件断点、监视表达式、多线程调试不在范围内；只跟主线程。
 
