@@ -176,7 +176,7 @@ func test_value_decoder_matrices_accept_nested_and_flat_columns() -> void:
 	equal(_value([0, 1, 0, 5], TYPE_PLANE), Plane(0, 1, 0, 5), "Plane")
 	check(_fails([[0, 1], [-1, 0]], TYPE_TRANSFORM2D), "a missing column")
 	check(_fails([[0, 1], [-1, 0], [30, "x"]], TYPE_TRANSFORM2D), "a column that is not numbers")
-	check(_fails("Transform2D(1, 0, 0, 1, 0, 0)", TYPE_TRANSFORM2D), "Godot's text form is not parsed")
+	check(_fails("Transform2D(Vector2(1, 0), Vector2(0, 1), Vector2(0, 0))", TYPE_TRANSFORM2D), "nested constructor text is not parsed")
 
 
 func test_value_decoder_matrices_round_trip_through_the_codec() -> void:
@@ -208,3 +208,17 @@ func test_value_decoder_packed_arrays_convert_every_element() -> void:
 
 	var wire: Variant = JSON.parse_string(JSON.stringify(ValueCodec.encode(PackedVector3Array([Vector3(1, 2, 3)]))))
 	equal(_value(wire, TYPE_PACKED_VECTOR3_ARRAY), PackedVector3Array([Vector3(1, 2, 3)]), "the codec's own output is accepted")
+
+
+func test_value_decoder_accepts_values_written_as_in_a_script() -> void:
+	equal(_value("Vector2(100, 50)", TYPE_VECTOR2), Vector2(100, 50), "Vector2")
+	equal(_value(" Vector3i( 1,2 , 3 ) ", TYPE_VECTOR3I), Vector3i(1, 2, 3), "spacing")
+	equal(_value("Color(1, 0, 0)", TYPE_COLOR), Color.RED, "Color by components")
+	equal(_value("Rect2(0, 0, 16, 8)", TYPE_RECT2), Rect2(0, 0, 16, 8), "Rect2")
+	equal(_value("Transform2D(1, 0, 0, 1, 30, 40)", TYPE_TRANSFORM2D), Transform2D(Vector2(1, 0), Vector2(0, 1), Vector2(30, 40)), "matrix as flat numbers")
+	check(_fails("Vector3(1, 2, 3)", TYPE_VECTOR2), "the name of another type")
+	check(_fails("Vector2(1, x)", TYPE_VECTOR2), "something that is not a number")
+	check(_fails("Vector2(Vector2(1, 2))", TYPE_VECTOR2), "nested calls are not read")
+	check(_fails("Vector2(1,,2)", TYPE_VECTOR2), "an empty place")
+	check(_fails("Vector2(1, 2, 3)", TYPE_VECTOR2), "too many numbers")
+	equal(_value("Vector2(1, 2)", TYPE_STRING), "Vector2(1, 2)", "a string property keeps the text")

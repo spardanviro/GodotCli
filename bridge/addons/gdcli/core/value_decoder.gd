@@ -44,6 +44,15 @@ const _PACKED_ELEMENTS := {
 const MAX_PACKED_ELEMENTS := 65536
 const _BYTE_MAX := 255
 const _INT32_MAX := 2147483647
+# Types that may also be given as the text of their constructor call, e.g.
+# "Vector2(100, 50)". Only the name and plain numbers are read, by the code
+# below: nothing here can construct an object.
+const _WRITTEN_AS_CALL: Array[int] = [
+	TYPE_VECTOR2, TYPE_VECTOR2I, TYPE_VECTOR3, TYPE_VECTOR3I, TYPE_VECTOR4, TYPE_VECTOR4I, TYPE_QUATERNION,
+	TYPE_RECT2, TYPE_RECT2I, TYPE_COLOR, TYPE_TRANSFORM2D, TYPE_BASIS, TYPE_TRANSFORM3D, TYPE_PROJECTION,
+	TYPE_AABB, TYPE_PLANE,
+]
+const _CALL_PATTERN := "^\\s*([A-Za-z0-9]+)\\s*\\(([^()]*)\\)\\s*$"
 const _INTEGER_VECTORS: Array[int] = [TYPE_VECTOR2I, TYPE_VECTOR3I, TYPE_VECTOR4I, TYPE_RECT2I]
 # Classes that carry code or whole scenes; they come from project files only.
 const _NOT_CONSTRUCTIBLE: Array[String] = ["Script", "PackedScene", "GDExtension"]
@@ -53,6 +62,7 @@ const ANY_USAGE := -1
 const _STRUCTURAL_USAGE := PROPERTY_USAGE_CATEGORY | PROPERTY_USAGE_GROUP | PROPERTY_USAGE_SUBGROUP
 
 var _scene_root: Node
+var _call_regex: RegEx
 
 
 func _init(scene_root: Node = null) -> void:
@@ -96,6 +106,10 @@ func decode(value: Variant, type: int, info: Dictionary = {}, depth: int = 0) ->
 		return _mismatch("The value is nested too deeply.", "", "a simpler value")
 	if value is Dictionary and value.has("$type"):
 		return _decode_tagged(value, type, info, depth)
+	if value is String and _WRITTEN_AS_CALL.has(type):
+		var numbers: Variant = _numbers_of_call(value, type)
+		if numbers != null:
+			return decode(numbers, type, info, depth + 1)
 
 	match type:
 		TYPE_NIL:
@@ -131,6 +145,23 @@ func decode(value: Variant, type: int, info: Dictionary = {}, depth: int = 0) ->
 	if _PACKED_ELEMENTS.has(type):
 		return _decode_packed(value, type, depth)
 	return _mismatch("Values of this type cannot be set through the bridge.", "", type_string(type))
+
+
+# The numbers inside "TypeName(1, 2.5, ...)" when the name is that of `type`;
+# null for any other text.
+func _numbers_of_call(text: String, type: int) -> Variant:
+	if _call_regex == null:
+		_call_regex = RegEx.create_from_string(_CALL_PATTERN)
+	var found := _call_regex.search(text)
+	if found == null or found.get_string(1) != type_string(type):
+		return null
+	var numbers := []
+	for part in found.get_string(2).split(","):
+		var written := part.strip_edges()
+		if not written.is_valid_float():
+			return null
+		numbers.append(written.to_float())
+	return numbers
 
 
 func _decode_tagged(value: Dictionary, type: int, info: Dictionary, depth: int) -> Dictionary:

@@ -577,3 +577,19 @@ func test_game_step_out_is_done_by_stepping_over_until_the_function_returns() ->
 	equal(channel.commands, [["next", []], ["next", []]], "with the command every engine understands")
 	equal(returned["data"]["stack"][0]["function"], "_process", "until the caller is on top")
 	equal(returned["warnings"], [], "without a warning")
+
+
+func test_game_debug_log_keeps_what_the_game_printed() -> void:
+	var log := GameDebugLog.new()
+
+	log.on_message("output", [["hello", "oops" + char(0x202e)], [0, 1]])
+	log.on_message("output", ["not a list"])
+	log.on_message("output", [PackedStringArray(["packed"]), PackedInt32Array([0])])
+	var read: Dictionary = log.output(10)
+
+	equal(read["total"], 3, "three lines; the malformed message is dropped")
+	equal(
+		read["lines"], [{"text": "hello", "kind": "print"}, {"text": "oops", "kind": "error"}, {"text": "packed", "kind": "print"}],
+		"text cleaned, kind kept, packed arrays as the engine sends them",
+	)
+	equal(log.output(1)["lines"].size(), 1, "the limit applies to the most recent")

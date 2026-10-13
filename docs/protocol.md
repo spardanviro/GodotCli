@@ -462,6 +462,7 @@ JSON 能直接表示的类型原样传。其余类型：
 | `Transform2D` / `Basis` / `Transform3D` / `Projection` | 列向量数组，顺序与构造函数一致：`Transform2D` 是 `[x 轴, y 轴, 原点]`，`Basis` 是 `[x, y, z]`，`Transform3D` 是 `[x, y, z, 原点]`，`Projection` 是 `[x, y, z, w]`；也接受把这些数摊平成一个数组 |
 | `Packed*Array` | 数组，每个元素按元素类型转换，如 `PackedVector2Array` 写 `[[0,0],[16,0]]`；最多 65536 个元素 |
 | `NodePath`、`StringName` | 字符串 |
+| 上面各数学类型和 `Color` | 也接受脚本里的写法 `"Vector2(100, 50)"`：类型名必须与目标类型一致，括号里只能是数字。这是桥接自己读的，不嵌套、不构造对象 |
 | 枚举 | 整数或成员名 |
 | 资源 | `{"$res":"res://…"}` 加载已有资源；`{"$new":"RectangleShape2D","properties":{…}}` 新建子资源 |
 | 节点引用 | `{"$node":"相对场景根的路径"}` |
@@ -502,12 +503,23 @@ JSON 能直接表示的类型原样传。其余类型：
 | editor | `editor_play`、`editor_stop` | write | 3 |
 | exec | `eval` | exec | 3 |
 | host | `host_quit`（只对 `gd host start` 拉起的无头宿主有效） | write | 3 |
-| game | `game_tree`、`game_node_get`、`game_errors`、`game_debug`、`game_locals`（第 6.7 节） | read | 3 |
+| animation | `animation_list` | read | 3 |
+| animation | `animation_create`（可撤销） | write | 3 |
+| game | `game_tree`、`game_node_get`、`game_errors`、`game_output`、`game_debug`、`game_locals`（第 6.7 节） | read | 3 |
 | game | `game_node_set`、`game_call`、`game_input`、`game_screenshot`、`game_breakpoint`、`game_pause`、`game_step`、`game_continue`（第 6.7 节） | write | 3 |
 
 表里是命令的基础等级。目标落在第 4.4 节的敏感路径上时，`fs_write_text` 等命令按 `destructive` 处理；覆盖已有文件同样如此。
 
 类信息、脚本检查、运行并收集报错、导入、导出不在这张表里，它们走离线通道（第 1.1 节）。
+
+**几条容易出错、所以由命令替调用方处理的规则**（来自用真实模型反复跑评测得到的经验）：
+
+- `node_create` 先把节点加进场景树，再按给定的顺序设属性，整个过程是一步撤销。Control 的锚点和布局是相对父节点算的，没入树时设了不生效。
+- 给 Control 设 `anchors_preset` 时，`node_create` 和 `node_set` 会先把 `layout_mode` 切到锚点模式（检查器也是这么做的）；调用方自己给了 `layout_mode`、或父节点是容器时不动。
+- `node_move` 换父节点时默认保持节点在屏幕上的位置（`keep_global_transform`，默认真；撤销时恢复原来的本地值）。移到容器下面的 Control 由容器摆放，这个选项对它不起作用。
+- `fs_write_text` 写完 `.gd` 后立刻编译检查，结果放在 `data.check`（`{compiles, errors?}`，报错文本需要 4.5 及以上）。**不通过也照样写入**，因为它可能引用下一步才创建的东西；此时带一条警告。有三类脚本不做这项检查，`data.check` 里是 `{skipped: 原因}`，需要时用 `gd check`：带工具注解的；用了 `preload` 或 `extends "路径"` 的（编译会去加载别的文件）；引用了自己的 `class_name` 的（文本是单独编译的，那时类名还不存在）。在编辑器里编译一个非工具脚本不会运行其中任何代码（包括静态初始化），这一点实测确认过。
+- `animation_create` 用关键帧在 AnimationPlayer 上建一个动画：每条轨道给出场景里的节点路径、属性名和若干 `{time, value}`，值按属性类型转换；不能混合的类型（布尔、整数、字符串、资源）默认在关键帧处跳变。可指定循环方式和是否自动播放。只支持属性轨道，不支持方法调用、音频、贝塞尔轨道。
+- `gd run` 用的是磁盘上的文件。发现有编辑器开着这个项目时会给一条警告，提醒先保存场景；它无法知道是否真有未保存的改动。
 
 **`fs_move` 与引用。** `fs_move` 移动文件或文件夹，然后把其他文件里对旧路径的引用改成新路径：
 
@@ -570,6 +582,7 @@ gd ──HTTP──▶ 桥接（编辑器进程）──调试器消息 gdcli:re
 - **等待**：答案要过几帧才到，桥接保持 HTTP 连接，最多等 5 秒。游戏还没启动完（辅助节点还没报到）时会在这 5 秒内等它；始终没报到返回 `PRECONDITION_FAILED`，发出请求后没有回答返回 `TIMEOUT`。游戏停在调试器里时照常应答（见下）。
 - **信任**：游戏是项目代码，它发回的内容按项目文本对待：只保留 JSON 值，字符串全部清洗；失败时错误码只接受固定的几种，`message` 用桥接自己的文案，游戏给的文字放进 `details.reported_message`。
 - **分级说明**：`game_tree`、`game_node_get` 是 `read`，所以只读模式下也能用。它们读到的是运行时的值，包括脚本变量；游戏运行时才载入内存的东西（比如从 `user://` 读进来的内容）也在其中，这比读项目文件能看到的多。`game_node_set` 是 `write`：它能改运行中任何节点的任何属性，效果取决于游戏自己的代码。
+- `game_output` 返回游戏启动以来打印的内容（`print`、`printerr`），最多保留最近 500 行。
 - `game_call` 调用节点的一个方法并返回结果，参数按方法声明的类型转换（第 6.4 节）。`call`、`callv`、`set`、`set_script`、`connect` 这类"间接做别的事"的方法不接受。带 `await` 的方法在挂起处就返回。方法里如果触发断点或报错，游戏会停在调试器里，这次调用在约半秒后返回 `PRECONDITION_FAILED`（不等满 5 秒）。
 
 **调试器一侧**的命令不经过辅助节点，用的是编辑器调试器本身：

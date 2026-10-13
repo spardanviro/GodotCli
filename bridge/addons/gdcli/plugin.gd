@@ -9,6 +9,7 @@ const EditorContext = preload("core/editor_context.gd")
 const HttpServer = preload("core/http_server.gd")
 const LockFile = preload("core/lock_file.gd")
 const Registry = preload("core/registry.gd")
+const AnimationCommands = preload("commands/animation_commands.gd")
 const EditorCommands = preload("commands/editor_commands.gd")
 const EditorControlCommands = preload("commands/editor_control_commands.gd")
 const FsCommands = preload("commands/fs_commands.gd")
@@ -73,6 +74,7 @@ func _enter_tree() -> void:
 		FsEditCommands.new(context),
 		ProjectEditCommands.new(context),
 		EditorControlCommands.new(context),
+		AnimationCommands.new(context),
 		GameCommands.new(context),
 		GameDebugCommands.new(context),
 	]

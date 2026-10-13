@@ -12,11 +12,15 @@ const MAX_ERRORS := 200
 const MAX_FRAMES := 64
 const MAX_VARIABLES := 500
 const MAX_MESSAGE_CHARS := 4000
+const MAX_OUTPUT_LINES := 500
+const _OUTPUT_KINDS: Array[String] = ["print", "error", "print"]
 # Layout of an "error" message (core/debugger/debugger_marshalls.cpp).
 const _ERROR_HEAD_SIZE := 11
 const _SCOPES: Array[String] = ["locals", "members", "globals"]
 
 var _errors: Array = []
+var _output: Array = []
+var _output_total := 0
 var _error_total := 0
 var _stopped := false
 var _stops := 0
@@ -41,6 +45,8 @@ const _BREAKPOINT_REASON := "Breakpoint"
 func reset() -> void:
 	_errors = []
 	_error_total = 0
+	_output = []
+	_output_total = 0
 	_stopped = false
 	_reason = ""
 	_can_continue = false
@@ -57,6 +63,8 @@ func on_message(message: String, data: Array) -> void:
 	match message:
 		"error":
 			_add_error(data)
+		"output":
+			_add_output(data)
 		"debug_enter":
 			_stopped = true
 			_stops += 1
@@ -129,6 +137,31 @@ func variable_batches() -> int:
 ## Milliseconds since the call stack of the current halt arrived; -1 before.
 func stack_age_msec() -> int:
 	return Time.get_ticks_msec() - _stack_msec if _stack_msec > 0 else -1
+
+
+## What the game printed, most recent last: {lines: [{text, kind}], total}.
+## `kind` is "print", or "error" for text written to standard error.
+func output(limit: int) -> Dictionary:
+	return {"lines": _output.slice(maxi(_output.size() - limit, 0)), "total": _output_total}
+
+
+# An "output" message carries a list of texts and a list of their kinds.
+func _add_output(data: Array) -> void:
+	# Both arrive as packed arrays; plain arrays are accepted as well.
+	if data.is_empty() or not (data[0] is PackedStringArray or data[0] is Array):
+		return
+	var kinds := []
+	if data.size() > 1 and (data[1] is PackedInt32Array or data[1] is PackedInt64Array or data[1] is Array):
+		kinds = Array(data[1])
+	for index in data[0].size():
+		var kind: int = int(kinds[index]) if index < kinds.size() and (kinds[index] is int or kinds[index] is float) else 0
+		_output_total += 1
+		_output.append({
+			"text": TextSanitizer.clean(str(data[0][index]).left(MAX_MESSAGE_CHARS)),
+			"kind": _OUTPUT_KINDS[clampi(kind, 0, _OUTPUT_KINDS.size() - 1)],
+		})
+	if _output.size() > MAX_OUTPUT_LINES:
+		_output = _output.slice(_output.size() - MAX_OUTPUT_LINES)
 
 
 func error_total() -> int:

@@ -5,7 +5,8 @@ import type { CommandHandler, CommandResult, Context, GlobalOptions } from "../c
 import { type EnvelopeError, errorOf, failureWithData, isEnvelopeError, success } from "../envelope.js";
 import { type Godot, preferGuiBinary, projectHasBeenImported, requireGodot, runGodot } from "../godot.js";
 import { type Diagnostic, countBySeverity, formatDiagnostic, parseGodotOutput } from "../output-parser.js";
-import { findProject, toResPath } from "../project.js";
+import { readInstances } from "../instances.js";
+import { findProject, gdcliHome, samePath, toResPath } from "../project.js";
 import { sanitize } from "../text.js";
 import { fail, numberOption, parseCommandArgs, usage } from "./shared.js";
 
@@ -76,6 +77,16 @@ function spawnFailure(command: string, reason: string): CommandResult {
 }
 
 /**
+ * `gd run` starts its own process from the files on disk. What is open and
+ * not yet saved in an editor is not part of that run, and gd cannot see
+ * whether there is any; so it says so whenever an editor has the project open.
+ */
+function openEditorWarning(context: Context, project: string): readonly string[] {
+  const open = readInstances(gdcliHome(context), context.platform).some((instance) => samePath(instance.projectPath, project, context.platform));
+  return open ? ["An editor has this project open: this run uses the files on disk, so save the scene first (scene_save) if it has changes."] : [];
+}
+
+/**
  * `gd run [scene] [--seconds N] [--headless]`: starts the project, lets it run
  * for a while, stops it and reports the errors it printed. The engine exits
  * with status 0 even after script errors, so the output is what counts.
@@ -103,7 +114,7 @@ export const runCommand: CommandHandler = async (context, globals, args) => {
   if (globals.dryRun) {
     return plan("run", ready, godotArgs);
   }
-  const warnings = importWarnings(ready.project);
+  const warnings = [...importWarnings(ready.project), ...openEditorWarning(context, ready.project)];
   const duration = (seconds ?? DEFAULT_RUN_SECONDS) * MS_PER_SECOND;
   const { result, output } = await runGodot(context, ready.godot, ready.project, godotArgs, duration);
   if (result.spawnError !== undefined) {

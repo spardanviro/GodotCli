@@ -380,3 +380,57 @@ func test_edit_confirmation_gate_passes_only_with_confirm_or_full_mode() -> void
 	equal(Edit.confirmation_gate({"mode": "standard", "confirm": false}, "x")["error"]["code"], "CONFIRMATION_REQUIRED", "unconfirmed")
 	equal(Edit.confirmation_gate({"mode": "standard", "confirm": true}, "x"), {}, "confirmed")
 	equal(Edit.confirmation_gate({"mode": "full", "confirm": false}, "x"), {}, "full mode")
+
+
+func test_node_create_sets_properties_after_the_node_is_in_the_tree() -> void:
+	_scene()
+	var panel := Control.new()
+	panel.name = "Panel"
+	panel.size = Vector2(200, 100)
+	_add(_root, panel)
+	Engine.get_main_loop().root.add_child(_root)
+
+	var reply := _call("node_create", {"type": "ColorRect", "parent": "Panel", "name": "Fill", "properties": {"anchors_preset": 15}})
+	var fill: Control = panel.get_node("Fill")
+
+	equal(reply["ok"], true, "created")
+	equal(fill.layout_mode, 1, "the layout mode is switched to anchors, as the inspector does")
+	equal([fill.anchor_right, fill.anchor_bottom], [1.0, 1.0], "the full-rect preset took effect")
+
+
+func test_node_set_switches_the_layout_mode_for_an_anchors_preset() -> void:
+	_scene()
+	var panel := Control.new()
+	panel.name = "Panel"
+	panel.size = Vector2(200, 100)
+	_add(_root, panel)
+	var label := Label.new()
+	label.name = "Title"
+	_add(panel, label)
+	Engine.get_main_loop().root.add_child(_root)
+
+	_call("node_set", {"path": "Panel/Title", "properties": {"anchors_preset": 15}})
+	var after := [label.layout_mode, label.anchor_right]
+	_context.undo.undo()
+
+	equal(after, [1, 1.0], "preset applied")
+	equal(label.anchor_right, 0.0, "and undone with the rest")
+
+
+func test_node_move_keeps_the_node_where_it_is_on_screen() -> void:
+	_scene()
+	var player: Node2D = _root.get_node("Player")
+	var sprite: Node2D = player.get_node("Sprite")
+	player.position = Vector2(100, 0)
+	sprite.position = Vector2(10, 5)
+	Engine.get_main_loop().root.add_child(_root)
+
+	_call("node_move", {"path": "Player/Sprite", "parent": "."})
+	var moved := [sprite.get_parent(), sprite.position]
+	_context.undo.undo()
+	var undone := [sprite.get_parent(), sprite.position]
+	_call("node_move", {"path": "Player/Sprite", "parent": ".", "keep_global_transform": false})
+
+	equal(moved, [_root, Vector2(110, 5)], "same place on screen under the new parent")
+	equal(undone, [player, Vector2(10, 5)], "undo restores parent and local position")
+	equal(sprite.position, Vector2(10, 5), "the local values are kept when asked")

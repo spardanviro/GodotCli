@@ -489,6 +489,7 @@ async function checkEdits(instance) {
   const moved = await command(instance, "fs_move", { from: `${TMP_DIR}/e2e_box.tres`, to: `${TMP_DIR}/moved/e2e_box.tres` }, { confirm: true });
   check(moved.status === 200, "fs_move", moved.body);
   await checkMoveUpdatesReferences(instance, scene, script);
+  await checkLayoutMoveAndAnimation(instance);
   await checkFolderMove(instance);
 
   const removed = await command(instance, "fs_delete", { path: `${TMP_DIR}/moved/e2e_box.tres` }, { confirm: true });
@@ -616,10 +617,65 @@ async function checkGame(instance) {
   check(status.body?.data?.playing === false, "the game stopped", status.body?.data);
 }
 
+/**
+ * Things a model gets wrong without help: a Control's anchors, a node that
+ * jumps when it changes parent, and animations, which had no command.
+ * Runs on the fixture scene, which is the edited one here.
+ * @param {Instance} instance
+ */
+async function checkLayoutMoveAndAnimation(instance) {
+  await command(instance, "node_create", { type: "Control", name: "Hud", properties: { size: "Vector2(300, 200)" } });
+  const fill = await command(instance, "node_create", { type: "ColorRect", parent: "Hud", name: "Fill", properties: { anchors_preset: 15 } });
+  const anchors = await command(instance, "node_get", { path: "Hud/Fill", properties: ["layout_mode", "anchors_preset", "size"] });
+  check(fill.status === 200 && anchors.body?.data?.properties?.layout_mode === 1, "node_create switches a Control to anchors for a preset", anchors.body);
+  check(anchors.body?.data?.properties?.anchors_preset === 15, "and the preset takes effect", anchors.body?.data);
+  const hud = await command(instance, "node_get", { path: "Hud", properties: ["size"] });
+  check(JSON.stringify(hud.body?.data?.properties?.size?.value) === "[300,200]", "a value written as in a script is accepted", hud.body);
+
+  await command(instance, "node_create", { type: "Node2D", name: "Carrier", properties: { position: [100, 0] } });
+  await command(instance, "node_create", { type: "Node2D", parent: "Carrier", name: "Cargo", properties: { position: [10, 5] } });
+  const moved = await command(instance, "node_move", { path: "Carrier/Cargo", parent: "." });
+  const cargo = await command(instance, "node_get", { path: "Cargo", properties: ["position"] });
+  check(moved.status === 200 && JSON.stringify(cargo.body?.data?.properties?.position?.value) === "[110,5]", "node_move keeps the node where it is on screen", cargo.body);
+
+  await command(instance, "node_create", { type: "AnimationPlayer", name: "Anim" });
+  const animation = {
+    player: "Anim",
+    name: "slide",
+    length: 1,
+    loop: "pingpong",
+    autoplay: true,
+    tracks: [{ node: "Cargo", property: "position", keys: [{ time: 0, value: [110, 5] }, { time: 1, value: "Vector2(300, 5)" }] }],
+  };
+  const created = await command(instance, "animation_create", animation);
+  check(created.status === 200 && created.body?.meta?.undo === "gdcli: animation_create slide", "animation_create", created.body);
+  const listed = await command(instance, "animation_list", { player: "Anim" });
+  const slide = listed.body?.data?.animations?.[0];
+  check(slide?.name === "slide" && slide?.loop === "pingpong" && slide?.tracks?.[0] === "Cargo:position", "animation_list shows it", listed.body);
+  check(listed.body?.data?.autoplay === "slide", "with autoplay set", listed.body?.data);
+  await command(instance, "edit_undo");
+  const afterUndo = await command(instance, "animation_list", { player: "Anim" });
+  check(afterUndo.body?.data?.animations?.length === 0 && afterUndo.body?.data?.autoplay === "", "undo removes the animation", afterUndo.body);
+
+  const broken = await command(instance, "fs_write_text", { path: `${TMP_DIR}/e2e_broken.gd`, text: 'extends Node\n\nvar speed: int = "fast"\n' });
+  check(broken.status === 200 && broken.body?.data?.check?.compiles === false, "a script that does not compile is written and reported", broken.body);
+  check(broken.body?.warnings?.some((warning) => warning.includes("does not compile")), "with a warning", broken.body?.warnings);
+  const fine = await command(instance, "fs_write_text", { path: `${TMP_DIR}/e2e_fine.gd`, text: "extends Node\n\nvar speed := 3\n" });
+  check(fine.body?.data?.check?.compiles === true, "a script that compiles is reported as such", fine.body);
+  await command(instance, "fs_write_text", { path: `${TMP_DIR}/e2e_broken.gd`, text: "extends Node\n", overwrite: true }, { confirm: true });
+}
+
 const TICKER_SCENE = "res://tests/fixtures/ticker.tscn";
 const TICKER_SCRIPT = "res://tests/fixtures/ticker.gd";
 const TICK_LINE = 14;
-const DELIBERATE_SCRIPT_ERROR = "SCRIPT ERROR: Cannot call method 'queue_free' on a null value.";
+// Errors the tests cause on purpose: a method that fails in the running game,
+// and scripts with a type error given to the compile check.
+const DELIBERATE_ERRORS = [/SCRIPT ERROR: Cannot call method 'queue_free' on a null value\./g, /SCRIPT ERROR: Parse Error: Cannot assign a value of type[^\n]*/g];
+
+/** @param {string} output */
+function withoutDeliberateErrors(output) {
+  return DELIBERATE_ERRORS.reduce((text, pattern) => text.replaceAll(pattern, ""), output);
+}
 
 /**
  * Asks until `done(reply)` holds or the time is up.
@@ -644,6 +700,9 @@ async function checkGameDebugging(instance) {
   await command(instance, "editor_play", { scene: TICKER_SCENE });
   const started = await until(() => command(instance, "game_tree", { max_depth: 1 }), (reply) => reply.status === 200, GAME_START_TIMEOUT_MS);
   check(started.status === 200, "the ticker scene runs", started.body);
+
+  const printed = await until(() => command(instance, "game_output"), (reply) => reply.body?.data?.lines?.some((line) => line.text === "ticker ready") === true);
+  check(printed.body?.data?.lines?.some((line) => line.text === "ticker ready" && line.kind === "print"), "game_output has what the game printed", printed.body);
 
   const sum = await command(instance, "game_call", { path: "Ticker", method: "add", arguments: [2, 3] });
   check(sum.status === 200 && sum.body?.data?.result === 5, "game_call returns the result", sum.body);
@@ -788,7 +847,7 @@ async function endToEnd(godot) {
     const output = log.join("");
     // The game shares the editor's output on some platforms, and one test
     // makes the game fail on purpose.
-    const ownErrors = output.replaceAll(DELIBERATE_SCRIPT_ERROR, "");
+    const ownErrors = withoutDeliberateErrors(output);
     check(!/SCRIPT ERROR|Parse Error/.test(ownErrors), "the editor reported no script errors", ownErrors.match(/.*(SCRIPT ERROR|Parse Error)[^]{0,400}/)?.[0]);
     check(!output.includes(instance.token), "the token never reaches the editor log");
   } catch (error) {
@@ -823,7 +882,7 @@ async function main() {
   const summary = /gdcli unit tests: (\d+) run, (\d+) failed/.exec(unit.output);
   check(unit.status === 0 && summary !== null && summary[2] === "0", "unit suites pass", unit.output.slice(-4000));
   // A script error ends a test early without failing it.
-  check(!/SCRIPT ERROR|Parse Error/.test(unit.output), "unit suites ran without script errors", unit.output.slice(-4000));
+  check(!/SCRIPT ERROR|Parse Error/.test(withoutDeliberateErrors(unit.output)), "unit suites ran without script errors", unit.output.slice(-4000));
   process.stdout.write(`${summary?.[0] ?? "unit suites did not report a result"}\n`);
 
   await endToEnd(godot);

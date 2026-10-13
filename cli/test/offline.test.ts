@@ -7,7 +7,7 @@ import { readPresetNames } from "../src/commands/offline.js";
 import { findOnPath, isSupported, locateGodot, parseVersion, preferConsoleBinary, preferGuiBinary, readUserConfig } from "../src/godot.js";
 import { formatDiagnostic, parseGodotOutput } from "../src/output-parser.js";
 import { ExitCode } from "../src/protocol.js";
-import { type Call, type FakeProcesses, fakeProcesses, harness, makeProject, tempDir, writeFile } from "./helpers.js";
+import { type Call, FAKE_INSTANCE_ID, type FakeProcesses, fakeProcesses, harness, makeProject, tempDir, writeFile, writeLockFile } from "./helpers.js";
 
 const RUN_OUTPUT = `Godot Engine v4.7.stable.official
 started
@@ -260,6 +260,22 @@ describe("offline preconditions", () => {
 });
 
 describe("gd run", () => {
+  test("says that unsaved editor changes are not part of the run when an editor has the project open", async () => {
+    const { gd, project } = fixture();
+    const quiet = await gd.json("run");
+    writeLockFile(join(gd.context.homeDir, ".gdcli", "instances", `${FAKE_INSTANCE_ID}.json`), {
+      instance_id: FAKE_INSTANCE_ID,
+      port: 50123,
+      project_path: project,
+    });
+
+    const { exitCode, envelope } = await gd.json("run");
+
+    expect(quiet.envelope.warnings.some((warning) => warning.includes("An editor has this project open"))).toBe(false);
+    expect(exitCode).toBe(ExitCode.Success);
+    expect(envelope.warnings.some((warning) => warning.includes("save the scene first"))).toBe(true);
+  });
+
   test("fails with the parsed errors when the scene prints errors", async () => {
     const { gd, processes, project, godot } = fixture(() => ({ stdout: RUN_OUTPUT, timedOut: true, code: null }));
 

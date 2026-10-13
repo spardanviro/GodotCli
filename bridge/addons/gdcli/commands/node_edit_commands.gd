@@ -13,6 +13,19 @@ const ValueDecoder = preload("../core/value_decoder.gd")
 const MAX_DEPENDENCIES := 2000
 const _PATH := {"type": "string", "description": "Node path relative to the scene root; \".\" is the root."}
 
+const _ANCHORS_PRESET := "anchors_preset"
+const _LAYOUT_MODE := "layout_mode"
+const _LAYOUT_MODE_ANCHORS := 1
+const _ANCHORS_AND_OFFSETS: Array[String] = [
+	"anchor_left", "anchor_top", "anchor_right", "anchor_bottom", "offset_left", "offset_top", "offset_right", "offset_bottom",
+]
+# Class, the property that says where a node is on screen, and the local one.
+const _PLACEMENT := [
+	["Node2D", "global_transform", "transform"],
+	["Node3D", "global_transform", "transform"],
+	["Control", "global_position", "position"],
+]
+
 var _context: RefCounted
 
 
@@ -37,6 +50,7 @@ func register(registry: RefCounted) -> void:
 		"path": _PATH,
 		"parent": {"type": "string", "description": "New parent; omit to keep the current one."},
 		"index": {"type": "integer", "description": "Position among the siblings; omit for last.", "minimum": 0},
+		"keep_global_transform": {"type": "boolean", "default": true, "description": "Keep the node where it is on screen when the parent changes."},
 	}, ["path"], _move)
 	_add(registry, "node_duplicate", "Duplicate a node with its children, next to the original.", {
 		"path": _PATH,
@@ -147,18 +161,33 @@ func _create(args: Dictionary, options: Dictionary) -> Dictionary:
 		node.free()
 		return decoded if not decoded["ok"] else Edit.planned({"create": type, "under": args["parent"], "name": name})
 	node.name = name
-	for property in decoded["values"]:
-		node.set(property, decoded["values"][property])
+	var values := _with_layout_mode(node, parent, decoded["values"])
 
+	# The node enters the tree before its properties are set, in the order
+	# given: anchors and layout of a Control are worked out against its
+	# parent, and are lost when set on a node that has none yet.
 	var undo: Object = _context.undo_redo()
 	var action := Edit.undo_name("node_create", name)
 	undo.create_action(action, UndoRedo.MERGE_DISABLE, _root())
 	undo.add_do_method(parent, "add_child", node, true)
 	undo.add_do_method(node, "set_owner", _root())
+	for property in values:
+		undo.add_do_property(node, property, values[property])
 	undo.add_do_reference(node)
 	_add_detach(undo, "add_undo_method", node, parent, [])
 	undo.commit_action()
 	return Edit.done(_describe(node), action)
+
+
+# An anchors preset only takes effect on a Control that is laid out by anchors.
+# The inspector switches the layout mode by itself; so does this. A Control
+# inside a container is placed by the container and is left alone.
+func _with_layout_mode(node: Node, parent: Node, values: Dictionary) -> Dictionary:
+	if not (node is Control and values.has(_ANCHORS_PRESET)) or values.has(_LAYOUT_MODE) or parent is Container:
+		return values
+	var ordered := {_LAYOUT_MODE: _LAYOUT_MODE_ANCHORS}
+	ordered.merge(values)
+	return ordered
 
 
 # Owners are cleared before a node leaves its parent. The engine does this by
@@ -218,9 +247,15 @@ func _set_properties(args: Dictionary, options: Dictionary) -> Dictionary:
 	var undo: Object = _context.undo_redo()
 	var action := Edit.undo_name("node_set", str(node.name))
 	undo.create_action(action, UndoRedo.MERGE_DISABLE, _root())
-	for property in decoded["values"]:
-		undo.add_do_property(node, property, decoded["values"][property])
+	var values := _with_layout_mode(node, node.get_parent(), decoded["values"])
+	for property in values:
+		undo.add_do_property(node, property, values[property])
 		undo.add_undo_property(node, property, node.get(property))
+	# A preset rewrites anchors and offsets; setting the old preset back does
+	# not restore hand-set ones, so they are put back one by one.
+	if node is Control and values.has(_ANCHORS_PRESET):
+		for property in _ANCHORS_AND_OFFSETS:
+			undo.add_undo_property(node, property, node.get(property))
 	undo.commit_action()
 	var described := _describe(node)
 	described["set"] = properties.keys()
@@ -280,8 +315,21 @@ func _move(args: Dictionary, options: Dictionary) -> Dictionary:
 	undo.create_action(action, UndoRedo.MERGE_DISABLE, _root())
 	_add_reparent(undo, "add_do_method", node, old_parent, new_parent, index, owned)
 	_add_reparent(undo, "add_undo_method", node, new_parent, old_parent, node.get_index(), owned)
+	if new_parent != old_parent and args["keep_global_transform"]:
+		_keep_in_place(undo, node)
 	undo.commit_action()
 	return Edit.done(_describe(node), action)
+
+
+# Under a new parent the same local values would put the node somewhere else.
+# Its place on screen is restored after the move, and its old local values
+# after an undo.
+func _keep_in_place(undo: Object, node: Node) -> void:
+	for pair in _PLACEMENT:
+		if node.is_class(pair[0]):
+			undo.add_do_property(node, pair[1], node.get(pair[1]))
+			undo.add_undo_property(node, pair[2], node.get(pair[2]))
+			return
 
 
 func _add_reparent(undo: Object, add: String, node: Node, from: Node, to: Node, index: int, owned: Array[Node]) -> void:

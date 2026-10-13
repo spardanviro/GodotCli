@@ -25,3 +25,7 @@ func complain() -> void:
 func crash() -> void:
 	var nothing: Node = null
 	nothing.queue_free()
+
+
+func _ready() -> void:
+	print("ticker ready")

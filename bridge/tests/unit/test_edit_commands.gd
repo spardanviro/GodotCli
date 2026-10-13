@@ -490,3 +490,20 @@ func test_bridge_runs_an_asked_command_once_after_a_yes_and_frees_the_editor_aga
 	equal(runs[0], 1, "the real run happened once; the rehearsal was dry")
 	check(_context.questions[0].what["preview"].contains("everything"), "the person saw what the dry run reported")
 	equal(afterwards["success"], true, "other changes are accepted again")
+
+
+func test_fs_write_text_compile_check_reports_without_refusing() -> void:
+	_setup()
+	var commands: RefCounted = _command_sets[1]
+
+	var good: Dictionary = commands._compile("class_name Hero\nextends Node\n\nvar speed := 3.0\n")
+	var bad: Dictionary = commands._compile("extends Node\n\nvar speed: int = \"fast\"\n")
+
+	var loads: Dictionary = commands._compile("extends Node\n\nconst Other = preload(\"res://tests/fixtures/empty_script.gd\")\n")
+	var by_path: Dictionary = commands._compile("extends \"res://tests/fixtures/empty_script.gd\"\n")
+	var own_name: Dictionary = commands._compile("class_name Hero\nextends Node\n\nstatic func make() -> Hero:\n\treturn null\n")
+
+	equal(good, {"compiles": true}, "a script that compiles, class name and all")
+	equal(bad["compiles"], false, "a type error is found without running or loading the file")
+	check(loads.has("skipped") and by_path.has("skipped"), "a script that would make the compiler load other files is not compiled")
+	check(own_name.has("skipped"), "nor one that needs its own class name to be known")

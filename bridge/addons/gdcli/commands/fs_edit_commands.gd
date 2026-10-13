@@ -16,6 +16,10 @@ const _OVERWRITE := "overwrites an existing file"
 const _TOOL_SCRIPT := "tool script: it runs inside the editor as soon as it is loaded"
 const _UNSAFE_IN_REFERENCES: Array[String] = ["\"", "'", ";", "%", "{", "}", "(", ")", "#", "$"]
 # Binary scene and resource files can carry a script and cannot be reviewed.
+const _SCRIPT_EXTENSION := "gd"
+const _CLASS_NAME_PATTERN := "(?m)^[ \\t]*class_name[ \\t]+(\\w+)[ \\t]*"
+const _LOADS_PATTERN := "\\bpreload\\s*\\(|(?m)^[ \\t]*(?:class_name[ \\t]+\\w+[ \\t]+)?extends[ \\t]+[\"']"
+const _ANONYMOUS_SCRIPT := "gdscript://"
 const _BINARY_EXTENSIONS: Array[String] = ["scn", "res"]
 
 var _context: RefCounted
@@ -39,7 +43,7 @@ func register(registry: RefCounted) -> void:
 			},
 			"required": ["path", "text"],
 		},
-		"returns": "{path, bytes, created}. Not undoable.",
+		"returns": "{path, bytes, created, check?: {compiles, errors?} or {skipped}}. A script that is not a tool script is compiled after writing; it is written even when it does not compile. Not undoable.",
 	}, _write_text)
 	registry.register({
 		"name": "fs_scan",
@@ -140,7 +144,54 @@ func _write_text(args: Dictionary, options: Dictionary) -> Dictionary:
 	file.store_buffer(bytes)
 	file.close()
 	_announce(path, new_folder)
-	return Reply.ok({"path": path, "bytes": bytes.size(), "created": not exists}, [Edit.NOT_UNDOABLE])
+	var data := {"path": path, "bytes": bytes.size(), "created": not exists}
+	var warnings := [Edit.NOT_UNDOABLE]
+	# A script is checked right away: the caller learns of a mistake now and
+	# not when the game runs. It is written either way, since it may refer to
+	# something the next step creates.
+	if path.get_extension().to_lower() == _SCRIPT_EXTENSION and not is_tool:
+		data["check"] = _compile(args["text"])
+		if data["check"].get("compiles") == false:
+			warnings.append("The script was written but does not compile; see data.check.")
+	return Reply.ok(data, warnings)
+
+
+# Compiles the text without loading the file. In the editor, compiling a
+# script that is not a tool script runs none of it (static initialisers
+# included), so this is safe for text that has not been reviewed.
+# Returns {compiles, errors?} (the error texts need Godot 4.5 or newer), or
+# {skipped: reason} for a script that cannot be judged this way.
+func _compile(text: String) -> Dictionary:
+	# Compiling follows preload() and a path after `extends`: it would load
+	# other files of the project, tool scripts among them, on the say-so of
+	# text nobody has looked at.
+	if RegEx.create_from_string(_LOADS_PATTERN).search(text) != null:
+		return {"skipped": "it preloads or extends other files; check it with `gd check`"}
+	# The text is compiled on its own, where its class name is unknown.
+	var declared := RegEx.create_from_string(_CLASS_NAME_PATTERN).search(text)
+	if declared != null and RegEx.create_from_string("\\b%s\\b" % declared.get_string(1)).search_all(text).size() > 1:
+		return {"skipped": "it refers to its own class name; check it with `gd check`"}
+	var record: Object = _context.error_log()
+	var errors_before: int = record.total() if record != null else 0
+	var script := GDScript.new()
+	# The file already carries this class name; a second script claiming it
+	# would be an error of its own.
+	script.source_code = RegEx.create_from_string(_CLASS_NAME_PATTERN).sub(text, "")
+	var compiles := script.reload() == OK
+	var check := {"compiles": compiles}
+	if not compiles and record != null and record.total() > errors_before:
+		check["errors"] = _own_errors(record.read(record.total() - errors_before)["entries"])
+	return check
+
+
+# Other things may have printed errors meanwhile; a script compiled from text
+# is known by a made-up gdscript:// name.
+func _own_errors(entries: Array) -> Array:
+	var own := []
+	for entry in entries:
+		if entry.get("severity") == "error" and str(entry.get("file", "")).begins_with(_ANONYMOUS_SCRIPT):
+			own.append({"message": entry["message"], "line": entry["line"]})
+	return own
 
 
 # The editor ignores a single-file update for a folder it has not seen yet.
