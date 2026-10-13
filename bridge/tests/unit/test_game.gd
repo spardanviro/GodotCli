@@ -3,6 +3,8 @@ extends "res://tests/suite.gd"
 const AccessPolicy = preload("res://addons/gdcli/core/access_policy.gd")
 const Bridge = preload("res://addons/gdcli/core/bridge.gd")
 const GameCommands = preload("res://addons/gdcli/commands/game_commands.gd")
+const GameDebugCommands = preload("res://addons/gdcli/commands/game_debug_commands.gd")
+const GameDebugLog = preload("res://addons/gdcli/core/game_debug_log.gd")
 const GameInspector = preload("res://addons/gdcli/runtime/game_inspector.gd")
 const GameRequest = preload("res://addons/gdcli/core/game_request.gd")
 const Registry = preload("res://addons/gdcli/core/registry.gd")
@@ -29,6 +31,9 @@ class FakeChannel:
 	func is_stopped() -> bool:
 		return stopped
 
+	func stop_count() -> int:
+		return log.stop_count()
+
 	func send(method: String, args: Dictionary) -> int:
 		sent.append({"method": method, "args": args})
 		return sent.size()
@@ -40,6 +45,26 @@ class FakeChannel:
 
 	func forget(id: int) -> void:
 		forgotten.append(id)
+
+	# --- the debugger side of game_link.gd ---
+	var listening := true
+	var log := GameDebugLog.new()
+	var commands: Array = []
+	var breakpoints: Array = []
+
+	func can_listen() -> bool:
+		return listening
+
+	func debug_log() -> RefCounted:
+		return log
+
+	func debugger_command(message: String, data: Array = []) -> bool:
+		commands.append([message, data])
+		return true
+
+	func set_breakpoint(path: String, line: int, enabled: bool) -> bool:
+		breakpoints.append([path, line, enabled])
+		return true
 
 
 var _main: Node
@@ -66,6 +91,11 @@ func _inspector() -> RefCounted:
 	player.name = "Player"
 	player.position = Vector2(10, 20)
 	_main.add_child(player)
+	var ticker := Node.new()
+	ticker.name = "Ticker"
+	ticker.set_script(load("res://tests/fixtures/ticker.gd"))
+	ticker.set_process(false)
+	_main.add_child(ticker)
 	_tree().root.add_child(_main)
 	return GameInspector.new(_tree())
 
@@ -109,16 +139,31 @@ func test_game_request_gives_up_with_a_reason() -> void:
 	equal(no_helper["error"]["code"], "PRECONDITION_FAILED", "the game never announced a helper")
 
 
-func test_game_request_does_not_wait_for_a_game_halted_in_the_debugger() -> void:
+func test_game_request_says_so_when_the_game_halted_instead_of_answering() -> void:
 	var channel := FakeChannel.new()
-	var request := GameRequest.new(channel, "tree", {})
-	request.poll()
+	var waiting := GameRequest.new(channel, "tree", {})
 	channel.stopped = true
 
-	var reply: Dictionary = request.poll()
+	var still_waiting: Dictionary = waiting.poll()
+	var gave_up: Dictionary = GameRequest.new(channel, "call", {}, Callable(), ALREADY_LATE).poll()
 
-	equal(reply["error"]["code"], "PRECONDITION_FAILED", "reported at once, not after the timeout")
-	equal(channel.forgotten, [1], "the request is dropped")
+	equal(still_waiting, {}, "a halted game can still answer, so it is asked")
+	equal(gave_up["error"]["code"], "PRECONDITION_FAILED", "no answer from a halted game is not a plain timeout")
+
+
+func test_game_request_notices_a_halt_that_happened_inside_the_request() -> void:
+	var channel := FakeChannel.new()
+	var request := GameRequest.new(channel, "call", {})
+	request.poll()
+	channel.log.on_message("debug_enter", [true, "Parser Error", true, 1])
+	channel.stopped = true
+
+	var at_once: Dictionary = request.poll()
+	OS.delay_msec(GameRequest.HALT_GRACE_MSEC + 50)
+	var after_grace: Dictionary = request.poll()
+
+	equal(at_once, {}, "a short while is allowed for an answer that was already on its way")
+	equal(after_grace["error"]["code"], "PRECONDITION_FAILED", "then the halt is reported, long before the timeout")
 
 
 func test_game_request_keeps_the_games_wording_out_of_the_message() -> void:
@@ -318,3 +363,142 @@ func test_bridge_holds_back_other_changes_while_a_multi_frame_change_runs() -> v
 	check(during_write["body"].get_string_from_utf8().contains("EDITOR_BUSY"), "with the retryable code")
 	equal(during_read["status"], 200, "reading is still allowed")
 	equal(after_write["status"], 200, "changes are accepted again afterwards")
+
+
+func test_game_inspector_call_converts_arguments_and_returns_the_result() -> void:
+	var inspector := _inspector()
+	var path := "GameTestMain/Ticker"
+
+	var sum: Dictionary = inspector.handle("call", {"path": path, "method": "add", "arguments": [2.0, 3.0]})
+	var moved: Dictionary = inspector.handle("call", {"path": "GameTestMain/Player", "method": "set_position", "arguments": [[5, 6]]})
+	var wrong_type: Dictionary = inspector.handle("call", {"path": path, "method": "add", "arguments": ["two", 3]})
+	var wrong_count: Dictionary = inspector.handle("call", {"path": path, "method": "add", "arguments": [1]})
+	var unknown: Dictionary = inspector.handle("call", {"path": path, "method": "no_such_method"})
+	var indirect: Dictionary = inspector.handle("call", {"path": path, "method": "set_script", "arguments": [null]})
+
+	equal(sum["data"]["result"], 5, "numbers from JSON become the ints the method declares")
+	equal(moved["ok"], true, "an engine method with a Vector2 argument")
+	equal(_main.get_node("Player").position, Vector2(5, 6), "and it had its effect")
+	equal(wrong_type["error"]["code"], "TYPE_MISMATCH", "an argument of the wrong type")
+	equal(wrong_count["error"]["code"], "INVALID_ARGS", "too few arguments")
+	equal(unknown["error"]["code"], "INVALID_ARGS", "no such method")
+	equal(indirect["error"]["code"], "INVALID_ARGS", "the script is not swapped through a call")
+
+
+# An "error" message as the engine sends it: time, source, texts, warning flag,
+# then the script call stack as (file, function, line).
+func _error_message(text: String, is_warning: bool) -> Array:
+	return [0, 0, 1, 500, "core/variant/variant_utility.cpp", "push_error", 1034, "", text, is_warning, 3, "res://player.gd", "_jump", 42]
+
+
+func test_game_debug_log_keeps_errors_with_their_script_stack() -> void:
+	var log := GameDebugLog.new()
+
+	log.on_message("error", _error_message("fell through the floor" + char(0x202e), false))
+	log.on_message("error", _error_message("careful", true))
+	log.on_message("error", ["too", "short"])
+	var read: Dictionary = log.errors(1)
+
+	equal(read["total"], 2, "both were counted; the malformed one was not")
+	equal(read["entries"].size(), 1, "the limit applies to the most recent")
+	equal(read["entries"][0]["severity"], "warning", "severity")
+	equal(log.errors(10)["entries"][0]["message"], "fell through the floor", "the text is cleaned")
+	equal(log.errors(10)["entries"][0]["stack"], [{"frame": 0, "file": "res://player.gd", "line": 42, "function": "_jump"}], "script stack")
+
+
+func test_game_debug_log_follows_halts_stack_and_variables() -> void:
+	var log := GameDebugLog.new()
+
+	log.on_message("debug_enter", [true, "Breakpoint", true, 1])
+	log.on_message("stack_dump", [6, "res://player.gd", 14, "_tick", "res://player.gd", 9, "_process"])
+	var halted: Dictionary = log.status()
+	log.expect_variables()
+	log.on_message("stack_frame_vars", [2])
+	log.on_message("stack_frame_var", ["count", 0, TYPE_INT, 7, ""])
+	var partly := log.variables_ready()
+	log.on_message("stack_frame_var", ["ticks", 1, TYPE_INT, 7, ""])
+	var variables: Dictionary = log.variables()
+	log.on_message("debug_exit", [])
+
+	equal(halted["stopped"], true, "halted")
+	equal(halted["reason"], "Breakpoint", "why")
+	equal(halted["stack"][0], {"frame": 0, "file": "res://player.gd", "line": 14, "function": "_tick"}, "where")
+	equal(halted["stack"].size(), 2, "the callers follow")
+	check(not partly and log.variables_ready(), "ready once every announced variable has arrived")
+	equal(variables, {"locals": {"count": 7}, "members": {"ticks": 7}, "globals": {}}, "variables by scope")
+	equal(log.status()["stopped"], false, "running again")
+	equal(log.stop_count(), 1, "halts are counted")
+
+
+func _debug_commands(context: RefCounted) -> RefCounted:
+	var registry := Registry.new()
+	_commands_alive = GameDebugCommands.new(context)
+	_commands_alive.register(registry)
+	return registry
+
+
+func test_game_debug_commands_need_a_halted_game_for_stepping_and_variables() -> void:
+	var context := FakeContext.new()
+	var channel := FakeChannel.new()
+	context.link = channel
+	var registry := _debug_commands(context)
+	var options := {"dry_run": false, "confirm": false, "mode": "standard"}
+
+	var step_running: Dictionary = registry.handler_of("game_step").call({"mode": "over"}, options)
+	var locals_running: Dictionary = registry.handler_of("game_locals").call({"frame": 0})
+	channel.log.on_message("debug_enter", [true, "Breakpoint", true, 1])
+	channel.log.on_message("stack_dump", [3, "res://a.gd", 5, "_process"])
+	var bad_frame: Dictionary = registry.handler_of("game_locals").call({"frame": 3})
+	var step: Dictionary = registry.handler_of("game_step").call({"mode": "into"}, options)
+	var resumed: Dictionary = registry.handler_of("game_continue").call({}, options)
+
+	equal(step_running["error"]["code"], "PRECONDITION_FAILED", "stepping a running game")
+	equal(locals_running["error"]["code"], "PRECONDITION_FAILED", "variables of a running game")
+	equal(bad_frame["error"]["code"], "INVALID_ARGS", "a frame the stack does not have")
+	check(step.has("later"), "a step answers once the game has halted again")
+	equal(resumed["data"], {"continued": true}, "continue")
+	equal(channel.commands, [["step", []], ["continue", []]], "the debugger's own commands were sent")
+
+
+func test_game_debug_commands_step_answers_with_the_new_position() -> void:
+	var context := FakeContext.new()
+	var channel := FakeChannel.new()
+	context.link = channel
+	var registry := _debug_commands(context)
+	channel.log.on_message("debug_enter", [true, "Breakpoint", true, 1])
+	channel.log.on_message("stack_dump", [3, "res://a.gd", 5, "_process"])
+
+	var waiter: RefCounted = registry.handler_of("game_step").call({"mode": "over"}, {"dry_run": false, "confirm": false, "mode": "standard"})["later"]
+	var before: Dictionary = waiter.poll()
+	channel.log.on_message("debug_exit", [])
+	channel.log.on_message("debug_enter", [true, "Breakpoint", true, 1])
+	channel.log.on_message("stack_dump", [3, "res://a.gd", 6, "_process"])
+	var after: Dictionary = waiter.poll()
+
+	equal(before, {}, "waits for the game to halt again")
+	equal(after["data"]["stack"][0]["line"], 6, "then reports where it is")
+	equal(after["warnings"], [], "without a warning")
+
+
+func test_game_debug_commands_breakpoints_and_errors_go_through_the_link() -> void:
+	var context := FakeContext.new()
+	var channel := FakeChannel.new()
+	context.link = channel
+	var registry := _debug_commands(context)
+	var options := {"dry_run": false, "confirm": false, "mode": "standard"}
+	var script := "res://tests/fixtures/ticker.gd"
+	channel.log.on_message("error", _error_message("boom", false))
+
+	var set_reply: Dictionary = registry.handler_of("game_breakpoint").call({"path": script, "line": 14, "enabled": true}, options)
+	var missing: Dictionary = registry.handler_of("game_breakpoint").call({"path": "res://nope.gd", "line": 1, "enabled": true}, options)
+	var outside: Dictionary = registry.handler_of("game_breakpoint").call({"path": "res://../x.gd", "line": 1, "enabled": true}, options)
+	var errors: Dictionary = registry.handler_of("game_errors").call({"limit": 10})
+	channel.listening = false
+	var unsupported: Dictionary = registry.handler_of("game_errors").call({"limit": 10})
+
+	equal(set_reply["data"], {"path": script, "line": 14, "enabled": true}, "breakpoint set")
+	equal(channel.breakpoints, [[script, 14, true]], "through the debugger session")
+	equal(missing["error"]["code"], "RESOURCE_NOT_FOUND", "a script that does not exist")
+	equal(outside["error"]["code"], "PATH_NOT_ALLOWED", "a path outside the project")
+	equal(errors["data"]["entries"][0]["message"], "boom", "errors")
+	equal(unsupported["error"]["code"], "UNSUPPORTED_GODOT_VERSION", "an editor without the debugger hook")

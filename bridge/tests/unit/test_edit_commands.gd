@@ -209,6 +209,23 @@ func test_fs_move_dry_run_lists_the_references_it_would_update() -> void:
 	check(FileAccess.file_exists(args["from"]), "nothing was moved")
 
 
+func test_fs_move_refuses_folders_and_names_that_cannot_be_moved_safely() -> void:
+	_setup()
+	var fixtures := "res://tests/fixtures"
+	var file := fixtures + "/notes.txt"
+
+	equal(_code("fs_move", {"from": fixtures, "to": fixtures + "/inner"}, {"dry_run": true}), "INVALID_ARGS", "a folder into itself")
+	equal(_code("fs_move", {"from": fixtures, "to": "res://tests/Fixtures/inner"}, {"dry_run": true}), "INVALID_ARGS", "in any spelling")
+	equal(_code("fs_move", {"from": "res://addons", "to": "res://plugins"}, {"dry_run": true}), "PATH_NOT_ALLOWED", "the folder with the bridge in it")
+	equal(_code("fs_move", {"from": "res://", "to": "res://x"}, {"dry_run": true}), "PATH_NOT_ALLOWED", "the project itself")
+	equal(_code("fs_move", {"from": file, "to": fixtures + "/a');b.txt"}, {"dry_run": true}), "PATH_NOT_ALLOWED", "a name that would end a string in a script")
+	equal(
+		_call("fs_move", {"from": file, "to": fixtures + "/a');b.txt", "update_references": false}, {"dry_run": true})["ok"], true,
+		"which is fine when nothing is rewritten",
+	)
+	equal(_call("fs_move", {"from": fixtures, "to": "res://tests/moved"}, {"dry_run": true})["data"]["would"]["folder"], true, "a folder move is planned as one")
+
+
 func test_resource_create_builds_only_safe_classes() -> void:
 	_setup()
 

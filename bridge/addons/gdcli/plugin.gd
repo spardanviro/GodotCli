@@ -14,6 +14,7 @@ const EditorControlCommands = preload("commands/editor_control_commands.gd")
 const FsCommands = preload("commands/fs_commands.gd")
 const FsEditCommands = preload("commands/fs_edit_commands.gd")
 const GameCommands = preload("commands/game_commands.gd")
+const GameDebugCommands = preload("commands/game_debug_commands.gd")
 const GameLink = preload("core/game_link.gd")
 const NodeCommands = preload("commands/node_commands.gd")
 const NodeEditCommands = preload("commands/node_edit_commands.gd")
@@ -58,6 +59,7 @@ func _enter_tree() -> void:
 	_context = context
 	_game_link = GameLink.new()
 	add_debugger_plugin(_game_link)
+	_game_link.listen_to_debuggers()
 	context.set_game_link(_game_link)
 	var registry := Registry.new()
 	_command_sets = [
@@ -72,6 +74,7 @@ func _enter_tree() -> void:
 		ProjectEditCommands.new(context),
 		EditorControlCommands.new(context),
 		GameCommands.new(context),
+		GameDebugCommands.new(context),
 	]
 	for command_set in _command_sets:
 		command_set.register(registry)

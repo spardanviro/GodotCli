@@ -22,6 +22,11 @@ gd command editor_play     # 在编辑器里运行项目
 gd command game_tree       # 运行中游戏的节点树
 gd command game_node_get --path Main/Player --properties '["velocity","global_position"]'
 gd command game_input --action ui_accept --hold 0.2   # 按住一个输入动作 0.2 秒
+gd command game_errors     # 游戏运行以来报的错，带脚本调用栈
+gd command game_breakpoint --path res://player.gd --line 42
+gd command game_debug      # 停住了吗、为什么、调用栈
+gd command game_locals     # 停住处的局部变量
+gd command game_continue
 gd command editor_stop
 gd host start              # 没开编辑器时，起一个无头编辑器当宿主；gd host stop 关闭
 gd run --headless --seconds 5   # 不开编辑器跑 5 秒，返回报错

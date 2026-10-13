@@ -8,6 +8,7 @@ extends RefCounted
 ##   send(method, args) -> int     returns the id of the request
 ##   take_reply(id) -> Variant     the answer, or null while there is none
 ##   is_stopped() -> bool          the game is halted in the debugger
+##   stop_count() -> int           how often it has halted so far
 ##   forget(id)                    the answer is no longer wanted
 
 const Reply = preload("reply.gd")
@@ -18,6 +19,9 @@ const MAX_VALUES := 200000
 const MAX_TEXT_CHARS := 4 * 1024 * 1024
 const MAX_DEPTH := 64
 const _NOT_SENT := -1
+# A halted game still answers what is queued. If it halted after this request
+# was sent and stays silent this long, the halt happened inside the request.
+const HALT_GRACE_MSEC := 500
 # What the game may report. Its own wording goes into `details`, because
 # callers trust `message` and `hint` to be the bridge's words.
 const _MESSAGES := {
@@ -37,6 +41,8 @@ var _deadline: int
 var _finish: Callable
 var _id := _NOT_SENT
 var _done := false
+var _stops_when_sent := 0
+var _halt_seen_at := 0
 
 
 ## `finish` turns the data of a successful answer into the command's reply;
@@ -54,20 +60,13 @@ func poll() -> Dictionary:
 	if _done:
 		return Reply.fail("INTERNAL_ERROR", "The request was already answered.")
 	if _id == _NOT_SENT and _channel.is_ready():
+		_stops_when_sent = _channel.stop_count()
 		_id = _channel.send(_method, _args)
 	var answer: Variant = _channel.take_reply(_id) if _id != _NOT_SENT else null
 	if answer != null:
 		_done = true
 		return _reply_from(answer)
-	# A game halted in the debugger answers nothing until someone continues it.
-	if _id != _NOT_SENT and _channel.is_stopped():
-		_done = true
-		_channel.forget(_id)
-		return Reply.fail(
-			"PRECONDITION_FAILED", "The running game is stopped in the debugger.",
-			"A breakpoint or a script error halted it. Continue it in the editor, or stop it and read the error with `gd run`.",
-		)
-	if Time.get_ticks_msec() < _deadline:
+	if Time.get_ticks_msec() < _deadline and not _halted_inside():
 		return {}
 	_done = true
 	if _id == _NOT_SENT:
@@ -76,7 +75,24 @@ func poll() -> Dictionary:
 			"It is the autoload GdcliGame; `gd bridge install` adds it. Restart the game afterwards.",
 		)
 	_channel.forget(_id)
+	# A halted game still answers, unless it halted inside this very request
+	# (a call that hit a breakpoint or an error).
+	if _channel.is_stopped():
+		return Reply.fail(
+			"PRECONDITION_FAILED", "The running game halted in the debugger before it answered.",
+			"game_debug shows where and why; game_continue lets it run on.",
+		)
 	return Reply.fail("TIMEOUT", "The running game did not answer in time.", "It may be busy loading; try again.")
+
+
+# True once the game has halted since the request went out and has given no
+# answer for a moment: the request itself ran into a breakpoint or an error.
+func _halted_inside() -> bool:
+	if _id == _NOT_SENT or not _channel.is_stopped() or _channel.stop_count() == _stops_when_sent:
+		return false
+	if _halt_seen_at == 0:
+		_halt_seen_at = Time.get_ticks_msec()
+	return Time.get_ticks_msec() - _halt_seen_at >= HALT_GRACE_MSEC
 
 
 func _reply_from(answer: Variant) -> Dictionary:

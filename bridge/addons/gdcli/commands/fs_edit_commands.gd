@@ -14,6 +14,7 @@ const _RESOURCE_EXTENSIONS: Array[String] = ["tres", "res"]
 const _SENSITIVE := "sensitive path"
 const _OVERWRITE := "overwrites an existing file"
 const _TOOL_SCRIPT := "tool script, runs inside the editor"
+const _UNSAFE_IN_REFERENCES: Array[String] = ["\"", "'", ";", "%", "{", "}", "(", ")", "#", "$"]
 const _TOOL_PATTERN := "(?m)^[ \\t]*@tool\\b"
 
 var _context: RefCounted
@@ -54,7 +55,7 @@ func register(registry: RefCounted) -> void:
 	}, _delete)
 	registry.register({
 		"name": "fs_move",
-		"summary": "Move or rename a project file and update the scenes, resources, scripts and project settings that refer to it.",
+		"summary": "Move or rename a project file or folder and update the scenes, resources, scripts and project settings that refer to it.",
 		"risk": AccessPolicy.RISK_DESTRUCTIVE,
 		"params": {
 			"type": "object",
@@ -64,12 +65,12 @@ func register(registry: RefCounted) -> void:
 				"update_references": {
 					"type": "boolean",
 					"default": true,
-					"description": "Rewrite the quoted res:// path in .tscn, .tres, .gd and shader files and in project settings. Open scenes that refer to the file are saved and reloaded.",
+					"description": "Rewrite the old res:// path in .tscn, .tres, .gd and shader files and in project settings. Open scenes that refer to it are saved and reloaded.",
 				},
 			},
 			"required": ["from", "to"],
 		},
-		"returns": "{from, to, references_updated: {files, settings, reloaded_scenes}}. A dry run lists what would change. Not undoable.",
+		"returns": "{from, to, references_updated: {files, settings, reloaded_scenes, possible_dynamic_references}}. Paths a script builds from pieces are listed, not changed. A dry run lists what would change. Not undoable.",
 	}, _move)
 	registry.register({
 		"name": "resource_create",
@@ -182,7 +183,7 @@ func _delete(args: Dictionary, options: Dictionary) -> Dictionary:
 
 
 func _move(args: Dictionary, options: Dictionary) -> Dictionary:
-	var source := _existing_file(args["from"])
+	var source := PathPolicy.check(args["from"], PathPolicy.ACCESS_WRITE)
 	if not source["ok"]:
 		return source
 	var target := PathPolicy.check(args["to"], PathPolicy.ACCESS_WRITE)
@@ -190,18 +191,37 @@ func _move(args: Dictionary, options: Dictionary) -> Dictionary:
 		return target
 	var from: String = source["path"]
 	var to: String = target["path"]
+	var is_folder := DirAccess.dir_exists_absolute(ProjectSettings.globalize_path(from))
+	if not is_folder and not FileAccess.file_exists(from):
+		return Reply.fail("RESOURCE_NOT_FOUND", "There is no file or folder at this path.", "", {"path": from})
+	if is_folder:
+		var refused := _folder_move_refusal(from, to)
+		if not refused.is_empty():
+			return refused
 	if FileAccess.file_exists(to) or DirAccess.dir_exists_absolute(ProjectSettings.globalize_path(to)):
 		return Reply.fail("ALREADY_EXISTS", "Something already exists at the destination.", "", {"to": to})
+	# The new path is written into scripts and scenes as it is, so it must not
+	# contain anything that would end a string or start code there.
+	if args["update_references"]:
+		for character in _UNSAFE_IN_REFERENCES:
+			if to.contains(character):
+				return Reply.fail(
+					"PATH_NOT_ALLOWED", "The new path contains a character that cannot be written into the files that refer to it.",
+					"Choose a plainer name, or pass update_references=false.", {"to": TextSanitizer.clean_line(to)},
+				)
+	var updater := ReferenceUpdater.new(from, to, is_folder)
 	var references := ReferenceUpdater.nothing()
 	if args["update_references"]:
-		references = ReferenceUpdater.find(from, to)
+		references = updater.find()
 	var open_scenes := _open_among(references["files"])
 	if options["dry_run"]:
 		return Edit.planned({
 			"move": from,
 			"to": to,
+			"folder": is_folder,
 			"references": {
 				"files": TextSanitizer.clean_lines(references["files"]),
+				"possible_dynamic_references": references["dynamic"],
 				"sensitive_files": TextSanitizer.clean_lines(references["sensitive"]),
 				"search_incomplete": references["truncated"],
 				"settings": TextSanitizer.clean_lines(references["settings"]),
@@ -209,9 +229,22 @@ func _move(args: Dictionary, options: Dictionary) -> Dictionary:
 			},
 		})
 
-	var job := FileMove.new(_context, from, to, references, open_scenes, not args["update_references"])
+	var job := FileMove.new(_context, from, to, updater, references, open_scenes, not args["update_references"])
 	# Open scenes are saved and loaded again around the move, one step per frame.
 	return Reply.later(job, true) if job.needs_frames() else job.run_now()
+
+
+# Why this folder cannot be moved there, or {} when it can.
+func _folder_move_refusal(from: String, to: String) -> Dictionary:
+	if from == PathPolicy.ROOT.trim_suffix("/") or from == PathPolicy.ROOT:
+		return Reply.fail("PATH_NOT_ALLOWED", "The project folder itself cannot be moved.")
+	# Compared in lower case: the default Windows and macOS filesystems fold case.
+	if (to + "/").to_lower().begins_with((from + "/").to_lower()):
+		return Reply.fail("INVALID_ARGS", "A folder cannot be moved into itself.", "", {"from": from, "to": to})
+	# The bridge does not move its own files, alone or as part of a parent folder.
+	if not PathPolicy.check_text(from.path_join("gdcli"), PathPolicy.ACCESS_WRITE)["ok"]:
+		return Reply.fail("PATH_NOT_ALLOWED", "This folder contains the bridge's own files.", "Move its other contents one by one.")
+	return {}
 
 
 func _open_among(files: Array) -> Array:

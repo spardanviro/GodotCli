@@ -73,6 +73,22 @@ func register(registry: RefCounted) -> void:
 		"returns": "{path, set}",
 	}, _node_set)
 	registry.register({
+		"name": "game_call",
+		"summary": "Call a method of a node in the running game and return what it returns.",
+		"risk": AccessPolicy.RISK_WRITE,
+		"requires": ["playing"],
+		"params": {
+			"type": "object",
+			"properties": {
+				"path": {"type": "string", "description": _PATH_NOTE},
+				"method": {"type": "string"},
+				"arguments": {"type": "array", "default": [], "description": "Converted to the types the method declares."},
+			},
+			"required": ["path", "method"],
+		},
+		"returns": "{path, method, result}. A method that awaits returns before it is finished.",
+	}, _call_method)
+	registry.register({
 		"name": "game_input",
 		"summary": "Press or release an input action in the running game, as if the player did.",
 		"risk": AccessPolicy.RISK_WRITE,
@@ -126,6 +142,12 @@ func _node_set(args: Dictionary, options: Dictionary) -> Dictionary:
 	if options["dry_run"]:
 		return Edit.planned({"set": TextSanitizer.clean_lines(args["properties"].keys()), "on": TextSanitizer.clean_line(args["path"]), "in": "running game"})
 	return _ask("node_set", args)
+
+
+func _call_method(args: Dictionary, options: Dictionary) -> Dictionary:
+	if options["dry_run"]:
+		return Edit.planned({"call": TextSanitizer.clean_line(args["method"]), "on": TextSanitizer.clean_line(args["path"]), "in": "running game"})
+	return _ask("call", args)
 
 
 func _input(args: Dictionary, options: Dictionary) -> Dictionary:

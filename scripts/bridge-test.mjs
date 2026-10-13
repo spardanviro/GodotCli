@@ -489,6 +489,7 @@ async function checkEdits(instance) {
   const moved = await command(instance, "fs_move", { from: `${TMP_DIR}/e2e_box.tres`, to: `${TMP_DIR}/moved/e2e_box.tres` }, { confirm: true });
   check(moved.status === 200, "fs_move", moved.body);
   await checkMoveUpdatesReferences(instance, scene, script);
+  await checkFolderMove(instance);
 
   const removed = await command(instance, "fs_delete", { path: `${TMP_DIR}/moved/e2e_box.tres` }, { confirm: true });
   const gone = await command(instance, "fs_read_text", { path: `${TMP_DIR}/moved/e2e_box.tres` });
@@ -601,6 +602,127 @@ async function checkGame(instance) {
   check(status.body?.data?.playing === false, "the game stopped", status.body?.data);
 }
 
+const TICKER_SCENE = "res://tests/fixtures/ticker.tscn";
+const TICKER_SCRIPT = "res://tests/fixtures/ticker.gd";
+const TICK_LINE = 14;
+
+/**
+ * Asks until `done(reply)` holds or the time is up.
+ * @param {() => Promise<any>} ask
+ * @param {(reply: any) => boolean} done
+ */
+async function until(ask, done, timeoutMs = 15_000) {
+  let reply = await ask();
+  for (const deadline = Date.now() + timeoutMs; !done(reply) && Date.now() < deadline; ) {
+    await sleep(300);
+    reply = await ask();
+  }
+  return reply;
+}
+
+/**
+ * Calls a method, reads the game's errors, halts it at a breakpoint, reads the
+ * stack and the locals there, steps, and lets it run on.
+ * @param {Instance} instance
+ */
+async function checkGameDebugging(instance) {
+  await command(instance, "editor_play", { scene: TICKER_SCENE });
+  const started = await until(() => command(instance, "game_tree", { max_depth: 1 }), (reply) => reply.status === 200, GAME_START_TIMEOUT_MS);
+  check(started.status === 200, "the ticker scene runs", started.body);
+
+  const sum = await command(instance, "game_call", { path: "Ticker", method: "add", arguments: [2, 3] });
+  check(sum.status === 200 && sum.body?.data?.result === 5, "game_call returns the result", sum.body);
+  const badCall = await command(instance, "game_call", { path: "Ticker", method: "no_such_method" });
+  check(badCall.status === 400 && badCall.body?.errors?.[0]?.code === "INVALID_ARGS", "game_call rejects an unknown method", badCall.body);
+
+  const running = await command(instance, "game_debug");
+  check(running.status === 200 && running.body?.data?.stopped === false, "game_debug while running", running.body);
+  const locked = await command(instance, "game_locals");
+  check(locked.body?.errors?.[0]?.code === "PRECONDITION_FAILED", "no locals while the game runs", locked.body);
+
+  const set = await command(instance, "game_breakpoint", { path: TICKER_SCRIPT, line: TICK_LINE });
+  check(set.status === 200, "game_breakpoint", set.body);
+  const halted = await until(() => command(instance, "game_debug"), (reply) => reply.body?.data?.stopped === true && reply.body?.data?.stack?.length > 0);
+  const top = halted.body?.data?.stack?.[0];
+  check(top?.file === TICKER_SCRIPT && top?.line === TICK_LINE && top?.function === "_tick", "the game halts at the breakpoint", halted.body);
+  check(halted.body?.data?.stack?.[1]?.function === "_process", "the caller is on the stack", halted.body?.data?.stack);
+
+  const locals = await command(instance, "game_locals", { frame: 0 });
+  const count = locals.body?.data?.locals?.count;
+  check(locals.status === 200 && Number.isInteger(count) && locals.body?.data?.locals?.doubled === count * 2, "game_locals reads the frame", locals.body);
+  check(locals.body?.data?.members?.ticks === count, "and the members of the object", locals.body?.data?.members);
+  const live = await command(instance, "game_node_get", { path: "Ticker", properties: ["ticks"] });
+  check(live.body?.data?.properties?.ticks === count, "the halted game still answers game_node_get", live.body);
+
+  await command(instance, "game_breakpoint", { path: TICKER_SCRIPT, line: TICK_LINE, enabled: false });
+  const stepped = await command(instance, "game_step", { mode: "out" });
+  check(stepped.status === 200 && stepped.body?.data?.stopped === true && stepped.body?.data?.stack?.[0]?.function === "_process", "game_step out returns to the caller", stepped.body);
+
+  const resumed = await command(instance, "game_continue");
+  check(resumed.status === 200, "game_continue", resumed.body);
+  const again = await until(() => command(instance, "game_debug"), (reply) => reply.body?.data?.stopped === false);
+  check(again.body?.data?.stopped === false, "the game runs on", again.body);
+
+  const paused = await command(instance, "game_pause");
+  check(paused.status === 200 && paused.body?.data?.stopped === true, "game_pause halts it at the next line", paused.body);
+  await command(instance, "game_continue");
+  await until(() => command(instance, "game_debug"), (reply) => reply.body?.data?.stopped === false);
+
+  // A script error halts a game that runs from the editor, in the middle of
+  // the call that caused it.
+  const crashed = await command(instance, "game_call", { path: "Ticker", method: "crash" });
+  check(crashed.body?.errors?.[0]?.code === "PRECONDITION_FAILED", "a call that hits a script error reports the halt", crashed.body);
+  const wreck = await until(() => command(instance, "game_debug"), (reply) => reply.body?.data?.stack?.length > 0);
+  check(wreck.body?.data?.stopped === true && /null/i.test(wreck.body?.data?.reason ?? ""), "game_debug gives the error as the reason", wreck.body);
+  check(wreck.body?.data?.stack?.[0]?.function === "crash", "and the line that failed", wreck.body?.data?.stack);
+  const afterCrash = await command(instance, "game_errors");
+  check(/null/i.test(afterCrash.body?.data?.entries?.at(-1)?.message ?? ""), "the script error is in game_errors too", afterCrash.body);
+  await command(instance, "game_continue");
+  await until(() => command(instance, "game_debug"), (reply) => reply.body?.data?.stopped === false);
+
+  // Errors come last: an editor build with other tooling may react to them.
+  await command(instance, "game_call", { path: "Ticker", method: "complain" });
+  const errors = await until(() => command(instance, "game_errors"), (reply) => (reply.body?.data?.total ?? 0) > 0);
+  const complaint = errors.body?.data?.entries?.at(-1);
+  check(complaint?.severity === "error" && complaint?.message === "ticker complains on purpose", "game_errors has what the game reported", errors.body);
+  check(complaint?.stack?.[0]?.file === TICKER_SCRIPT && complaint?.stack?.[0]?.function === "complain", "with the script stack", complaint);
+
+  await command(instance, "editor_stop");
+  const stopped = await until(() => command(instance, "editor_status"), (reply) => reply.body?.data?.playing === false);
+  check(stopped.body?.data?.playing === false, "the ticker stopped", stopped.body?.data);
+}
+
+/**
+ * Moving a folder moves what is in it and rewrites the references to it, in
+ * the files inside as well as outside.
+ * @param {Instance} instance
+ */
+async function checkFolderMove(instance) {
+  const inside = `${TMP_DIR}/pack/inner.gd`;
+  const sibling = `${TMP_DIR}/pack/sibling.gd`;
+  const outside = `${TMP_DIR}/e2e_pack_user.gd`;
+  await command(instance, "fs_write_text", { path: inside, text: "extends Node\n" });
+  await command(instance, "fs_write_text", { path: sibling, text: `extends Node\n\nconst Inner = preload("${inside}")\n` });
+  await command(instance, "fs_write_text", { path: outside, text: `extends Node\n\n# uses ${inside}\nconst DIR := "${TMP_DIR}/pack/"\n` });
+
+  const into = await command(instance, "fs_move", { from: `${TMP_DIR}/pack`, to: `${TMP_DIR}/pack/deeper` }, { confirm: true });
+  check(into.body?.errors?.[0]?.code === "INVALID_ARGS", "a folder cannot move into itself", into.body);
+  const addons = await command(instance, "fs_move", { from: "res://addons", to: "res://plugins" }, { confirm: true });
+  check(addons.body?.errors?.[0]?.code === "PATH_NOT_ALLOWED", "the folder holding the bridge cannot be moved", addons.body);
+
+  const target = `${TMP_DIR}/packs/renamed`;
+  const moved = await command(instance, "fs_move", { from: `${TMP_DIR}/pack`, to: target }, { confirm: true });
+  check(moved.status === 200, "fs_move moves a folder", moved.body);
+  const siblingText = await command(instance, "fs_read_text", { path: `${target}/sibling.gd` });
+  const outsideText = await command(instance, "fs_read_text", { path: outside });
+  check(siblingText.body?.data?.text?.includes(`preload("${target}/inner.gd")`), "a file inside the folder is rewritten where it is now", siblingText.body);
+  check(
+    outsideText.body?.data?.text?.includes(`# uses ${target}/inner.gd`) && outsideText.body?.data?.text?.includes(`"${target}/"`),
+    "a comment and a path prefix outside the folder are rewritten",
+    outsideText.body,
+  );
+}
+
 /** @param {import("node:child_process").ChildProcess} child */
 async function stop(child) {
   if (child.exitCode !== null) {
@@ -634,6 +756,7 @@ async function endToEnd(godot) {
     await checkCommands(instance);
     // Before the edits: running the project saves scenes with unsaved changes.
     await checkGame(instance);
+    await checkGameDebugging(instance);
     await checkEdits(instance);
     const output = log.join("");
     check(!/SCRIPT ERROR|Parse Error/.test(output), "the editor reported no script errors");

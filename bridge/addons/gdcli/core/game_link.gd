@@ -12,6 +12,13 @@ const MESSAGE_HELLO := "gdcli:hello"
 const AUTOLOAD_NAME := "GdcliGame"
 const AUTOLOAD_SETTING := "autoload/GdcliGame"
 const AUTOLOAD_SCRIPT := "res://addons/gdcli/runtime/game_agent.gd"
+# The editor's own debugger panel. It is not part of the scripting interface,
+# but it is a node with a signal that repeats every message from the game,
+# which is the only place a plugin can read errors and the call stack from.
+const _DEBUGGER_CLASS := "ScriptEditorDebugger"
+const _MESSAGE_SIGNAL := "debug_data"
+
+const GameDebugLog = preload("game_debug_log.gd")
 
 # Answers nobody collected (the caller went away) are dropped after this long.
 const _KEEP_MSEC := 60000
@@ -23,6 +30,8 @@ var _waiting := {}
 var _replies := {}
 # Sessions whose game has announced its helper.
 var _ready_sessions := {}
+var _debug_log := GameDebugLog.new()
+var _listening := false
 
 
 func _has_capture(capture: String) -> bool:
@@ -33,7 +42,54 @@ func _setup_session(session_id: int) -> void:
 	var session := get_session(session_id)
 	# A session is reused for the next run: what is known about it starts over.
 	session.started.connect(_reset.bind(session_id))
+	session.started.connect(_debug_log.reset)
 	session.stopped.connect(_reset.bind(session_id))
+	# A game that ends while halted must not be remembered as halted.
+	session.stopped.connect(_debug_log.reset)
+	listen_to_debuggers()
+
+
+## Connects to the editor's debugger panels; there is one per game instance,
+## and more appear when several instances are run. Safe to call again.
+func listen_to_debuggers() -> void:
+	for panel in EditorInterface.get_base_control().find_children("*", _DEBUGGER_CLASS, true, false):
+		if panel.has_signal(_MESSAGE_SIGNAL) and not panel.is_connected(_MESSAGE_SIGNAL, _debug_log.on_message):
+			panel.connect(_MESSAGE_SIGNAL, _debug_log.on_message)
+			_listening = true
+
+
+## False when this editor version gives no way to hear the game's messages.
+func can_listen() -> bool:
+	return _listening
+
+
+func debug_log() -> RefCounted:
+	return _debug_log
+
+
+func _active_session() -> EditorDebuggerSession:
+	for session in get_sessions():
+		if session != null and session.is_active():
+			return session
+	return null
+
+
+## Sends one of the debugger's own commands (continue, step, next, out, break,
+## get_stack_frame_vars) to the running game. False when no game is attached.
+func debugger_command(message: String, data: Array = []) -> bool:
+	var session := _active_session()
+	if session == null:
+		return false
+	session.send_message(message, data)
+	return true
+
+
+func set_breakpoint(path: String, line: int, enabled: bool) -> bool:
+	var session := _active_session()
+	if session == null:
+		return false
+	session.set_breakpoint(path, line, enabled)
+	return true
 
 
 func _capture(message: String, data: Array, session_id: int) -> bool:
@@ -89,8 +145,12 @@ func send(method: String, args: Dictionary) -> int:
 
 
 func is_stopped() -> bool:
-	var session_id := _ready_session_id()
-	return session_id != -1 and get_session(session_id).is_breaked()
+	var session := _active_session()
+	return session != null and session.is_breaked()
+
+
+func stop_count() -> int:
+	return _debug_log.stop_count()
 
 
 func take_reply(id: int) -> Variant:
