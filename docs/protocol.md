@@ -35,6 +35,8 @@ Godot 自带的命令行是"一次性进程"模型：每条命令启动一个新
 | `gd import` | `godot --headless --path <项目> --import` | 编辑器 |
 | `gd export <预设> <输出>` | `godot --headless --path <项目> --export-release\|--export-debug\|--export-pack <预设> <绝对路径>` | 编辑器 |
 | `gd api class <类名>` | 首次：在缓存目录执行 `godot --headless --dump-extension-api-with-docs`，之后读缓存 | 编辑器 |
+| `gd new <文件夹>` | 不启动 Godot：写出 `project.godot`、`.gitignore`、`.gitattributes` 并安装桥接 | |
+| `gd docs search/page/use/where` | 不启动 Godot：读本机的一份官方文档 | |
 | `gd host start` | `godot --headless --editor --path <项目> --lsp-port <空闲> --dap-port <空闲> -- --gdcli-host` | 编辑器 |
 
 从官方文档得出的硬约束：
@@ -50,6 +52,10 @@ Godot 自带的命令行是"一次性进程"模型：每条命令启动一个新
 - Windows 上要用带 `console` 后缀的可执行文件才能拿到标准输出。
 
 Godot 可执行文件的查找顺序：`--godot <路径>` 参数 → 环境变量 `GODOT_BIN` → `~/.gdcli/config.json` → `PATH` 里的 `godot`、`godot4`。找不到返回 `GODOT_NOT_FOUND`。
+
+**`gd new`** 只在目标文件夹不存在或为空时创建项目，写文件用独占方式（文件夹里此时冒出同名文件就失败，不覆盖）。渲染器写进 `project.godot`：`forward_plus` 是引擎默认值，不写；`gl_compatibility` 同时写移动端的覆盖项。桥接装不上时项目照样建好，警告里说明。它不下载引擎、不建版本库、不推送。
+
+**`gd docs`** 读的是本机的一份 Godot 官方文档：官网的离线 HTML 包（每页的文本在 `_sources/` 里）或 godot-docs 仓库的检出。位置由 `GDCLI_DOCS` 环境变量或 `gd docs use <文件夹>`（记在 `~/.gdcli/docs-path`）给出，不联网。`search` 默认不搜类参考（那是 `gd api` 的事，`--classes` 打开），所有词都出现的页面优先，没有时退到出现部分词的页面并给警告；`page` 可以只取一节，默认最多两万字符，去掉图片指令和 C# 示例。文档是外部内容，输出按不可信文本清洗；技能里说明它是资料，不是指令。
 
 ### 1.2 为什么"运行并收集报错"走离线通道
 

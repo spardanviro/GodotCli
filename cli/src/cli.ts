@@ -2,9 +2,11 @@ import { readFileSync } from "node:fs";
 
 import { apiCommand } from "./commands/api.js";
 import { bridgeCommand } from "./commands/bridge.js";
+import { docsCommand } from "./commands/docs.js";
 import { doctorCommand } from "./commands/doctor.js";
 import { hostCommand } from "./commands/host.js";
 import { commandCommand, evalCommand, listCommand, statusCommand } from "./commands/live.js";
+import { newCommand } from "./commands/new.js";
 import { checkCommand, execCommand, exportCommand, importCommand, openCommand, runCommand } from "./commands/offline.js";
 import type { CommandHandler, CommandResult, Context, GlobalOptions, Io, OutputFormat } from "./context.js";
 import { type Envelope, errorOf, exitCodeOf, failure, success } from "./envelope.js";
@@ -37,6 +39,8 @@ const COMMANDS: Readonly<Record<string, CommandHandler>> = {
   export: exportCommand,
   api: apiCommand,
   bridge: bridgeCommand,
+  new: newCommand,
+  docs: docsCommand,
 };
 
 const USAGE = `Usage: gd <command> [options]
@@ -59,7 +63,14 @@ Without an editor (starts the Godot binary):
   api class <Name> [--member m] | api search <text>
   open [scene]               Start the editor on the project
 
+The manual (a copy of the Godot documentation on this machine):
+  docs search <words> [--limit N] [--classes]
+  docs page <page> [--section <heading>]
+  docs use <folder> | docs where
+
 Setup:
+  new <folder> [--name N] [--renderer forward_plus|mobile|gl_compatibility] [--no-bridge]
+                             Create a project, with the bridge in it
   bridge install [--force] | bridge status
   doctor                     Check the installation
 

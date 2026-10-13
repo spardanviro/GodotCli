@@ -1,6 +1,6 @@
 # Claude 插件
 
-让 Claude Code 通过 `gd` 命令行在 Godot 项目里干活：八个技能，加两个拦住"直接改项目脚本"的钩子。
+让 Claude Code 通过 `gd` 命令行在 Godot 项目里干活：十个技能，加两个拦住"直接改项目脚本"的钩子。
 
 ## 安装
 
@@ -46,7 +46,9 @@ claude --plugin-dir /path/to/gdcli/plugin
 | `godot-3d-rendering` | 3D 场景、材质、灯光、三种渲染器的差别、着色器、模型和贴图导入、画面不对时怎么查 |
 | `godot-animation-audio` | AnimationPlayer、补间、动画树、粒子、音频 |
 
-| `godot-tilemap` | 按任务切的技能：从一张图建瓦片集、画关卡、给瓦片加碰撞、分层 |
+| `godot-new-project` | 按任务切的技能：从零开始一个项目。先定下以后难改的几件事（2D 还是 3D、渲染器、分辨率、是否像素风），再 `gd new`、打开编辑器、建出能运行的第一个场景 |
+| `godot-troubleshooting` | 按任务切的技能：从症状找原因（掉出地面、不动、信号不触发、按钮没反应、黑屏、动画不播、空引用报错、改了不生效、导出后不对），先读运行中的值再改代码 |
+| `godot-tilemap` | 按任务切的技能：从一张图建瓦片集、画关卡、给瓦片加碰撞（含斜坡和单向平台）、地形自动拼接、分层 |
 | `godot-sprite-animation` | 按任务切的技能：从图集切帧动画、用代码切换动画、动画状态机、像素风的项目设置 |
 
 前五个领域技能的 `references/` 里各有两份资料：
@@ -59,6 +61,8 @@ claude --plugin-dir /path/to/gdcli/plugin
 ```bash
 node scripts/import-knowledge.mjs /path/to/godot/modules/ai_assistant/knowledge
 ```
+
+**官方文档没有打包进插件。** 它有一千五百多页、文本就有 36 MB，而且跟引擎版本走；类参考部分 `gd api` 已经能从你装的引擎里直接读到。手册部分（教程、最佳实践、排错）通过 `gd docs` 按需查：在本机放一份文档（官网的离线 HTML 包，或 godot-docs 仓库），`gd docs use <文件夹>` 指过去，之后 `gd docs search`、`gd docs page` 只取用得上的那一页或一节。技能里写了什么时候去查。
 
 `godot-cli/references/commands.md` 是从运行中的桥接生成的命令清单。`scripts/bridge-test.mjs` 每次都会核对它与桥接是否一致；命令有变动时这样重新生成：
 

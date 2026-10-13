@@ -139,7 +139,8 @@ function linkInTheWay(project: string): string | undefined {
   return [join(project, "addons"), join(project, ADDON_RELATIVE_DIR), join(project, PROJECT_FILE)].find(isLink);
 }
 
-function install(context: Context, globals: GlobalOptions, project: string, force: boolean): CommandResult {
+/** Copies the bridge into a project and enables it there. */
+export function installBridge(context: Context, globals: GlobalOptions, project: string, force: boolean): CommandResult {
   const link = linkInTheWay(project);
   if (link !== undefined) {
     return fail("bridge", errorOf("PATH_NOT_ALLOWED", "The install location is a link.", "Replace the link with a real folder or file.", { path: link }));
@@ -220,7 +221,7 @@ export const bridgeCommand: CommandHandler = async (context, globals, args) => {
     return fail("bridge", project);
   }
   if (action === "install") {
-    return Promise.resolve(install(context, globals, project, parsed.values["force"] === true));
+    return Promise.resolve(installBridge(context, globals, project, parsed.values["force"] === true));
   }
   const state = inspect(context, project);
   if (state.installed_version === null || !state.enabled || !existsSync(join(project, ADDON_RELATIVE_DIR))) {

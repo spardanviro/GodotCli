@@ -2,13 +2,14 @@
 
 从命令行和编码智能体里控制 Godot：一个编辑器桥接插件，一个 `gd` 命令行，一个 Claude 插件。
 
-**状态：第 4 阶段完成，尚未发布。** `gd` 能读写运行中编辑器里的场景（每一步都进编辑器的撤销栈），能查看和操作编辑器启动的游戏，也能不开编辑器运行场景、检查脚本、导入、导出、查接口。Claude 插件有八个技能和两个写入拦截钩子，见 [plugin/README.md](plugin/README.md)。
+**状态：第 4 阶段完成，尚未发布。** `gd` 能读写运行中编辑器里的场景（每一步都进编辑器的撤销栈），能查看和操作编辑器启动的游戏，也能不开编辑器运行场景、检查脚本、导入、导出、查接口。Claude 插件有十个技能和两个写入拦截钩子，见 [plugin/README.md](plugin/README.md)。
 
 ## 用法
 
 目前要从源码构建（见"开发"），然后用 `node cli/dist/main.js` 代替下面的 `gd`。
 
 ```bash
+gd new my-game --renderer mobile   # 新建项目，带桥接
 gd bridge install          # 把桥接插件装进当前项目并启用
 gd open                    # 启动编辑器
 gd status                  # 编辑器就绪了吗
@@ -33,6 +34,9 @@ gd host start              # 没开编辑器时，起一个无头编辑器当宿
 gd run --headless --seconds 5   # 不开编辑器跑 5 秒，返回报错
 gd check scripts/player.gd      # 检查脚本
 gd api class CharacterBody2D    # 查当前版本的接口
+gd docs use ~/godot-docs        # 指向本机的一份官方文档（离线 HTML 包或 godot-docs 仓库）
+gd docs search one way collision   # 在手册里找
+gd docs page tutorials/physics/using_character_body_2d --section "Platformer movement"
 gd doctor                  # 哪里不对
 ```
 
