@@ -178,13 +178,14 @@ async function checkHandshake(instance) {
  * @param {Record<string, any>} instance
  * @param {string} name
  * @param {Record<string, unknown>} [args]
+ * @param {{ confirm?: boolean, dry_run?: boolean }} [options]
  */
-function command(instance, name, args = {}) {
+function command(instance, name, args = {}, options = {}) {
   return request(instance.port, {
     method: "POST",
     path: `/v1/commands/${name}`,
     headers: { Authorization: `Bearer ${instance.token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ args }),
+    body: JSON.stringify({ args, ...options }),
   });
 }
 
@@ -306,15 +307,25 @@ async function checkCommands(instance) {
     headers: { Authorization: `Bearer ${instance.token}` },
   });
   const names = (listing.body?.data?.commands ?? []).map((entry) => entry.name);
-  const expectedNames = [
-    "editor_selection", "editor_status", "fs_list", "fs_read_text", "node_find", "node_get",
-    "project_input_map", "project_settings_get", "scene_list_open", "scene_tree",
+  const readOnly = [
+    "editor_errors", "editor_selection", "editor_status", "fs_list", "fs_read_text", "node_find",
+    "node_get", "project_input_map", "project_settings_get", "scene_list_open", "scene_tree",
   ];
-  check(JSON.stringify(names) === JSON.stringify(expectedNames), "command list", names);
+  const byName = Object.fromEntries((listing.body?.data?.commands ?? []).map((entry) => [entry.name, entry]));
+  check(JSON.stringify(names) === JSON.stringify([...names].sort()), "command list is sorted", names);
+  check(readOnly.every((name) => byName[name]?.risk === "read"), "read-only commands", names);
   check(
-    (listing.body?.data?.commands ?? []).every((entry) => entry.risk === "read" && entry.params?.type === "object"),
-    "every phase 1 command is read-only and has a params schema",
+    ["node_create", "node_set", "node_delete", "scene_new", "scene_save", "fs_write_text", "edit_undo"].every((name) => byName[name]?.risk === "write"),
+    "modifying commands are in the write tier",
   );
+  check(
+    ["fs_delete", "fs_move", "project_settings_set", "project_input_map_set"].every((name) => byName[name]?.risk === "destructive"),
+    "destructive commands",
+  );
+  check(byName.eval?.risk === "exec", "eval is in the exec tier");
+  check(Object.values(byName).every((entry) => entry.params?.type === "object"), "every command has a params schema");
+  // A project command that calls itself read-only is still treated as a write.
+  check(byName.project_echo?.risk === "write" && byName.project_echo?.custom === true, "custom command tier", byName.project_echo);
 
   const status = await waitForScene(instance);
   check(status.body.success === true && status.body.meta.scene === FIXTURE_SCENE, "editor_status envelope", status.body.meta);
@@ -381,6 +392,133 @@ async function checkCommands(instance) {
   check(badArgs.status === 400 && badArgs.body?.errors?.[0]?.code === "INVALID_ARGS", "invalid args", badArgs.status);
 }
 
+const TMP_DIR = "res://tests/tmp";
+const BOSS_SCRIPT = "extends CharacterBody2D\n\n\nfunc _on_boss_entered() -> void:\n\tpass\n";
+
+/**
+ * Changes made through the real editor: its undo stack, its scene tabs, its
+ * file system. Everything written goes to bridge/tests/tmp, removed afterwards.
+ * @param {Record<string, any>} instance
+ */
+async function checkEdits(instance) {
+  const treePaths = async () => {
+    const tree = await command(instance, "scene_tree");
+    /** @type {string[]} */
+    const paths = [];
+    const walk = (node) => {
+      paths.push(node.path);
+      (node.children ?? []).forEach(walk);
+    };
+    walk(tree.body.data.tree);
+    return paths;
+  };
+
+  const planned = await command(instance, "node_create", { parent: "World", type: "Node2D", name: "Planned" }, { dry_run: true });
+  check(planned.body?.data?.dry_run === true && !(await treePaths()).includes("World/Planned"), "dry run creates nothing", planned.body);
+
+  const created = await command(instance, "node_create", { parent: "World", type: "CharacterBody2D", name: "Enemy", properties: { position: [3, 4] } });
+  check(created.status === 200 && created.body?.data?.path === "World/Enemy", "node_create", created.body);
+  check(created.body?.meta?.undo === "gdcli: node_create Enemy", "the undo step is named in meta", created.body?.meta);
+  check((await treePaths()).includes("World/Enemy"), "the new node is in the tree");
+
+  const set = await command(instance, "node_set", { path: "World/Enemy", properties: { position: { x: 30, y: 40 }, modulate: "#00ff00" } });
+  const after = await command(instance, "node_get", { path: "World/Enemy", properties: ["position", "modulate"] });
+  check(set.status === 200 && JSON.stringify(after.body?.data?.properties?.position?.value) === "[30,40]", "node_set", after.body?.data);
+  check(after.body?.data?.properties?.modulate?.value === "#00ff00ff", "node_set converts a colour", after.body?.data);
+
+  const badValue = await command(instance, "node_set", { path: "World/Enemy", properties: { position: "far" } });
+  check(badValue.status === 422 && badValue.body?.errors?.[0]?.code === "TYPE_MISMATCH", "node_set rejects a bad value", badValue.status);
+
+  // The editor's own undo history is what these go through.
+  const undone = await command(instance, "edit_undo");
+  const reverted = await command(instance, "node_get", { path: "World/Enemy", properties: ["position"] });
+  check(undone.body?.data?.undone === "gdcli: node_set Enemy", "edit_undo names the step", undone.body);
+  check(JSON.stringify(reverted.body?.data?.properties?.position?.value) === "[3,4]", "edit_undo restores the value", reverted.body?.data);
+  const redone = await command(instance, "edit_redo");
+  check(redone.body?.data?.redone === "gdcli: node_set Enemy", "edit_redo", redone.body);
+
+  await command(instance, "node_rename", { path: "World/Enemy", name: "Boss" });
+  await command(instance, "node_move", { path: "World/Boss", parent: "." });
+  const copy = await command(instance, "node_duplicate", { path: "Boss", name: "Boss2" });
+  await command(instance, "node_add_to_group", { path: "Boss", group: "bosses" });
+  const connected = await command(instance, "node_connect_signal", { path: "Boss", signal: "tree_entered", target: ".", method: "_on_boss_entered" });
+  check(copy.body?.data?.path === "Boss2" && connected.status === 200, "rename, move, duplicate, group, connect", [copy.body, connected.body]);
+  const found = await command(instance, "node_find", { group: "bosses" });
+  check(found.body?.data?.nodes?.[0]?.path === "Boss", "the group is set", found.body?.data);
+
+  const deleted = await command(instance, "node_delete", { path: "Boss2" });
+  check(deleted.status === 200 && !(await treePaths()).includes("Boss2"), "node_delete", deleted.body);
+  await command(instance, "edit_undo");
+  check((await treePaths()).includes("Boss2"), "undoing a delete brings the node back");
+
+  // A script written, attached, and a new scene saved to disk.
+  const script = `${TMP_DIR}/e2e_boss.gd`;
+  const written = await command(instance, "fs_write_text", { path: script, text: BOSS_SCRIPT });
+  check(written.status === 200 && written.body?.data?.created === true, "fs_write_text", written.body);
+  const again = await command(instance, "fs_write_text", { path: script, text: "x" });
+  check(again.body?.errors?.[0]?.code === "ALREADY_EXISTS", "fs_write_text does not replace silently", again.body?.errors);
+  const overwrite = await command(instance, "fs_write_text", { path: script, text: "x", overwrite: true });
+  check(overwrite.status === 409 && overwrite.body?.errors?.[0]?.code === "CONFIRMATION_REQUIRED", "overwriting needs confirmation", overwrite.status);
+
+  const scene = `${TMP_DIR}/e2e_level.tscn`;
+  const made = await command(instance, "scene_new", { path: scene, root_type: "Node2D" });
+  check(made.status === 200 && made.body?.data?.root?.name === "E2eLevel", "scene_new", made.body);
+  const status = await command(instance, "editor_status");
+  check(status.body?.data?.scene === scene, "the new scene is the edited one", status.body?.data?.scene);
+  await command(instance, "node_create", { type: "CharacterBody2D", name: "Boss" });
+  const attached = await command(instance, "node_attach_script", { path: "Boss", script });
+  check(attached.status === 200, "node_attach_script", attached.body);
+  const instanced = await command(instance, "node_instantiate_scene", { scene: FIXTURE_SCENE, name: "Level" });
+  check(instanced.status === 200 && instanced.body?.data?.path === "Level", "node_instantiate_scene", instanced.body);
+  const resource = await command(instance, "resource_create", { path: `${TMP_DIR}/e2e_box.tres`, type: "RectangleShape2D", properties: { size: [16, 8] } });
+  check(resource.status === 200, "resource_create", resource.body);
+  const saved = await command(instance, "scene_save");
+  const onDisk = await command(instance, "fs_read_text", { path: scene });
+  const text = onDisk.body?.data?.text ?? "";
+  check(saved.status === 200 && /\[node name="Boss" type="CharacterBody2D" parent="\."/.test(text), "scene_save writes the node", text);
+  check(text.includes("e2e_boss.gd") && text.includes("instance=ExtResource"), "the saved scene has the script and the instance", text);
+  const box = await command(instance, "fs_read_text", { path: `${TMP_DIR}/e2e_box.tres` });
+  check(box.body?.data?.text?.includes("Vector2(16, 8)"), "the resource file has its property", box.body);
+
+  const back = await command(instance, "scene_open", { path: FIXTURE_SCENE });
+  check(back.status === 200 && back.body?.meta?.scene === FIXTURE_SCENE, "scene_open", back.body);
+
+  // Destructive commands need an explicit yes.
+  const refused = await command(instance, "fs_delete", { path: script });
+  check(refused.status === 409 && refused.body?.errors?.[0]?.code === "CONFIRMATION_REQUIRED", "fs_delete needs confirmation", refused.status);
+  const moved = await command(instance, "fs_move", { from: `${TMP_DIR}/e2e_box.tres`, to: `${TMP_DIR}/moved/e2e_box.tres` }, { confirm: true });
+  check(moved.status === 200, "fs_move", moved.body);
+  const removed = await command(instance, "fs_delete", { path: `${TMP_DIR}/moved/e2e_box.tres` }, { confirm: true });
+  const gone = await command(instance, "fs_read_text", { path: `${TMP_DIR}/moved/e2e_box.tres` });
+  check(removed.status === 200 && gone.body?.errors?.[0]?.code === "RESOURCE_NOT_FOUND", "fs_delete", [removed.body, gone.body?.errors]);
+  const settingPlan = await command(instance, "project_settings_set", { name: "application/config/name", value: "x" }, { dry_run: true });
+  check(settingPlan.body?.data?.dry_run === true, "a destructive dry run needs no confirmation", settingPlan.body);
+  const setting = await command(instance, "project_settings_set", { name: "application/config/name", value: "x" });
+  check(setting.status === 409, "project_settings_set needs confirmation", setting.status);
+  const toolScript = await command(instance, "fs_write_text", { path: `${TMP_DIR}/e2e_tool.gd`, text: "@tool\nextends Node\n" });
+  check(toolScript.status === 409 && toolScript.body?.errors?.[0]?.code === "CONFIRMATION_REQUIRED", "writing a tool script needs confirmation", toolScript.status);
+
+  const evalDisabled = await command(instance, "eval", { code: "return 1" }, { confirm: true });
+  check(evalDisabled.status === 409 && evalDisabled.body?.errors?.[0]?.code === "EVAL_DISABLED", "eval is off by default", evalDisabled.body?.errors);
+
+  const custom = await command(instance, "project_echo", { text: "hi" });
+  check(custom.body?.data?.echo === "hi" && custom.body?.data?.root === "Main", "project-defined command", custom.body);
+
+  const notHost = await command(instance, "host_quit");
+  check(notHost.body?.errors?.[0]?.code === "PRECONDITION_FAILED", "host_quit refuses an editor gd did not start", notHost.body?.errors);
+
+  const screenshot = await command(instance, "editor_screenshot");
+  check(screenshot.body?.errors?.[0]?.code === "PRECONDITION_FAILED", "no screenshot from a headless editor", screenshot.body?.errors);
+
+  const [major, minor] = instance.godot_version.split(".").map(Number);
+  const errors = await command(instance, "editor_errors");
+  if (major > 4 || minor >= 5) {
+    check(Array.isArray(errors.body?.data?.entries), "editor_errors on 4.5+", errors.body);
+  } else {
+    check(errors.body?.errors?.[0]?.code === "UNSUPPORTED_GODOT_VERSION", "editor_errors before 4.5", errors.body?.errors);
+  }
+}
+
 /** @param {import("node:child_process").ChildProcess} child */
 async function stop(child) {
   if (child.exitCode !== null) {
@@ -412,6 +550,7 @@ async function endToEnd(godot) {
     await checkHandshake(instance);
     await checkRequestGuards(instance);
     await checkCommands(instance);
+    await checkEdits(instance);
     const output = log.join("");
     check(!/SCRIPT ERROR|Parse Error/.test(output), "the editor reported no script errors");
     check(!output.includes(instance.token), "the token never reaches the editor log");
@@ -420,6 +559,7 @@ async function endToEnd(godot) {
   } finally {
     await stop(child);
     rmSync(home, { recursive: true, force: true });
+    rmSync(join(projectDir, "tests", "tmp"), { recursive: true, force: true, maxRetries: 5, retryDelay: 300 });
   }
 }
 

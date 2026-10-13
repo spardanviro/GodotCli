@@ -3,7 +3,8 @@ import { readFileSync } from "node:fs";
 import { apiCommand } from "./commands/api.js";
 import { bridgeCommand } from "./commands/bridge.js";
 import { doctorCommand } from "./commands/doctor.js";
-import { commandCommand, listCommand, statusCommand } from "./commands/live.js";
+import { hostCommand } from "./commands/host.js";
+import { commandCommand, evalCommand, listCommand, statusCommand } from "./commands/live.js";
 import { checkCommand, execCommand, exportCommand, importCommand, openCommand, runCommand } from "./commands/offline.js";
 import type { CommandHandler, CommandResult, Context, GlobalOptions, Io, OutputFormat } from "./context.js";
 import { type Envelope, errorOf, exitCodeOf, failure, success } from "./envelope.js";
@@ -25,6 +26,8 @@ const COMMANDS: Readonly<Record<string, CommandHandler>> = {
   list: listCommand,
   command: commandCommand,
   cmd: commandCommand,
+  eval: evalCommand,
+  host: hostCommand,
   doctor: doctorCommand,
   open: openCommand,
   run: runCommand,
@@ -41,7 +44,9 @@ const USAGE = `Usage: gd <command> [options]
 Running editor (needs the bridge addon, see "gd bridge install"):
   status                     Editors gd can reach
   list                       Commands the editor exposes, with their arguments
-  command <name> [--arg v]   Run one of them, e.g. gd command scene_tree
+  command <name> [--arg v]   Run one of them, e.g. gd command node_create --type Sprite2D
+  eval <code> | --file <f>   Run GDScript in the editor (off unless enabled there)
+  host start | host stop     Run a headless editor as the host when none is open
 
 Without an editor (starts the Godot binary):
   run [scene] [--seconds N] [--headless]   Run the project and report its errors

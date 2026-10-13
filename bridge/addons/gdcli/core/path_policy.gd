@@ -11,8 +11,13 @@ const ACCESS_WRITE := "write"
 const _HIDDEN_ROOTS: Array[String] = [".godot", ".git"]
 const _OWN_ADDON := "addons/gdcli"
 const _SENSITIVE_ROOT_FILES: Array[String] = ["project.godot", "override.cfg", "export_presets.cfg"]
+# Files git itself acts on: a submodule URL, a filter command.
+const _SENSITIVE_FILE_NAMES: Array[String] = [".gitmodules", ".gitattributes"]
+const _GIT_DIR := ".git"
 const _SENSITIVE_ROOTS: Array[String] = ["addons", "gdcli_commands"]
 const _SENSITIVE_EXTENSIONS: Array[String] = ["gdextension"]
+const _FIRST_PRINTABLE := 0x20
+const _DELETE := 0x7f
 const _RESERVED_DEVICE_PATTERN := "^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\\..*)?$"
 
 static var _reserved_regex: RegEx
@@ -31,6 +36,10 @@ static func check_text(raw_path: String, access: String) -> Dictionary:
 	for segment in segments:
 		if not _is_plain_segment(segment):
 			return _deny("The path contains an empty, relative or reserved segment.")
+		# A repository nested anywhere in the project: its hooks and config
+		# are run by git, so nothing is written into it.
+		if access == ACCESS_WRITE and segment.to_lower() == _GIT_DIR:
+			return _deny("Nothing is written inside a .git folder.")
 
 	# Compared in lower case: the default Windows and macOS filesystems fold case.
 	var folded := relative.to_lower()
@@ -69,6 +78,9 @@ static func _is_plain_segment(segment: String) -> bool:
 		return false
 	if segment.ends_with(".") or segment.ends_with(" "):
 		return false
+	for index in segment.length():
+		if segment.unicode_at(index) < _FIRST_PRINTABLE or segment.unicode_at(index) == _DELETE:
+			return false
 	# NTFS short names such as GODOT~1 are aliases that would slip past the
 	# hidden-folder comparison.
 	var tilde := segment.find("~")
@@ -86,13 +98,16 @@ static func _is_sensitive(folded: String, segment_count: int) -> bool:
 		return true
 	if folded.get_slice("/", 0) in _SENSITIVE_ROOTS:
 		return true
+	if folded.get_file() in _SENSITIVE_FILE_NAMES:
+		return true
 	return folded.get_extension() in _SENSITIVE_EXTENSIONS
 
 
 static func _passes_through_link(path: String) -> bool:
 	var directory := DirAccess.open(ROOT)
 	if directory == null:
-		return false
+		# Without a way to look, assume the worst.
+		return true
 	var current := ROOT
 	for segment in path.substr(ROOT.length()).split("/", false):
 		current = current.path_join(segment)

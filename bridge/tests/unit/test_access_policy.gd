@@ -40,6 +40,13 @@ func test_access_policy_exec_needs_confirmation_in_standard() -> void:
 	equal(_code("exec", "full", true, false), "", "full mode")
 
 
+func test_access_policy_dry_run_skips_confirmation_but_nothing_else() -> void:
+	equal(AccessPolicy.decide("destructive", "standard", false, false, true), {}, "destructive dry run")
+	equal(AccessPolicy.decide("exec", "standard", true, false, true), {}, "exec dry run with eval enabled")
+	equal(AccessPolicy.decide("exec", "standard", false, false, true)["error"]["code"], "EVAL_DISABLED", "eval switch still applies")
+	equal(AccessPolicy.decide("destructive", "readonly", false, true, true)["error"]["code"], "READONLY_MODE", "read-only still applies")
+
+
 func test_access_policy_unknown_risk_is_an_internal_error() -> void:
 	equal(_code("harmless", "full", true, true), "INTERNAL_ERROR", "unknown tier")
 

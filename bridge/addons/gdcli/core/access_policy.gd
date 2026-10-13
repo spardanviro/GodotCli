@@ -24,7 +24,9 @@ static func normalize_mode(value: Variant) -> String:
 
 
 ## Returns {} when the command may run, otherwise a failed reply.
-static func decide(risk: String, mode: String, allow_eval: bool, confirm: bool) -> Dictionary:
+## A dry run changes nothing, so it is never asked for a confirmation; it is
+## still subject to read-only mode and to the eval switch.
+static func decide(risk: String, mode: String, allow_eval: bool, confirm: bool, dry_run: bool = false) -> Dictionary:
 	if risk not in RISKS:
 		return Reply.fail("INTERNAL_ERROR", "The command declares an unknown risk tier.")
 	if risk == RISK_READ:
@@ -43,7 +45,7 @@ static func decide(risk: String, mode: String, allow_eval: bool, confirm: bool) 
 			"Running code through the bridge is turned off.",
 			"It is enabled in the editor settings under gdcli/access/allow_eval.",
 		)
-	if mode != MODE_FULL and not confirm:
+	if mode != MODE_FULL and not confirm and not dry_run:
 		return Reply.fail(
 			"CONFIRMATION_REQUIRED",
 			"This command needs explicit confirmation.",

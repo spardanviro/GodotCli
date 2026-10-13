@@ -42,7 +42,7 @@ func _bridge() -> RefCounted:
 	return Bridge.new(registry, _context, identity, TOKEN)
 
 
-func _count_call(_args: Dictionary) -> Dictionary:
+func _count_call(_args: Dictionary, _options: Dictionary = {}) -> Dictionary:
 	_calls += 1
 	return Reply.ok({})
 

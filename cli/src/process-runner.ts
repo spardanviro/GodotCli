@@ -61,6 +61,17 @@ export function createProcessRunner(platform: NodeJS.Platform): ProcessRunner {
   // the signal that interrupts gd; they are stopped explicitly instead.
   const alive = new Set<number>();
   return {
+    isAlive(pid: number): boolean {
+      try {
+        // Signal 0 tests for existence without sending anything.
+        process.kill(pid, 0);
+        return true;
+      } catch (error: unknown) {
+        // EPERM means it exists but belongs to someone else.
+        return (error as NodeJS.ErrnoException).code === "EPERM";
+      }
+    },
+
     stopAll(): void {
       for (const pid of alive) {
         killTree(pid, platform);

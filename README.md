@@ -2,7 +2,7 @@
 
 从命令行和编码智能体里控制 Godot：一个编辑器桥接插件，一个 `gd` 命令行，一个 Claude 插件。
 
-**状态：第 2 阶段完成，尚未发布。** `gd` 能读取运行中编辑器的状态，也能不开编辑器运行场景、检查脚本、导入、导出、查接口。修改场景的命令在第 3 阶段。
+**状态：第 3 阶段完成，尚未发布。** `gd` 能读写运行中编辑器里的场景（每一步都进编辑器的撤销栈），也能不开编辑器运行场景、检查脚本、导入、导出、查接口。Claude 插件在第 4 阶段。
 
 ## 用法
 
@@ -14,6 +14,11 @@ gd open                    # 启动编辑器
 gd status                  # 编辑器就绪了吗
 gd list                    # 编辑器提供哪些命令
 gd command scene_tree      # 读场景树
+gd command node_create --type CharacterBody2D --name Player   # 建节点，可在编辑器里 Ctrl+Z
+gd command node_set --path Player --properties '{"position":[100,50]}'
+gd command edit_undo       # 撤销上一步
+gd command scene_save
+gd host start              # 没开编辑器时，起一个无头编辑器当宿主；gd host stop 关闭
 gd run --headless --seconds 5   # 不开编辑器跑 5 秒，返回报错
 gd check scripts/player.gd      # 检查脚本
 gd api class CharacterBody2D    # 查当前版本的接口

@@ -236,7 +236,7 @@ async function liveChecks() {
 
     const list = gd(["list"]);
     const names = (list.envelope?.data?.commands ?? []).map((command) => command.name);
-    check(list.status === 0 && names.includes("scene_tree") && names.includes("node_get"), "list", names);
+    check(list.status === 0 && names.includes("scene_tree") && names.includes("node_create"), "list", names);
 
     const tree = gd(["command", "scene_tree", "--max-depth", "1"]);
     check(tree.status === 0 && tree.envelope?.data?.tree?.name === "Main", "command scene_tree", tree.envelope);
@@ -277,10 +277,98 @@ async function liveChecks() {
   }
 }
 
+const ENEMY_SCRIPT = "extends CharacterBody2D\n\n\nfunc _ready() -> void:\n\tvar target: Node = null\n\ttarget.queue_free()\n";
+
+/**
+ * Acceptance test of roadmap phase 3: with nothing but gd, build a scene with
+ * a script, undo a step, save, then run it and get the script's error back.
+ * The editor is a headless host that gd starts and stops itself.
+ */
+async function buildSceneFromTheCommandLine() {
+  let hostPid;
+  try {
+    const started = gd(["host", "start", "--wait", "120"]);
+    hostPid = started.envelope?.data?.pid;
+    check(started.status === 0 && started.envelope?.data?.started === true && started.envelope?.data?.headless === true, "host start", started.envelope);
+
+    const script = gd(["command", "fs_write_text", "--args", JSON.stringify({ path: "res://scripts/enemy.gd", text: ENEMY_SCRIPT })]);
+    check(script.status === 0 && script.envelope?.data?.created === true, "write a script", script.envelope);
+
+    const scene = gd(["command", "scene_new", "--path", "res://levels/level.tscn", "--root-type", "Node2D"]);
+    check(scene.status === 0 && scene.envelope?.data?.scene === "res://levels/level.tscn", "create a scene", scene.envelope);
+
+    const node = gd(["command", "node_create", "--type", "CharacterBody2D", "--name", "Enemy", "--properties", '{"position":[10,20]}']);
+    check(node.status === 0 && node.envelope?.meta?.undo === "gdcli: node_create Enemy", "create a node", node.envelope);
+    check(node.envelope?.meta?.scene === "res://levels/level.tscn", "the envelope names the scene that was changed", node.envelope?.meta);
+
+    const attached = gd(["command", "node_attach_script", "--path", "Enemy", "--script", "res://scripts/enemy.gd"]);
+    check(attached.status === 0, "attach the script", attached.envelope);
+
+    gd(["command", "node_set", "--path", "Enemy", "--properties", '{"position":[99,99]}']);
+    const undone = gd(["command", "edit_undo"]);
+    const position = gd(["command", "node_get", "--path", "Enemy", "--properties", '["position"]']);
+    check(undone.envelope?.data?.undone === "gdcli: node_set Enemy", "undo a step", undone.envelope);
+    check(JSON.stringify(position.envelope?.data?.properties?.position?.value) === "[10,20]", "the undone change is gone", position.envelope?.data);
+
+    const dryRun = gd(["command", "node_delete", "--path", "Enemy", "--dry-run"]);
+    const stillThere = gd(["command", "node_get", "--path", "Enemy", "--properties", "[]"]);
+    check(dryRun.envelope?.data?.dry_run === true && stillThere.status === 0, "--dry-run deletes nothing", dryRun.envelope);
+
+    const saved = gd(["command", "scene_save"]);
+    check(saved.status === 0 && existsSync(join(project, "levels", "level.tscn")), "save the scene", saved.envelope);
+
+    const refused = gd(["command", "fs_delete", "--path", "res://scripts/good.gd"]);
+    check(refused.status === 4 && refused.envelope?.errors?.[0]?.code === "CONFIRMATION_REQUIRED", "a destructive command asks first", refused.status);
+    const confirmed = gd(["command", "fs_delete", "--path", "res://scripts/good.gd", "--yes"]);
+    check(confirmed.status === 0 && !existsSync(join(project, "scripts", "good.gd")), "and runs with --yes", confirmed.envelope);
+
+    const evaluated = gd(["eval", "return 1", "--yes"]);
+    check(evaluated.status === 4 && evaluated.envelope?.errors?.[0]?.code === "EVAL_DISABLED", "eval is off unless enabled", evaluated.envelope?.errors);
+
+    const stopped = gd(["host", "stop"]);
+    check(stopped.status === 0 && stopped.envelope?.data?.quitting === true, "host stop", stopped.envelope);
+    const deadline = Date.now() + 30_000;
+    let gone = false;
+    while (!gone && Date.now() < deadline) {
+      await sleep(POLL_INTERVAL_MS);
+      gone = gd(["status"]).envelope?.errors?.[0]?.code === "NO_EDITOR";
+    }
+    check(gone, "the host is gone after host stop");
+    if (gone) {
+      hostPid = undefined;
+    }
+
+    // The scene built above, run without any editor.
+    const run = gd(["run", "levels/level.tscn", "--headless", "--seconds", "8"]);
+    const diagnostics = run.envelope?.data?.diagnostics ?? [];
+    check(run.status === 6, "the built scene runs and its error is reported", run.status);
+    check(
+      diagnostics.some((entry) => entry.severity === "error" && entry.file === "res://scripts/enemy.gd" && entry.line === 6),
+      "the error points at the script line",
+      diagnostics,
+    );
+  } catch (error) {
+    failures.push(error instanceof Error ? error.message : String(error));
+  } finally {
+    if (hostPid !== undefined) {
+      if (process.platform === "win32") {
+        spawnSync("taskkill", ["/pid", String(hostPid), "/T", "/F"], { stdio: "ignore" });
+      } else {
+        try {
+          process.kill(hostPid, "SIGKILL");
+        } catch {
+          // Already gone.
+        }
+      }
+    }
+  }
+}
+
 try {
   writeProject();
   offlineChecks();
   await liveChecks();
+  await buildSceneFromTheCommandLine();
 } finally {
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
 }

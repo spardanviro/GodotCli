@@ -1,0 +1,161 @@
+extends "res://tests/suite.gd"
+
+const ValueDecoder = preload("res://addons/gdcli/core/value_decoder.gd")
+
+var _nodes: Array[Node] = []
+
+
+func cleanup() -> void:
+	for node in _nodes:
+		node.free()
+	_nodes.clear()
+
+
+func _value(raw: Variant, type: int, info: Dictionary = {}) -> Variant:
+	var decoded := ValueDecoder.new().decode(raw, type, info)
+	return decoded["value"] if decoded["ok"] else "FAILED:" + decoded["error"]["code"]
+
+
+func _fails(raw: Variant, type: int, info: Dictionary = {}) -> bool:
+	return not ValueDecoder.new().decode(raw, type, info)["ok"]
+
+
+func test_value_decoder_json_numbers_become_the_property_type() -> void:
+	equal(_value(3.0, TYPE_INT), 3, "integral float to int")
+	equal(_value(3, TYPE_FLOAT), 3.0, "int to float")
+	equal(_value(true, TYPE_BOOL), true, "bool")
+	equal(_value("text", TYPE_STRING), "text", "string")
+	equal(_value("jump", TYPE_STRING_NAME), &"jump", "string name")
+	equal(_value("../Target", TYPE_NODE_PATH), NodePath("../Target"), "node path")
+
+
+func test_value_decoder_wrong_json_types_are_rejected() -> void:
+	check(_fails(1.5, TYPE_INT), "fraction as int")
+	check(_fails(1e30, TYPE_INT), "float beyond exact integers")
+	check(_fails("3", TYPE_INT), "string as int")
+	check(_fails(1, TYPE_BOOL), "number as bool")
+	check(_fails(1, TYPE_STRING), "number as string")
+	check(_fails("x", TYPE_FLOAT), "string as float")
+
+
+func test_value_decoder_vectors_accept_arrays_objects_and_tags() -> void:
+	equal(_value([10, 20], TYPE_VECTOR2), Vector2(10, 20), "array")
+	equal(_value({"x": 1, "y": 2}, TYPE_VECTOR2), Vector2(1, 2), "object")
+	equal(_value({"$type": "Vector2", "value": [3, 4]}, TYPE_VECTOR2), Vector2(3, 4), "tagged")
+	equal(_value([1, 2, 3], TYPE_VECTOR3I), Vector3i(1, 2, 3), "integer vector")
+	equal(_value([0, 0, 0, 1], TYPE_QUATERNION), Quaternion(0, 0, 0, 1), "quaternion")
+	equal(_value([1, 2, 3, 4], TYPE_RECT2), Rect2(1, 2, 3, 4), "rect")
+
+
+func test_value_decoder_malformed_vectors_are_rejected() -> void:
+	check(_fails([1], TYPE_VECTOR2), "too few numbers")
+	check(_fails([1, 2, 3], TYPE_VECTOR2), "too many numbers")
+	check(_fails([1, "2"], TYPE_VECTOR2), "not a number")
+	check(_fails({"x": 1}, TYPE_VECTOR2), "missing component")
+	check(_fails([1.5, 2], TYPE_VECTOR2I), "fraction in an integer vector")
+	check(_fails({"$type": "Vector3", "value": [1, 2, 3]}, TYPE_VECTOR2), "tag of another type")
+	check(_fails({"$type": "Nonsense", "value": 1}, TYPE_NIL), "unknown tag")
+
+
+func test_value_decoder_colors_accept_html_names_and_arrays() -> void:
+	equal(_value("#ff8000", TYPE_COLOR), Color.html("#ff8000"), "html")
+	equal(_value("red", TYPE_COLOR), Color.RED, "name")
+	equal(_value([1, 0.5, 0], TYPE_COLOR), Color(1, 0.5, 0, 1), "rgb array")
+	equal(_value([1, 0.5, 0, 0.25], TYPE_COLOR), Color(1, 0.5, 0, 0.25), "rgba array")
+	check(_fails("not-a-colour", TYPE_COLOR), "unknown name")
+	check(_fails([1, 2], TYPE_COLOR), "short array")
+
+
+func test_value_decoder_enums_accept_member_names() -> void:
+	var info := {"hint": PROPERTY_HINT_ENUM, "hint_string": "Idle,Walk:4,Run"}
+
+	equal(_value("Idle", TYPE_INT, info), 0, "first member")
+	equal(_value("walk", TYPE_INT, info), 4, "explicit value, any case")
+	equal(_value("Run", TYPE_INT, info), 5, "counts on from the explicit value")
+	equal(_value(4, TYPE_INT, info), 4, "numbers still work")
+	check(_fails("Fly", TYPE_INT, info), "unknown member")
+	check(_fails("Idle", TYPE_INT), "a name without an enumeration")
+
+
+func test_value_decoder_new_builds_only_code_free_builtin_resources() -> void:
+	var shape: Variant = _value({"$new": "RectangleShape2D", "properties": {"size": [32, 16]}}, TYPE_OBJECT)
+
+	check(shape is RectangleShape2D, "built-in resource is created")
+	equal(shape.size, Vector2(32, 16), "with its properties converted")
+	for forbidden in ["GDScript", "Script", "PackedScene", "Node", "Object", "NoSuchClass", "EditorPlugin"]:
+		check(_fails({"$new": forbidden}, TYPE_OBJECT), "$new %s" % forbidden)
+
+
+func test_value_decoder_script_property_cannot_be_set() -> void:
+	var decoder := ValueDecoder.new()
+	var node := Node2D.new()
+	_nodes.append(node)
+
+	var direct := decoder.decode_properties(node, {"script": null})
+	var nested := decoder.decode({"$new": "RectangleShape2D", "properties": {"script": {"$res": "res://x.gd"}}}, TYPE_OBJECT)
+
+	equal(direct["ok"], false, "on a node")
+	equal(direct["error"]["code"], "TYPE_MISMATCH", "code")
+	equal(nested["ok"], false, "inside $new")
+
+
+func test_value_decoder_res_goes_through_the_path_policy() -> void:
+	for path in ["res://../outside.tres", "user://x.tres", "res://.godot/x.res", "C:/x.tres"]:
+		var decoded := ValueDecoder.new().decode({"$res": path}, TYPE_OBJECT)
+		equal(decoded["ok"], false, path)
+		equal(decoded["error"]["code"], "PATH_NOT_ALLOWED", path)
+	equal(ValueDecoder.new().decode({"$res": "res://nowhere.tres"}, TYPE_OBJECT)["error"]["code"], "RESOURCE_NOT_FOUND", "missing file")
+
+
+func test_value_decoder_res_loads_and_checks_the_resource_class() -> void:
+	var texture_only := {"hint": PROPERTY_HINT_RESOURCE_TYPE, "hint_string": "Texture2D"}
+	var scene_ok := {"hint": PROPERTY_HINT_RESOURCE_TYPE, "hint_string": "PackedScene"}
+	var reference := {"$res": "res://tests/fixtures/main.tscn"}
+
+	check(_value(reference, TYPE_OBJECT, scene_ok) is PackedScene, "matching class loads")
+	check(_fails(reference, TYPE_OBJECT, texture_only), "wrong class is refused")
+	equal(_value(null, TYPE_OBJECT, texture_only), null, "null clears the property")
+
+
+func test_value_decoder_node_references_resolve_inside_the_scene() -> void:
+	var root := Node.new()
+	var child := Node.new()
+	child.name = "Child"
+	root.add_child(child)
+	_nodes.append(root)
+	var decoder := ValueDecoder.new(root)
+
+	equal(decoder.decode({"$node": "Child"}, TYPE_OBJECT)["value"], child, "existing node")
+	equal(decoder.decode({"$node": "Ghost"}, TYPE_OBJECT)["error"]["code"], "NODE_NOT_FOUND", "missing node")
+	equal(decoder.decode({"$node": ".."}, TYPE_OBJECT)["error"]["code"], "NODE_NOT_FOUND", "outside the scene")
+
+
+func test_value_decoder_untyped_targets_keep_json_and_honour_tags() -> void:
+	equal(_value({"a": [1, {"$type": "Vector2", "value": [1, 2]}]}, TYPE_NIL), {"a": [1.0 if false else 1, Vector2(1, 2)]}, "nested tag")
+	equal(_value("plain", TYPE_NIL), "plain", "string")
+	equal(_value([{"$type": "Color", "value": "#ff0000"}], TYPE_ARRAY), [Color.RED], "array elements")
+
+
+func test_value_decoder_properties_report_the_offending_name() -> void:
+	var node := Node2D.new()
+	_nodes.append(node)
+	var decoder := ValueDecoder.new()
+
+	var good := decoder.decode_properties(node, {"position": [1, 2], "visible": false})
+	var unknown := decoder.decode_properties(node, {"positoin": [1, 2]})
+	var wrong := decoder.decode_properties(node, {"position": "far away"})
+
+	equal(good["values"], {"position": Vector2(1, 2), "visible": false}, "converted values")
+	equal(node.position, Vector2.ZERO, "the object itself is not touched")
+	equal(unknown["error"]["code"], "INVALID_ARGS", "unknown property")
+	equal(wrong["error"]["code"], "TYPE_MISMATCH", "wrong value")
+	equal(wrong["error"]["details"]["property"], "position", "names the property")
+
+
+func test_value_decoder_unsupported_and_too_deep_values_fail_cleanly() -> void:
+	var deep: Variant = 1
+	for level in ValueDecoder.MAX_DEPTH + 4:
+		deep = [deep]
+
+	check(_fails([1, 0, 0, 1, 0, 0], TYPE_TRANSFORM2D), "a type without a JSON form yet")
+	check(_fails(deep, TYPE_ARRAY), "nesting beyond the limit")

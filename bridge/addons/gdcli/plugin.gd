@@ -1,16 +1,24 @@
 @tool
 extends EditorPlugin
 
+const AccessPolicy = preload("core/access_policy.gd")
 const Bridge = preload("core/bridge.gd")
+const CustomCommands = preload("core/custom_commands.gd")
+const ErrorLog = preload("core/error_log.gd")
 const EditorContext = preload("core/editor_context.gd")
 const HttpServer = preload("core/http_server.gd")
 const LockFile = preload("core/lock_file.gd")
 const Registry = preload("core/registry.gd")
 const EditorCommands = preload("commands/editor_commands.gd")
+const EditorControlCommands = preload("commands/editor_control_commands.gd")
 const FsCommands = preload("commands/fs_commands.gd")
+const FsEditCommands = preload("commands/fs_edit_commands.gd")
 const NodeCommands = preload("commands/node_commands.gd")
+const NodeEditCommands = preload("commands/node_edit_commands.gd")
 const ProjectCommands = preload("commands/project_commands.gd")
+const ProjectEditCommands = preload("commands/project_edit_commands.gd")
 const SceneCommands = preload("commands/scene_commands.gd")
+const SceneEditCommands = preload("commands/scene_edit_commands.gd")
 
 # Kept in step with plugin.cfg, cli/package.json and cli/src/protocol.ts
 # by scripts/check-versions.mjs.
@@ -19,9 +27,17 @@ const PROTOCOL := 1
 
 const INSTANCE_ID_BYTES := 8
 const TOKEN_BYTES := 32
+# A headless host started by gd quits by itself when nobody talks to it.
+const HOST_IDLE_EXIT_MSEC := 30 * 60 * 1000
+const IDLE_CHECK_SECONDS := 30.0
 
 var _server: HttpServer
 var _lock_file: LockFile
+var _bridge: Bridge
+var _context: EditorContext
+var _error_log: RefCounted
+var _custom_commands: CustomCommands
+var _idle_check_in := IDLE_CHECK_SECONDS
 # Command handlers are Callables, which do not keep their objects alive.
 var _command_sets: Array = []
 
@@ -34,7 +50,9 @@ func _enter_tree() -> void:
 		push_error("gdcli: no secure random numbers available; the bridge is not running.")
 		return
 
-	var context := EditorContext.new()
+	_error_log = ErrorLog.create()
+	var context := EditorContext.new(self, _error_log, LockFile.home_dir())
+	_context = context
 	var registry := Registry.new()
 	_command_sets = [
 		EditorCommands.new(context),
@@ -42,15 +60,27 @@ func _enter_tree() -> void:
 		NodeCommands.new(context),
 		FsCommands.new(),
 		ProjectCommands.new(),
+		NodeEditCommands.new(context),
+		SceneEditCommands.new(context),
+		FsEditCommands.new(context),
+		ProjectEditCommands.new(context),
+		EditorControlCommands.new(context),
 	]
 	for command_set in _command_sets:
 		command_set.register(registry)
+	# Project code is not loaded in read-only mode: what it does cannot be vetted.
+	var startup_warnings := []
+	if context.access_mode() != AccessPolicy.MODE_READONLY:
+		_custom_commands = CustomCommands.new(context)
+		startup_warnings.append_array(_custom_commands.load_into(registry))
 
 	var identity := {"instance_id": instance_id, "protocol": PROTOCOL, "bridge_version": BRIDGE_VERSION}
 	var bridge := Bridge.new(registry, context, identity, token)
+	_bridge = bridge
 	var ignored: Array = context.ignored_project_settings()
 	if not ignored.is_empty():
-		bridge.set_startup_warnings(["Project settings under gdcli/ are ignored; access is set in the editor settings."])
+		startup_warnings.append("Project settings under gdcli/ are ignored; access is set in the editor settings.")
+	bridge.set_startup_warnings(startup_warnings)
 
 	# Listen first: the lock file must never point at a port nobody answers on.
 	_server = HttpServer.new()
@@ -75,12 +105,25 @@ func _exit_tree() -> void:
 	if _server != null:
 		_server.stop()
 		_server = null
+	if _error_log != null:
+		_error_log.stop()
+		_error_log = null
 	_command_sets = []
+	_custom_commands = null
+	_bridge = null
+	_context = null
 
 
-func _process(_delta: float) -> void:
-	if _server != null:
-		_server.poll()
+func _process(delta: float) -> void:
+	if _server == null:
+		return
+	_server.poll()
+	_idle_check_in -= delta
+	if _idle_check_in <= 0.0:
+		_idle_check_in = IDLE_CHECK_SECONDS
+		if _context.is_host() and _bridge.idle_msec() > HOST_IDLE_EXIT_MSEC:
+			print("gdcli: no requests for a while; the headless host is quitting.")
+			get_tree().quit()
 
 
 func _lock_fields(identity: Dictionary, port: int, token: String, headless: bool) -> Dictionary:

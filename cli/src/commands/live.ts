@@ -7,7 +7,7 @@ import { type Envelope, type EnvelopeError, errorOf, isEnvelopeError, success } 
 import { type Instance, readInstances } from "../instances.js";
 import { findProject, gdcliHome, samePath } from "../project.js";
 import { sanitize } from "../text.js";
-import { dataAsText, fail, usage } from "./shared.js";
+import { dataAsText, fail, parseCommandArgs, usage } from "./shared.js";
 
 interface Descriptor {
   readonly name: string;
@@ -105,8 +105,16 @@ function coerce(raw: string, type: string | undefined): unknown {
       } catch {
         return raw;
       }
-    default:
+    case "string":
       return raw;
+    default:
+      // A parameter without a declared type takes any JSON value, e.g. the
+      // value of project_settings_set; anything that is not JSON is a string.
+      try {
+        return JSON.parse(raw) as unknown;
+      } catch {
+        return raw;
+      }
   }
 }
 
@@ -205,6 +213,52 @@ async function runBridgeCommand(
   });
   return { envelope: withWarnings(envelope, resolved.warnings), human: dataAsText(envelope) };
 }
+
+/** Calls one bridge command with arguments that are already an object. */
+export async function invokeBridge(
+  context: Context,
+  globals: GlobalOptions,
+  name: string,
+  args: Readonly<Record<string, unknown>>,
+): Promise<CommandResult> {
+  const resolved = await resolveInstance(context, globals);
+  if (isEnvelopeError(resolved)) {
+    return fail(name, resolved);
+  }
+  const envelope = await callCommand(resolved.instance, name, {
+    args,
+    confirm: globals.yes,
+    dryRun: globals.dryRun,
+    timeoutMs: timeoutOf(globals),
+  });
+  return { envelope: withWarnings(envelope, resolved.warnings), human: dataAsText(envelope) };
+}
+
+/**
+ * `gd eval <code>` or `gd eval --file <path>`: run GDScript in the editor.
+ * The bridge refuses unless the user enabled it in the editor settings, and
+ * in the standard access mode it also needs --yes.
+ */
+export const evalCommand: CommandHandler = async (context, globals, args) => {
+  const parsed = parseCommandArgs(args, { file: { type: "string" } });
+  if (typeof parsed === "string") {
+    return usage("eval", parsed);
+  }
+  const file = parsed.values["file"];
+  const inline = parsed.positionals[0];
+  if ((typeof file === "string") === (inline !== undefined) || parsed.positionals.length > 1) {
+    return usage("eval", "Give the code as one argument, or --file <path>.");
+  }
+  let code = inline ?? "";
+  if (typeof file === "string") {
+    try {
+      code = readFileSync(resolve(context.cwd, file), "utf8");
+    } catch {
+      return fail("eval", errorOf("RESOURCE_NOT_FOUND", "The file given to --file could not be read.", undefined, { file }));
+    }
+  }
+  return invokeBridge(context, globals, "eval", { code });
+};
 
 /** `gd command <name> [--arg value ...]`; without a name it lists the commands. */
 export const commandCommand: CommandHandler = async (context, globals, args) => {

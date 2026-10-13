@@ -21,6 +21,7 @@ var _token: String
 var _token_digest: String
 var _port := 0
 var _startup_warnings: Array = []
+var _last_command_msec := Time.get_ticks_msec()
 var _nonce_regex := RegEx.create_from_string(NONCE_PATTERN)
 
 
@@ -95,8 +96,14 @@ func _ping(query: Dictionary) -> Dictionary:
 	return _respond(200, Envelope.success("ping", data, _meta(), _startup_warnings))
 
 
+## Milliseconds since the last command, for hosts that exit when idle.
+func idle_msec() -> int:
+	return Time.get_ticks_msec() - _last_command_msec
+
+
 func _run_command(name: String, body: PackedByteArray) -> Dictionary:
 	var started := Time.get_ticks_msec()
+	_last_command_msec = started
 	var reply := _execute(name, body)
 	var meta := _meta()
 	meta["duration_ms"] = Time.get_ticks_msec() - started
@@ -105,6 +112,8 @@ func _run_command(name: String, body: PackedByteArray) -> Dictionary:
 		meta["scene"] = TextSanitizer.clean_line(scene)
 
 	if reply["ok"]:
+		if reply.has("undo"):
+			meta["undo"] = TextSanitizer.clean_line(str(reply["undo"]))
 		return _respond(200, Envelope.success(name, reply["data"], meta, reply.get("warnings", [])))
 	var error: Dictionary = reply["error"]
 	return _respond(Envelope.http_status_for(error["code"]), Envelope.failure(name, error, meta))
@@ -119,7 +128,7 @@ func _execute(name: String, body: PackedByteArray) -> Dictionary:
 
 	var descriptor: Dictionary = _registry.descriptor_of(name)
 	var denied := AccessPolicy.decide(
-		descriptor["risk"], _context.access_mode(), _context.allow_eval(), payload["confirm"]
+		descriptor["risk"], _context.access_mode(), _context.allow_eval(), payload["confirm"], payload["dry_run"]
 	)
 	if not denied.is_empty():
 		return denied
@@ -130,7 +139,16 @@ func _execute(name: String, body: PackedByteArray) -> Dictionary:
 	if not validated["ok"]:
 		return validated
 
-	var reply: Variant = _registry.handler_of(name).call(validated["args"])
+	# Read commands take only their arguments; commands that change something
+	# also get the request options, so they can plan (dry_run) or insist on a
+	# confirmation for sensitive targets.
+	var handler: Callable = _registry.handler_of(name)
+	var reply: Variant
+	if descriptor["risk"] == AccessPolicy.RISK_READ:
+		reply = handler.call(validated["args"])
+	else:
+		var options := {"dry_run": payload["dry_run"], "confirm": payload["confirm"], "mode": _context.access_mode()}
+		reply = handler.call(validated["args"], options)
 	if not (reply is Dictionary and reply.has("ok")):
 		return Reply.fail("INTERNAL_ERROR", "The command did not return a reply.")
 	return reply

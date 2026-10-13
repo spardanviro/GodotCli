@@ -78,6 +78,9 @@ export function fakeProcesses(
     stopAll() {
       // Nothing is ever really started.
     },
+    isAlive() {
+      return true;
+    },
   };
 }
 

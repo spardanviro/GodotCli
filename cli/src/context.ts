@@ -27,6 +27,8 @@ export interface ProcessRunner {
   startDetached(file: string, args: readonly string[], cwd: string): number | undefined;
   /** Stops every process started with run() that is still alive. */
   stopAll(): void;
+  /** Whether a process with this id exists. */
+  isAlive(pid: number): boolean;
 }
 
 /** Everything a command needs from the outside world; replaced in tests. */

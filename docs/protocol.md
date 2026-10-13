@@ -181,6 +181,8 @@ HTTP 解析是手写的，所以把它能接受的东西限定得很窄，其余
 
 必须说清楚的一点：**`standard` 模式下，智能体拥有在编辑器和游戏里执行代码的能力。** 写脚本是开发游戏的本职，脚本被编辑器或游戏加载就会运行；而且智能体通常还有自己的文件读写工具，不经过桥接也能改项目。所以风险分级是**护栏，不是沙箱**：它让常规路径不出事故，让危险动作必须显式表态，但拦不住一个存心绕过的调用方。真正有约束力的只有两样：`readonly` 模式（桥接不做任何修改），以及 `ask` 模式下由人在编辑器里点确认。
 
+具体地说，`eval` 关着并不等于"不能立即在编辑器里执行代码"。带 `@tool` 的脚本一被加载就在编辑器进程里运行：写一个这样的脚本，再让任何东西加载它（挂到节点上、被资源文件引用、打开用到它的场景），效果就和 `eval` 一样，而且这段代码还能去改编辑器设置里的访问模式。桥接对此只做一件事：通过 `fs_write_text` 写带 `@tool` 的脚本需要确认。这同样是减速带；智能体用自己的文件工具写就绕过去了。
+
 ### 4.2 每个请求的检查顺序
 
 请求头读完后依次检查，任何一步不过就直接响应并断开，不读正文：
@@ -202,7 +204,7 @@ HTTP 解析是手写的，所以把它能接受的东西限定得很窄，其余
 | `read` | 不改变任何状态 | 场景树、节点属性、报错列表 |
 | `write` | 修改，可撤销或影响有限。**包括写脚本** | 建节点、设属性、保存场景、写 `.gd` 文件 |
 | `destructive` | 删除、覆盖，或改动会影响编辑器和项目如何加载的东西 | 删文件、覆盖已有文件、改项目设置、写入 4.4 节列出的敏感路径 |
-| `exec` | 立即在编辑器进程里执行调用方给的代码 | `eval` |
+| `exec` | 把调用方给的代码直接交给编辑器进程执行，不经过文件 | `eval` |
 
 访问模式存在**编辑器设置**里（每个用户一份，不随项目走）：`gdcli/access/mode` 和 `gdcli/access/allow_eval`。
 
@@ -231,6 +233,8 @@ HTTP 解析是手写的，所以把它能接受的东西限定得很窄，其余
 
 **读写都禁止**的位置：`res://.godot/`（含导出凭据）、`res://.git/`。
 
+**禁止写入**任何深度的 `.git` 文件夹（嵌套仓库的钩子和配置会被 git 执行）。
+
 **禁止写入**的位置：`res://addons/gdcli/`。
 
 **敏感路径**，写入、覆盖、移动、删除一律按 `destructive` 处理，不管命令本身声明的是什么等级：
@@ -239,6 +243,8 @@ HTTP 解析是手写的，所以把它能接受的东西限定得很窄，其余
 - `res://addons/` 下的任何文件
 - `res://gdcli_commands/` 下的任何文件
 - 扩展名为 `.gdextension` 的文件
+- 任何位置的 `.gitmodules`、`.gitattributes`
+- 内容带 `@tool` 的 `.gd` 脚本（按内容判断，见 4.1）
 
 项目设置里的 `autoload/*`、`editor_plugins/*`、`application/run/main_scene` 同理，这也是 `project_settings_set` 整体定为 `destructive` 的原因。
 
@@ -388,6 +394,8 @@ HTTP 状态码与类别对应（`200` 成功、`400` 参数、`401` 认证、`40
 - `params` 是 JSON Schema 的子集，只用这些关键字：`type`、`properties`、`required`、`enum`、`default`、`description`、`items`、`minimum`、`maximum`。这样第 5 阶段可以原样作为 MCP 工具的输入结构。
 - `requires` 是前置条件标识，第 1 版有 `scene_open`、`not_playing`、`playing`。不满足返回 `PRECONDITION_FAILED`。
 - `undoable: false` 的修改类命令（建文件、保存场景、改项目设置）在响应的 `warnings` 里说明"此操作不进撤销栈"。
+- 修改类命令的处理函数除参数外还会收到请求选项（`dry_run`、`confirm`、当前访问模式），只读命令只收到参数。
+- 产生撤销步骤的命令在 `meta.undo` 里给出步骤名。
 
 命令行把 `--键 值` 按结构转换成 `args`（数字、布尔按 `type` 转换）。复杂参数用 `--args '<JSON>'`，或 `--args-file <文件>`，`-` 表示标准输入。
 
@@ -432,7 +440,7 @@ JSON 能直接表示的类型原样传。其余类型：
 - 转换失败返回 `TYPE_MISMATCH`，`details` 里给出属性的期望类型和收到的值。
 - **不使用 `str_to_var`**。它能按文本构造任意对象，等于给了一条绕过 `exec` 分级的代码执行路径。
 - 为了不让 `$new` 和 `$res` 变成同样的旁路：
-  - `$new` 只能构造引擎原生的 `Resource` 子类。`Script` 及其子类、`PackedScene`、`GDExtension` 不能用 `$new` 构造，也就是说**不能凭空造出一段代码**，代码只能来自项目里的文件。
+  - `$new` 只能构造引擎原生的 `Resource` 子类。`Script` 及其子类、`PackedScene`、`GDExtension` 不能用 `$new` 构造，也就是说**不能凭空造出一段代码**，代码只能来自项目里的文件。反过来说，`$res` 加载的资源如果引用了带 `@tool` 的脚本，那段脚本会在加载时运行（见 4.1）。
   - `$res` 的路径要过第 4.4 节的检查。
   - 任何命令都不接受直接设置 `script` 属性（包括嵌套在 `properties` 里的）。挂脚本只有 `node_attach_script` 一个入口，参数是项目内脚本文件的路径。
 - Godot 的 JSON 解析把所有数字读成浮点数，桥接按目标类型还原成整数。超出 ±2^53 的整数在输出里用 `{"$type":"int","value":"<十进制字符串>"}`。
@@ -450,17 +458,19 @@ JSON 能直接表示的类型原样传。其余类型：
 | node | `node_get`、`node_find` | read | 1 |
 | fs | `fs_list`、`fs_read_text` | read | 1 |
 | project | `project_settings_get`、`project_input_map` | read | 1 |
-| editor | `editor_screenshot`、`editor_errors`（需要 4.5 的日志接口，更早的版本返回 `UNSUPPORTED_GODOT_VERSION`） | read | 3 |
+| editor | `editor_errors`（需要 4.5 的日志接口，更早的版本返回 `UNSUPPORTED_GODOT_VERSION`） | read | 3 |
+| editor | `editor_screenshot`（图片存到 `~/.gdcli/screenshots/`，只留最近 20 张；无头宿主不可用） | write | 3 |
 | scene | `scene_open`、`scene_new`、`scene_save` | write | 3 |
 | node | `node_create`、`node_set`、`node_rename`、`node_move`、`node_duplicate`、`node_attach_script`、`node_connect_signal`、`node_add_to_group`、`node_instantiate_scene` | write | 3 |
 | node | `node_delete` | write（可撤销） | 3 |
-| resource | `resource_create`、`resource_set` | write | 3 |
+| resource | `resource_create`、`resource_set`（不进撤销栈） | write | 3 |
 | fs | `fs_write_text`、`fs_scan` | write | 3 |
-| fs | `fs_delete`、`fs_move` | destructive | 3 |
+| fs | `fs_delete`（移到系统回收站，可找回）、`fs_move`（不更新其他文件里的引用） | destructive | 3 |
 | project | `project_settings_set`、`project_input_map_set` | destructive | 3 |
 | edit | `edit_undo`、`edit_redo` | write | 3 |
 | editor | `editor_play`、`editor_stop` | write | 3 |
 | exec | `eval` | exec | 3 |
+| host | `host_quit`（只对 `gd host start` 拉起的无头宿主有效） | write | 3 |
 
 表里是命令的基础等级。目标落在第 4.4 节的敏感路径上时，`fs_write_text` 等命令按 `destructive` 处理；覆盖已有文件同样如此。
 
@@ -468,7 +478,23 @@ JSON 能直接表示的类型原样传。其余类型：
 
 ### 6.6 项目自定义命令
 
-项目可以在 `res://gdcli_commands/` 放脚本来注册自己的命令。脚本提供描述符和执行函数，接口在第 3 阶段定稿。自定义命令是项目自己的编辑器代码，信任等级与项目里任何 `@tool` 脚本相同。
+项目可以在 `res://gdcli_commands/` 放脚本来注册自己的命令。自定义命令是项目自己的编辑器代码，信任等级与项目里任何 `@tool` 脚本相同。
+
+脚本必须以 `@tool` 开头（编辑器里没有它的脚本无法实例化），继承 `RefCounted`，并提供两个函数：
+
+```gdscript
+@tool
+extends RefCounted
+
+func descriptor() -> Dictionary:
+    return {"name": "level_stats", "summary": "…", "risk": "write",
+            "params": {"type": "object", "properties": {}}}
+
+func run(args: Dictionary, options: Dictionary) -> Variant:
+    return {"enemies": 3}
+```
+
+`options` 里有 `dry_run`、`confirm`、`mode`。返回值会按第 6.4 节编码。返回 `{"ok": false, "error": {...}}` 表示失败：桥接把它报告为 `COMMAND_FAILED`，`message` 用桥接自己的固定文案，脚本给的 `code`、`message`、`hint` 清洗后放进 `details`（`reported_code` 等），因为调用方信任 `message` 和 `hint` 出自桥接。加载失败的脚本不会让桥接起不来，原因会出现在握手响应的 `warnings` 里。
 
 约束：
 
@@ -492,10 +518,11 @@ JSON 能直接表示的类型原样传。其余类型：
 
 实现时验证，结论回填到本文：
 
-1. 无头编辑器宿主里哪些命令不可用（已知：截图）。`editor_status` 要返回 `capabilities` 列表。
-2. Flatpak 等沙箱版 Godot 能否写到 `~/.gdcli`。不能则需要 `GDCLI_HOME` 的文档说明。
-3. `DirAccess.is_link` 对 Windows 的目录联接（junction）是否返回真。不是的话第 4.4 节的链接检查在 Windows 上要另找办法。
-4. 同一台机器开第二个编辑器时，语言服务器和调试适配器的默认端口会冲突并报错。`gd host start` 已经显式指定端口；带界面的第二个实例是否需要处理，待定。
+1. Flatpak 等沙箱版 Godot 能否写到 `~/.gdcli`。不能则需要 `GDCLI_HOME` 的文档说明。
+2. `DirAccess.is_link` 对 Windows 的目录联接（junction）是否返回真。不是的话第 4.4 节的链接检查在 Windows 上要另找办法。
+3. 同一台机器开第二个编辑器时，语言服务器和调试适配器的默认端口会冲突并报错。`gd host start` 已经显式指定端口；带界面的第二个实例是否需要处理，待定。
+
+已验证：无头宿主里除截图外的命令都可用（端到端测试整套跑在无头编辑器上）；`editor_status` 的 `capabilities` 在有窗口时含 `screenshot`。
 
 已验证：`--check-only` 对普通脚本能给出带文件和行号的解析报错，出错时退出码非零。引擎在脚本运行时报错后退出码仍是 0，所以 `gd run` 以解析输出为准。
 

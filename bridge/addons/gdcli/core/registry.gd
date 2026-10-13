@@ -5,7 +5,7 @@ extends RefCounted
 const AccessPolicy = preload("access_policy.gd")
 
 const PROTOCOL_SINCE := 1
-const _NAME_PATTERN := "^[a-z][a-z0-9_]*$"
+const _NAME_PATTERN := "^[a-z][a-z0-9_]*\\z"
 
 var _entries := {}
 var _name_regex := RegEx.create_from_string(_NAME_PATTERN)
@@ -24,6 +24,10 @@ func register(descriptor: Dictionary, handler: Callable) -> void:
 	complete["params"] = descriptor.get("params", {"type": "object", "properties": {}})
 	complete["since"] = descriptor.get("since", PROTOCOL_SINCE)
 	_entries[name] = {"descriptor": complete, "handler": handler}
+
+
+func is_valid_name(name: String) -> bool:
+	return _name_regex.search(name) != null
 
 
 func has(name: String) -> bool:

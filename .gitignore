@@ -12,3 +12,4 @@ export_presets.cfg
 
 # Local tooling
 .claude/settings.local.json
+bridge/tests/tmp/

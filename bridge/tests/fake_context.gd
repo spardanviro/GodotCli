@@ -41,3 +41,74 @@ func access_mode() -> String:
 
 func allow_eval() -> bool:
 	return eval_allowed
+
+
+# --- used by the commands that change something ------------------------------
+
+const FakeUndo = preload("res://tests/fake_undo.gd")
+
+var undo := FakeUndo.new()
+var opened: Array[String] = []
+var changed_files: Array[String] = []
+var scans := 0
+var played: Array[String] = []
+var stopped := 0
+var host := false
+var quit_requested := false
+var log: RefCounted = null
+var save_result: Error = OK
+
+
+func undo_redo() -> Object:
+	return undo
+
+
+func scene_history() -> Object:
+	return undo
+
+
+func open_scene(scene: String) -> void:
+	opened.append(scene)
+	path = scene
+
+
+func save_scene() -> Error:
+	return save_result
+
+
+func file_changed(file: String) -> void:
+	changed_files.append(file)
+
+
+func scan_files() -> void:
+	scans += 1
+
+
+func play(scene: String) -> void:
+	played.append(scene)
+	playing = true
+
+
+func stop() -> void:
+	stopped += 1
+	playing = false
+
+
+func editor_interface() -> Object:
+	return self
+
+
+func error_log() -> RefCounted:
+	return log
+
+
+func is_host() -> bool:
+	return host
+
+
+func quit_soon() -> void:
+	quit_requested = true
+
+
+func save_screenshot() -> Dictionary:
+	return {"path": "/tmp/shot.png", "width": 4, "height": 3}
