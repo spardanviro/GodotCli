@@ -550,9 +550,15 @@ async function checkMoveUpdatesReferences(instance, scene, script) {
   check(userText.body?.data?.text?.includes(`preload("${target}")`), "the script names the new path", userText.body?.data);
   check(sceneText.body?.data?.text?.includes(`path="${target}"`) && !sceneText.body?.data?.text?.includes(`path="${script}"`), "so does the scene", sceneText.body?.data);
 
-  const kept = await command(instance, "fs_move", { from: target, to: script, update_references: false }, { confirm: true });
-  const stale = await command(instance, "fs_read_text", { path: user });
-  check(kept.status === 200 && stale.body?.data?.text?.includes(target), "update_references=false leaves other files alone", kept.body);
+  // With update_references off nothing else is touched. The reference here is
+  // a comment, so that the script still compiles afterwards.
+  const noted = `${TMP_DIR}/e2e_noted.gd`;
+  const note = `${TMP_DIR}/e2e_note.gd`;
+  await command(instance, "fs_write_text", { path: noted, text: "extends Node\n" });
+  await command(instance, "fs_write_text", { path: note, text: `extends Node\n# see ${noted}\n` });
+  const kept = await command(instance, "fs_move", { from: noted, to: `${TMP_DIR}/e2e_noted_moved.gd`, update_references: false }, { confirm: true });
+  const stale = await command(instance, "fs_read_text", { path: note });
+  check(kept.status === 200 && stale.body?.data?.text?.includes(`# see ${noted}\n`), "update_references=false leaves other files alone", kept.body);
 }
 
 const GAME_START_TIMEOUT_MS = 60_000;
