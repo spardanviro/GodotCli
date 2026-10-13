@@ -22,7 +22,7 @@ const FALLBACK_PORT_FIRST := 49152
 const FALLBACK_PORT_LAST := 65535
 const FALLBACK_ATTEMPTS := 32
 
-enum State { READ_HEAD, READ_BODY, WRITE, DRAIN }
+enum State { READ_HEAD, READ_BODY, HANDLING, WRITE, DRAIN }
 
 const _REASONS := {
 	200: "OK", 400: "Bad Request", 401: "Unauthorized", 403: "Forbidden", 404: "Not Found",
@@ -35,6 +35,7 @@ const _FALLBACK_ERROR := {"code": "INTERNAL_ERROR", "message": "The bridge faile
 var _server := TCPServer.new()
 var _connections: Array = []
 var _handler: RefCounted
+var _polling := false
 
 
 ## `handler` provides check_head(head), handle(head, body) and
@@ -60,6 +61,18 @@ func stop() -> void:
 
 
 func poll() -> void:
+	# A command can make the editor run its main loop from inside the handler
+	# (opening a scene shows a progress dialog that pumps frames), which calls
+	# poll() again. The outer call finishes the work; the inner one must not
+	# touch connections that are in the middle of being handled.
+	if _polling:
+		return
+	_polling = true
+	_poll_once()
+	_polling = false
+
+
+func _poll_once() -> void:
 	while _server.is_connection_available():
 		var peer := _server.take_connection()
 		if _connections.size() >= MAX_CONNECTIONS and not _evict_idle_connection():
@@ -117,7 +130,7 @@ func _step(connection: Dictionary) -> bool:
 		if buffer.size() >= body_end:
 			# Leave the reading state first: if the handler fails, the request
 			# must not be handled a second time on the next poll.
-			connection["state"] = State.WRITE
+			connection["state"] = State.HANDLING
 			_begin_response(connection, _handler.handle(head, buffer.slice(connection["body_start"], body_end)))
 	if connection["state"] == State.WRITE:
 		if now - int(connection["write_started"]) > WRITE_DEADLINE_MS or not _write(connection):
@@ -137,7 +150,7 @@ func _advance_head(connection: Dictionary) -> void:
 			connection["scan_from"] = maxi(buffer.size() - 3, 0)
 		return
 
-	connection["state"] = State.WRITE
+	connection["state"] = State.HANDLING
 	var head := HttpParser.parse_head(buffer.slice(0, head_end))
 	if not head["ok"]:
 		_begin_early_response(connection, _handler.transport_error(head["status"], head["reason"]))
