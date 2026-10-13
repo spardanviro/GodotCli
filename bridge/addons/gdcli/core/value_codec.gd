@@ -1,6 +1,6 @@
 extends RefCounted
-## Variant to tagged JSON (docs/protocol.md section 6.4). Output only: decoding
-## arrives with the modifying commands.
+## Variant to tagged JSON (docs/protocol.md section 6.4). value_decoder.gd is
+## the inverse.
 
 const TextSanitizer = preload("text_sanitizer.gd")
 
@@ -70,12 +70,38 @@ static func encode(value: Variant, scene_root: Node = null, budget: Dictionary =
 		return _tagged(type, _numbers(components))
 	if type >= TYPE_PACKED_BYTE_ARRAY:
 		return _encode_packed(value, type, budget, depth)
-	# Remaining math types (Transform2D, Basis, AABB, ...) in Godot's own text form.
+	match type:
+		# Matrices are written as their column vectors, the way their
+		# constructors take them.
+		TYPE_TRANSFORM2D:
+			return _tagged(type, _columns([value.x, value.y, value.origin]))
+		TYPE_BASIS:
+			return _tagged(type, _columns([value.x, value.y, value.z]))
+		TYPE_TRANSFORM3D:
+			return _tagged(type, _columns([value.basis.x, value.basis.y, value.basis.z, value.origin]))
+		TYPE_PROJECTION:
+			return _tagged(type, _columns([value.x, value.y, value.z, value.w]))
+		TYPE_AABB:
+			return _tagged(type, _numbers([
+				value.position.x, value.position.y, value.position.z, value.size.x, value.size.y, value.size.z,
+			]))
+		TYPE_PLANE:
+			return _tagged(type, _numbers([value.normal.x, value.normal.y, value.normal.z, value.d]))
 	return _tagged(type, var_to_str(value))
 
 
 static func _tagged(type: int, value: Variant) -> Dictionary:
 	return {"$type": type_string(type), "value": value}
+
+
+static func _columns(vectors: Array) -> Array:
+	var columns := []
+	for vector in vectors:
+		var components := []
+		for component in _COMPONENT_TYPES[typeof(vector)]:
+			components.append(vector[component])
+		columns.append(_numbers(components))
+	return columns
 
 
 # Components can be NaN or infinite too; those become strings.

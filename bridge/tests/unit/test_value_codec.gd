@@ -29,7 +29,11 @@ func test_value_codec_math_types_are_tagged() -> void:
 	equal(ValueCodec.encode(Rect2(1, 2, 3, 4)), {"$type": "Rect2", "value": [1.0, 2.0, 3.0, 4.0]}, "Rect2")
 	equal(ValueCodec.encode(Color(1, 0.5, 0, 1)), {"$type": "Color", "value": "#ff8000ff"}, "Color")
 	equal(ValueCodec.encode(NodePath("../Target")), {"$type": "NodePath", "value": "../Target"}, "NodePath")
-	equal(ValueCodec.encode(Transform2D.IDENTITY)["$type"], "Transform2D", "other math types keep their name")
+	equal(
+		ValueCodec.encode(Transform2D(Vector2(1, 0), Vector2(0, 1), Vector2(5, 6))),
+		{"$type": "Transform2D", "value": [[1.0, 0.0], [0.0, 1.0], [5.0, 6.0]]}, "Transform2D as column vectors",
+	)
+	equal(ValueCodec.encode(AABB(Vector3(1, 2, 3), Vector3(4, 5, 6))), {"$type": "AABB", "value": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]}, "AABB")
 
 
 func test_value_codec_unsafe_numbers_become_strings() -> void:

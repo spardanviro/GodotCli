@@ -87,7 +87,13 @@ function writeProject() {
   mkdirSync(home, { recursive: true });
   writeFileSync(
     join(project, "project.godot"),
-    'config_version=5\n\n[application]\n\nconfig/name="e2e game"\nrun/main_scene="res://main.tscn"\n',
+    'config_version=5\n\n[application]\n\nconfig/name="e2e game"\nrun/main_scene="res://main.tscn"\n' +
+      // The game the editor starts gets --headless, so this runs without a display.
+      '\n[editor]\n\nrun/main_run_args="--headless"\n',
+  );
+  writeFileSync(
+    join(project, "calm.tscn"),
+    '[gd_scene format=3]\n\n[node name="Calm" type="Node2D"]\n\n[node name="Ball" type="CharacterBody2D" parent="."]\nposition = Vector2(7, 9)\n',
   );
   writeFileSync(
     join(project, "main.tscn"),
@@ -260,6 +266,8 @@ async function liveChecks() {
     const human = gdText(["command", "scene_list_open"]);
     check(human.status === 0 && human.stdout.includes("res://main.tscn"), "human output", human.stdout);
 
+    await lookIntoTheRunningGame();
+
     const doctor = gd(["doctor"]);
     check(doctor.envelope?.data?.problems === 0, "doctor is clean with the editor running", doctor.envelope?.data);
 
@@ -275,6 +283,41 @@ async function liveChecks() {
     }
     await Promise.race([exited, sleep(5000)]);
   }
+}
+
+const GAME_START_TIMEOUT_MS = 60_000;
+
+/**
+ * `gd bridge install` registered the helper autoload, so a game started from
+ * the editor can be inspected with nothing but gd.
+ */
+async function lookIntoTheRunningGame() {
+  const projectFile = readFileSync(join(project, "project.godot"), "utf8");
+  check(projectFile.includes('GdcliGame="*res://addons/gdcli/runtime/game_agent.gd"'), "bridge install registered the game helper", projectFile);
+
+  const played = gd(["command", "editor_play", "--scene", "res://calm.tscn"]);
+  check(played.status === 0, "editor_play", played.envelope);
+  let tree = gd(["command", "game_tree", "--max-depth", "2"]);
+  for (const deadline = Date.now() + GAME_START_TIMEOUT_MS; tree.status !== 0 && Date.now() < deadline; ) {
+    await sleep(500);
+    tree = gd(["command", "game_tree", "--max-depth", "2"]);
+  }
+  const top = tree.envelope?.data?.tree?.children?.map((child) => child.path) ?? [];
+  check(tree.status === 0 && top.includes("Calm"), "game_tree through gd", tree.envelope);
+
+  const moved = gd(["command", "game_node_set", "--path", "Calm/Ball", "--properties", '{"velocity":[3,4]}']);
+  const ball = gd(["command", "game_node_get", "--path", "Calm/Ball", "--properties", '["position","velocity"]']);
+  check(moved.status === 0, "game_node_set through gd", moved.envelope);
+  check(JSON.stringify(ball.envelope?.data?.properties?.velocity?.value) === "[3,4]", "game_node_get through gd", ball.envelope);
+
+  const stopped = gd(["command", "editor_stop"]);
+  check(stopped.status === 0, "editor_stop", stopped.envelope);
+  let status = gd(["command", "editor_status"]);
+  for (const deadline = Date.now() + 10_000; status.envelope?.data?.playing !== false && Date.now() < deadline; ) {
+    await sleep(200);
+    status = gd(["command", "editor_status"]);
+  }
+  check(status.envelope?.data?.playing === false, "the game stopped", status.envelope?.data);
 }
 
 const ENEMY_SCRIPT = "extends CharacterBody2D\n\n\nfunc _ready() -> void:\n\tvar target: Node = null\n\ttarget.queue_free()\n";

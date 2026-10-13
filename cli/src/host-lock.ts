@@ -1,0 +1,104 @@
+import { createHash } from "node:crypto";
+import { mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+
+import type { Context } from "./context.js";
+import { gdcliHome } from "./project.js";
+
+export const HOST_LOCKS_DIR_NAME = "host-locks";
+const NAME_HEX_DIGITS = 16;
+const PRIVATE_DIR_MODE = 0o700;
+const PRIVATE_FILE_MODE = 0o600;
+/** A lock file is written right after it is created; an empty one this young is still being written. */
+const WRITE_GRACE_MS = 5000;
+const ATTEMPTS = 2;
+
+/** Where the lock of one project lives. Case is folded where the filesystem folds it. */
+export function hostLockPath(context: Context, project: string): string {
+  const absolute = resolve(project).replaceAll("\\", "/");
+  const key = context.platform === "win32" ? absolute.toLowerCase() : absolute;
+  const name = createHash("sha256").update(key).digest("hex").slice(0, NAME_HEX_DIGITS);
+  return join(gdcliHome(context), HOST_LOCKS_DIR_NAME, `${name}.lock`);
+}
+
+function ownerPid(path: string): number | undefined {
+  try {
+    const pid: unknown = (JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>)["pid"];
+    return typeof pid === "number" && Number.isInteger(pid) && pid > 0 ? pid : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** A lock is stale when the gd that took it is gone, or when it is older than any start may last. */
+function isStale(context: Context, path: string, maxAgeMs: number): boolean {
+  let ageMs: number;
+  try {
+    ageMs = Date.now() - statSync(path).mtimeMs;
+  } catch {
+    // It vanished between the failed create and now: the next attempt decides.
+    return true;
+  }
+  if (ageMs > maxAgeMs) {
+    return true;
+  }
+  const pid = ownerPid(path);
+  if (pid === undefined) {
+    return ageMs > WRITE_GRACE_MS;
+  }
+  return !context.processes.isAlive(pid);
+}
+
+/**
+ * Removes a stale lock. Renaming first makes this safe when two gd notice
+ * the same stale lock: only one rename succeeds, so neither can delete the
+ * fresh lock the other has created in the meantime.
+ */
+function clearStale(path: string, pid: number): void {
+  const aside = `${path}.${pid}.stale`;
+  try {
+    renameSync(path, aside);
+    unlinkSync(aside);
+  } catch {
+    // Another gd cleared it first; the next attempt competes for the lock.
+  }
+}
+
+function release(path: string, pid: number): void {
+  // Only the lock this gd wrote: if it was taken over as stale, it is not ours.
+  if (ownerPid(path) !== pid) {
+    return;
+  }
+  try {
+    unlinkSync(path);
+  } catch {
+    // Already gone; nothing to release.
+  }
+}
+
+/**
+ * Makes `gd host start` for one project exclusive: two of them running at the
+ * same moment would otherwise both find no editor and both start one.
+ * Returns the function that releases the lock, or undefined when another gd
+ * holds it.
+ */
+export function acquireHostLock(context: Context, project: string, pid: number, maxAgeMs: number): (() => void) | undefined {
+  const path = hostLockPath(context, project);
+  mkdirSync(join(gdcliHome(context), HOST_LOCKS_DIR_NAME), { recursive: true, mode: PRIVATE_DIR_MODE });
+  for (let attempt = 0; attempt < ATTEMPTS; attempt += 1) {
+    try {
+      // "wx" fails when the file exists, which is what makes this a lock.
+      writeFileSync(path, JSON.stringify({ pid }), { flag: "wx", mode: PRIVATE_FILE_MODE });
+      return () => release(path, pid);
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+        throw error;
+      }
+      if (!isStale(context, path, maxAgeMs)) {
+        return undefined;
+      }
+      clearStale(path, pid);
+    }
+  }
+  return undefined;
+}

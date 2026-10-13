@@ -1,8 +1,10 @@
+import { existsSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
 import { buildArgs } from "../src/commands/live.js";
+import { hostLockPath } from "../src/host-lock.js";
 import { ExitCode } from "../src/protocol.js";
 import { type FakeProcesses, errorEnvelope, fakeBridge, fakeProcesses, harness, makeProject, okEnvelope, tempDir, writeFile } from "./helpers.js";
 
@@ -100,6 +102,52 @@ describe("gd host", () => {
     expect(exitCode).toBe(ExitCode.Success);
     expect(envelope.data).toMatchObject({ started: false });
     expect(processes.detached).toEqual([]);
+  });
+
+  test("waits for the editor another gd is starting instead of starting a second one", async () => {
+    const home = tempDir();
+    const project = projectWithBridge(home);
+    const { gd, processes } = hostHarness(home, project);
+    const lock = writeFile(hostLockPath(gd.context, project), JSON.stringify({ pid: 777 }));
+
+    const { exitCode, envelope } = await gd.json("host", "start", "--wait", "0.2");
+
+    expect(processes.detached).toEqual([]);
+    expect(exitCode).toBe(ExitCode.Transient);
+    expect(envelope.errors[0]?.code).toBe("TIMEOUT");
+    // The lock belongs to the other gd and is left alone.
+    expect(existsSync(lock)).toBe(true);
+  });
+
+  test("takes over the lock of a gd that is gone, and releases its own", async () => {
+    const home = tempDir();
+    const project = projectWithBridge(home);
+    const godot = writeFile(join(home, "godot-bin"), "");
+    const OTHER_GD = 777;
+    const processes = { ...fakeProcesses(), isAlive: (pid: number) => pid !== OTHER_GD };
+    const gd = harness({ homeDir: home, cwd: project, processes, env: { GODOT_BIN: godot } });
+    const lock = writeFile(hostLockPath(gd.context, project), JSON.stringify({ pid: OTHER_GD }));
+
+    await gd.json("host", "start", "--wait", "0.2");
+
+    expect(processes.detached).toHaveLength(1);
+    expect(existsSync(lock)).toBe(false);
+  });
+
+  test("an unreadable lock is believed only while it is fresh", async () => {
+    const home = tempDir();
+    const project = projectWithBridge(home);
+    const { gd, processes } = hostHarness(home, project);
+    const lock = writeFile(hostLockPath(gd.context, project), "");
+    const LONG_AGO = new Date(Date.now() - 60_000);
+
+    await gd.json("host", "start", "--wait", "0.1");
+    const whileFresh = processes.detached.length;
+    utimesSync(lock, LONG_AGO, LONG_AGO);
+    await gd.json("host", "start", "--wait", "0.1");
+
+    expect(whileFresh).toBe(0);
+    expect(processes.detached).toHaveLength(1);
   });
 
   test("refuses to start without the bridge, and --dry-run starts nothing", async () => {

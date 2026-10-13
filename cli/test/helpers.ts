@@ -116,6 +116,7 @@ export function harness(options: HarnessOptions = {}): Harness {
     cwd: options.cwd ?? home,
     platform: options.platform ?? process.platform,
     homeDir: home,
+    pid: process.pid,
     addonDir: options.addonDir ?? join(home, "no-addon"),
     processes: options.processes ?? fakeProcesses(),
     readVersion: options.readVersion ?? (() => "9.9.9"),

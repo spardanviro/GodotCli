@@ -488,6 +488,8 @@ async function checkEdits(instance) {
   check(refused.status === 409 && refused.body?.errors?.[0]?.code === "CONFIRMATION_REQUIRED", "fs_delete needs confirmation", refused.status);
   const moved = await command(instance, "fs_move", { from: `${TMP_DIR}/e2e_box.tres`, to: `${TMP_DIR}/moved/e2e_box.tres` }, { confirm: true });
   check(moved.status === 200, "fs_move", moved.body);
+  await checkMoveUpdatesReferences(instance, scene, script);
+
   const removed = await command(instance, "fs_delete", { path: `${TMP_DIR}/moved/e2e_box.tres` }, { confirm: true });
   const gone = await command(instance, "fs_read_text", { path: `${TMP_DIR}/moved/e2e_box.tres` });
   check(removed.status === 200 && gone.body?.errors?.[0]?.code === "RESOURCE_NOT_FOUND", "fs_delete", [removed.body, gone.body?.errors]);
@@ -517,6 +519,86 @@ async function checkEdits(instance) {
   } else {
     check(errors.body?.errors?.[0]?.code === "UNSUPPORTED_GODOT_VERSION", "editor_errors before 4.5", errors.body?.errors);
   }
+}
+
+/**
+ * Moving a script rewrites the files that name it: another script, and a scene
+ * that is open in a tab (saved first, loaded again afterwards).
+ * @param {Instance} instance
+ * @param {string} scene an open scene whose root has `script` attached
+ * @param {string} script
+ */
+async function checkMoveUpdatesReferences(instance, scene, script) {
+  const user = `${TMP_DIR}/e2e_user.gd`;
+  const target = `${TMP_DIR}/scripts/e2e_boss.gd`;
+  await command(instance, "fs_write_text", { path: user, text: `extends Node\n\nconst Boss = preload("${script}")\n` });
+
+  const plan = await command(instance, "fs_move", { from: script, to: target }, { dry_run: true });
+  const planned = plan.body?.data?.would?.references;
+  check(planned?.files?.includes(user) && planned?.files?.includes(scene), "the dry run lists the files that refer to the script", planned);
+  check(planned?.open_scenes_saved_and_reloaded?.includes(scene), "and the open scene among them", planned);
+
+  const moved = await command(instance, "fs_move", { from: script, to: target }, { confirm: true });
+  const updated = moved.body?.data?.references_updated;
+  check(moved.status === 200 && updated?.files?.includes(user), "fs_move updates references", moved.body);
+  check(updated?.reloaded_scenes?.includes(scene), "the open scene was loaded again", updated);
+  check(moved.body?.meta?.scene === FIXTURE_SCENE, "the edited scene is the same as before", moved.body?.meta);
+
+  const userText = await command(instance, "fs_read_text", { path: user });
+  const sceneText = await command(instance, "fs_read_text", { path: scene });
+  check(userText.body?.data?.text?.includes(`preload("${target}")`), "the script names the new path", userText.body?.data);
+  check(sceneText.body?.data?.text?.includes(`path="${target}"`) && !sceneText.body?.data?.text?.includes(`path="${script}"`), "so does the scene", sceneText.body?.data);
+
+  const kept = await command(instance, "fs_move", { from: target, to: script, update_references: false }, { confirm: true });
+  const stale = await command(instance, "fs_read_text", { path: user });
+  check(kept.status === 200 && stale.body?.data?.text?.includes(target), "update_references=false leaves other files alone", kept.body);
+}
+
+const GAME_START_TIMEOUT_MS = 60_000;
+
+/**
+ * Runs the fixture scene from the editor and looks into the running game.
+ * The project passes --headless to the game, so this works without a display.
+ * @param {Instance} instance
+ */
+async function checkGame(instance) {
+  const idle = await command(instance, "game_tree");
+  check(idle.status === 409 && idle.body?.errors?.[0]?.code === "PRECONDITION_FAILED", "game commands need a running game", idle.body);
+
+  const played = await command(instance, "editor_play", { scene: FIXTURE_SCENE });
+  check(played.status === 200, "editor_play", played.body);
+  let tree = await command(instance, "game_tree", { max_depth: 3 });
+  for (const deadline = Date.now() + GAME_START_TIMEOUT_MS; tree.status !== 200 && Date.now() < deadline; ) {
+    await sleep(500);
+    tree = await command(instance, "game_tree", { max_depth: 3 });
+  }
+  const top = tree.body?.data?.tree?.children?.map((child) => child.path) ?? [];
+  check(tree.status === 200 && top.includes("Main") && top.includes("GdcliGame"), "game_tree shows the running game", tree.body);
+  check(tree.body?.data?.current_scene?.file === FIXTURE_SCENE, "the current scene is named", tree.body?.data?.current_scene);
+
+  const set = await command(instance, "game_node_set", { path: "Main/Player", properties: { position: [50, 60], velocity: [1, 2] } });
+  const got = await command(instance, "game_node_get", { path: "Main/Player", properties: ["position", "velocity"] });
+  check(set.status === 200, "game_node_set", set.body);
+  check(JSON.stringify(got.body?.data?.properties?.position?.value) === "[50,60]", "game_node_get reads the live value", got.body);
+  check(JSON.stringify(got.body?.data?.properties?.velocity?.value) === "[1,2]", "including a property the inspector hides", got.body);
+  const edited = await command(instance, "node_get", { path: "Player", properties: ["position"] });
+  check(JSON.stringify(edited.body?.data?.properties?.position?.value) === "[10,20]", "the edited scene is untouched", edited.body);
+
+  const missing = await command(instance, "game_node_get", { path: "Main/Nope" });
+  check(missing.status === 422 && missing.body?.errors?.[0]?.code === "NODE_NOT_FOUND", "a node the game does not have", missing.body);
+  const input = await command(instance, "game_input", { action: "ui_accept", hold: 0.1 });
+  check(input.status === 200 && input.body?.data?.pressed === true, "game_input", input.body);
+  const picture = await command(instance, "game_screenshot");
+  check(picture.body?.errors?.[0]?.code === "PRECONDITION_FAILED", "no screenshot from a game without a window", picture.body);
+
+  const stopped = await command(instance, "editor_stop");
+  check(stopped.status === 200, "editor_stop", stopped.body);
+  let status = await command(instance, "editor_status");
+  for (const deadline = Date.now() + 10_000; status.body?.data?.playing !== false && Date.now() < deadline; ) {
+    await sleep(200);
+    status = await command(instance, "editor_status");
+  }
+  check(status.body?.data?.playing === false, "the game stopped", status.body?.data);
 }
 
 /** @param {import("node:child_process").ChildProcess} child */
@@ -550,6 +632,8 @@ async function endToEnd(godot) {
     await checkHandshake(instance);
     await checkRequestGuards(instance);
     await checkCommands(instance);
+    // Before the edits: running the project saves scenes with unsaved changes.
+    await checkGame(instance);
     await checkEdits(instance);
     const output = log.join("");
     check(!/SCRIPT ERROR|Parse Error/.test(output), "the editor reported no script errors");
@@ -585,6 +669,8 @@ async function main() {
   const unit = runGodot(godot, ["--script", "res://tests/run_tests.gd"]);
   const summary = /gdcli unit tests: (\d+) run, (\d+) failed/.exec(unit.output);
   check(unit.status === 0 && summary !== null && summary[2] === "0", "unit suites pass", unit.output.slice(-4000));
+  // A script error ends a test early without failing it.
+  check(!/SCRIPT ERROR|Parse Error/.test(unit.output), "unit suites ran without script errors", unit.output.slice(-4000));
   process.stdout.write(`${summary?.[0] ?? "unit suites did not report a result"}\n`);
 
   await endToEnd(godot);

@@ -1,15 +1,14 @@
 extends RefCounted
 
 const AccessPolicy = preload("../core/access_policy.gd")
+const NodeInspect = preload("../core/node_inspect.gd")
 const NodeRef = preload("../core/node_ref.gd")
 const Reply = preload("../core/reply.gd")
 const TextSanitizer = preload("../core/text_sanitizer.gd")
-const ValueCodec = preload("../core/value_codec.gd")
 
 const DEFAULT_FIND_LIMIT := 50
 const MAX_FIND_LIMIT := 500
 const MAX_VISITED := 20000
-const _STRUCTURAL_USAGE := PROPERTY_USAGE_CATEGORY | PROPERTY_USAGE_GROUP | PROPERTY_USAGE_SUBGROUP
 
 var _context: RefCounted
 
@@ -67,33 +66,7 @@ func _node_get(args: Dictionary) -> Dictionary:
 	if node == null:
 		return _not_found(args["path"])
 
-	var listed := {}
-	for property in node.get_property_list():
-		if property["usage"] & PROPERTY_USAGE_EDITOR and not property["usage"] & _STRUCTURAL_USAGE:
-			listed[property["name"]] = true
-	listed.erase("script")
-
-	var wanted: Array = args.get("properties", listed.keys())
-	var properties := {}
-	var budget := ValueCodec.new_budget()
-	for name in wanted:
-		if not listed.has(name):
-			return Reply.fail(
-				"INVALID_ARGS", "The node has no such inspector property.",
-				"Call node_get without `properties` to list them.", {"property": TextSanitizer.clean_line(name)},
-			)
-		properties[TextSanitizer.clean_line(name)] = ValueCodec.encode(node.get(name), root, budget)
-
-	var result := {
-		"path": TextSanitizer.clean_line(NodeRef.path_of(root, node)),
-		"type": node.get_class(),
-		"groups": _visible_groups(node),
-		"properties": properties,
-	}
-	var script: Script = node.get_script()
-	if script != null and script.resource_path != "":
-		result["script"] = TextSanitizer.clean_line(script.resource_path)
-	return Reply.ok(result)
+	return NodeInspect.node(root, node, args.get("properties"), false)
 
 
 func _node_find(args: Dictionary) -> Dictionary:
@@ -131,15 +104,6 @@ func _matches(node: Node, criteria: Dictionary) -> bool:
 	if criteria.has("group") and not node.is_in_group(criteria["group"]):
 		return false
 	return true
-
-
-func _visible_groups(node: Node) -> Array:
-	var groups := []
-	for group in node.get_groups():
-		var name := str(group)
-		if not name.begins_with("_"):
-			groups.append(TextSanitizer.clean_line(name))
-	return groups
 
 
 func _not_found(path: String) -> Dictionary:

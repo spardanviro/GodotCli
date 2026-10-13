@@ -3,8 +3,10 @@ extends RefCounted
 
 const AccessPolicy = preload("../core/access_policy.gd")
 const Edit = preload("../core/edit.gd")
+const FileMove = preload("../core/file_move.gd")
 const PathPolicy = preload("../core/path_policy.gd")
 const Reply = preload("../core/reply.gd")
+const ReferenceUpdater = preload("../core/reference_updater.gd")
 const TextSanitizer = preload("../core/text_sanitizer.gd")
 const ValueDecoder = preload("../core/value_decoder.gd")
 
@@ -52,14 +54,22 @@ func register(registry: RefCounted) -> void:
 	}, _delete)
 	registry.register({
 		"name": "fs_move",
-		"summary": "Move or rename a project file. References to it in other files are not updated.",
+		"summary": "Move or rename a project file and update the scenes, resources, scripts and project settings that refer to it.",
 		"risk": AccessPolicy.RISK_DESTRUCTIVE,
 		"params": {
 			"type": "object",
-			"properties": {"from": {"type": "string"}, "to": {"type": "string"}},
+			"properties": {
+				"from": {"type": "string"},
+				"to": {"type": "string"},
+				"update_references": {
+					"type": "boolean",
+					"default": true,
+					"description": "Rewrite the quoted res:// path in .tscn, .tres, .gd and shader files and in project settings. Open scenes that refer to the file are saved and reloaded.",
+				},
+			},
 			"required": ["from", "to"],
 		},
-		"returns": "{from, to}",
+		"returns": "{from, to, references_updated: {files, settings, reloaded_scenes}}. A dry run lists what would change. Not undoable.",
 	}, _move)
 	registry.register({
 		"name": "resource_create",
@@ -135,10 +145,6 @@ func _announce(path: String, new_folder: bool) -> void:
 		_context.file_changed(path)
 
 
-# Godot keeps a file's identity and import settings in files next to it.
-const _SIDECARS: Array[String] = [".uid", ".import"]
-
-
 func _is_tool_script(text: String) -> bool:
 	return RegEx.create_from_string(_TOOL_PATTERN).search(text) != null
 
@@ -168,7 +174,7 @@ func _delete(args: Dictionary, options: Dictionary) -> Dictionary:
 	var result := OS.move_to_trash(ProjectSettings.globalize_path(path))
 	if result != OK:
 		return Reply.fail("COMMAND_FAILED", "The file could not be moved to the recycle bin.", "", {"path": path, "error": error_string(result)})
-	for suffix in _SIDECARS:
+	for suffix in FileMove.SIDECARS:
 		if FileAccess.file_exists(path + suffix):
 			OS.move_to_trash(ProjectSettings.globalize_path(path + suffix))
 	_context.scan_files()
@@ -186,19 +192,34 @@ func _move(args: Dictionary, options: Dictionary) -> Dictionary:
 	var to: String = target["path"]
 	if FileAccess.file_exists(to) or DirAccess.dir_exists_absolute(ProjectSettings.globalize_path(to)):
 		return Reply.fail("ALREADY_EXISTS", "Something already exists at the destination.", "", {"to": to})
+	var references := ReferenceUpdater.nothing()
+	if args["update_references"]:
+		references = ReferenceUpdater.find(from, to)
+	var open_scenes := _open_among(references["files"])
 	if options["dry_run"]:
-		return Edit.planned({"move": from, "to": to})
+		return Edit.planned({
+			"move": from,
+			"to": to,
+			"references": {
+				"files": TextSanitizer.clean_lines(references["files"]),
+				"sensitive_files": TextSanitizer.clean_lines(references["sensitive"]),
+				"search_incomplete": references["truncated"],
+				"settings": TextSanitizer.clean_lines(references["settings"]),
+				"open_scenes_saved_and_reloaded": TextSanitizer.clean_lines(open_scenes),
+			},
+		})
 
-	var made := DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(to.get_base_dir()))
-	var result := DirAccess.rename_absolute(ProjectSettings.globalize_path(from), ProjectSettings.globalize_path(to)) if made == OK else made
-	if result != OK:
-		return Reply.fail("COMMAND_FAILED", "The file could not be moved.", "", {"from": from, "to": to, "error": error_string(result)})
-	# Without its .uid the file would get a new identity and uid:// references break.
-	for suffix in _SIDECARS:
-		if FileAccess.file_exists(from + suffix):
-			DirAccess.rename_absolute(ProjectSettings.globalize_path(from + suffix), ProjectSettings.globalize_path(to + suffix))
-	_context.scan_files()
-	return Reply.ok({"from": from, "to": to}, [Edit.NOT_UNDOABLE, "Other files that refer to the old path were not changed."])
+	var job := FileMove.new(_context, from, to, references, open_scenes, not args["update_references"])
+	# Open scenes are saved and loaded again around the move, one step per frame.
+	return Reply.later(job, true) if job.needs_frames() else job.run_now()
+
+
+func _open_among(files: Array) -> Array:
+	var open := []
+	for scene in _context.open_scenes():
+		if scene in files:
+			open.append(scene)
+	return open
 
 
 func _resource_path(raw: String) -> Dictionary:

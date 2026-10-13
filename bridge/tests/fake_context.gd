@@ -57,6 +57,8 @@ var host := false
 var quit_requested := false
 var log: RefCounted = null
 var save_result: Error = OK
+var saved_scenes: Array[String] = []
+var reloaded: Array[String] = []
 
 
 func undo_redo() -> Object:
@@ -73,7 +75,14 @@ func open_scene(scene: String) -> void:
 
 
 func save_scene() -> Error:
+	saved_scenes.append(path)
 	return save_result
+
+
+
+
+func reload_scene(scene: String) -> void:
+	reloaded.append(scene)
 
 
 func file_changed(file: String) -> void:
@@ -108,6 +117,24 @@ func is_host() -> bool:
 
 func quit_soon() -> void:
 	quit_requested = true
+
+
+var link: Object = null
+var helper_installed := true
+var stored: Array = []
+
+
+func game_link() -> Object:
+	return link
+
+
+func game_helper_installed() -> bool:
+	return helper_installed
+
+
+func store_screenshot(png: PackedByteArray, prefix: String) -> String:
+	stored.append({"bytes": png.size(), "prefix": prefix})
+	return "/tmp/%s.png" % prefix
 
 
 func save_screenshot() -> Dictionary:

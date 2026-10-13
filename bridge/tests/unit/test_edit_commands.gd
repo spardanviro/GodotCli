@@ -192,6 +192,23 @@ func test_fs_move_and_delete_validate_before_touching_anything() -> void:
 	check(FileAccess.file_exists(existing), "the fixture is still there")
 
 
+func test_fs_move_dry_run_lists_the_references_it_would_update() -> void:
+	_setup()
+	var user := "res://tests/fixtures/uses_move_target.gd"
+	# Put together here so that this file does not itself contain the reference.
+	var args := {"from": "res://tests/fixtures/" + "move_target.gd", "to": "res://tests/fixtures/renamed.gd"}
+	_context.open = PackedStringArray([user])
+
+	var planned: Dictionary = _call("fs_move", args, {"dry_run": true})["data"]["would"]
+	var untouched: Dictionary = _call("fs_move", args.merged({"update_references": false}), {"dry_run": true})["data"]["would"]
+
+	equal(planned["references"]["files"], [user], "the file that preloads the script")
+	equal(planned["references"]["open_scenes_saved_and_reloaded"], [user], "open files among them are named")
+	equal(untouched["references"]["files"], [], "nothing is searched when updating is off")
+	equal(_context.saved_scenes, [] as Array[String], "a dry run saves nothing")
+	check(FileAccess.file_exists(args["from"]), "nothing was moved")
+
+
 func test_resource_create_builds_only_safe_classes() -> void:
 	_setup()
 

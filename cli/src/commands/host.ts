@@ -6,6 +6,7 @@ import { resolveInstance } from "../client.js";
 import type { CommandHandler, CommandResult, Context, GlobalOptions } from "../context.js";
 import { errorOf, isEnvelopeError, success } from "../envelope.js";
 import { requireGodot } from "../godot.js";
+import { acquireHostLock } from "../host-lock.js";
 import { PROJECT_FILE, findProject } from "../project.js";
 import { ADDON_RELATIVE_DIR, isPluginEnabled, readPluginVersion } from "./bridge.js";
 import { invokeBridge } from "./live.js";
@@ -15,6 +16,8 @@ export const HOST_FLAG = "--gdcli-host";
 const DEFAULT_WAIT_SECONDS = 120;
 const DEFAULT_STOP_WAIT_SECONDS = 15;
 const MAX_WAIT_SECONDS = 600;
+/** How much longer than the longest wait a start lock is believed. */
+const LOCK_MARGIN_SECONDS = 60;
 const POLL_INTERVAL_MS = 500;
 const MS_PER_SECOND = 1000;
 
@@ -51,18 +54,14 @@ function describe(instance: { instanceId: string; pid: number; headless: boolean
   return { instance_id: instance.instanceId, pid: instance.pid, headless: instance.headless, started };
 }
 
-async function start(context: Context, globals: GlobalOptions, waitMs: number): Promise<CommandResult> {
-  const project = findProject(context, globals);
-  if (typeof project !== "string") {
-    return fail("host", project);
-  }
-  const already = await resolveInstance(context, globals);
-  if (!isEnvelopeError(already)) {
-    return { envelope: success("host", describe(already.instance, false)), human: "an editor is already running for this project\n" };
-  }
-  if (already.code !== "NO_EDITOR") {
-    return fail("host", already);
-  }
+type HostStart = { readonly godot: string; readonly args: readonly string[] } | CommandResult;
+
+function isResult(value: HostStart): value is CommandResult {
+  return "envelope" in value;
+}
+
+/** Everything that can be decided before anything is started. */
+async function planStart(context: Context, globals: GlobalOptions, project: string): Promise<HostStart> {
   // Without the bridge the editor would start and never become reachable.
   const installed = readPluginVersion(join(project, ADDON_RELATIVE_DIR)) !== undefined;
   if (!installed || !isPluginEnabled(readFileSync(join(project, PROJECT_FILE), "utf8"))) {
@@ -75,28 +74,18 @@ async function start(context: Context, globals: GlobalOptions, waitMs: number): 
   // Its own language-server and debug-adapter ports, so a second editor on
   // this machine does not fight the first one over the defaults.
   const [lspPort, dapPort] = await twoFreePorts();
-  const editorArgs = [
-    "--headless",
-    "--editor",
-    "--path",
-    project,
-    "--lsp-port",
-    String(lspPort),
-    "--dap-port",
-    String(dapPort),
-    "--",
-    HOST_FLAG,
-  ];
-  if (globals.dryRun) {
-    const data = { dry_run: true, godot: godot.bin, args: editorArgs };
-    return { envelope: success("host", data), human: `would run: ${[godot.bin, ...editorArgs].join(" ")}\n` };
-  }
-  const pid = context.processes.startDetached(godot.bin, editorArgs, project);
-  if (pid === undefined) {
-    return fail("host", errorOf("GODOT_NOT_FOUND", "Godot could not be started.", undefined, { path: godot.bin }));
-  }
+  const args = ["--headless", "--editor", "--path", project, "--lsp-port", String(lspPort), "--dap-port", String(dapPort), "--", HOST_FLAG];
+  return { godot: godot.bin, args };
+}
 
-  const deadline = Date.now() + waitMs;
+const TIMED_OUT = errorOf(
+  "TIMEOUT",
+  "The headless editor did not become reachable in time.",
+  "It may still be importing; check `gd status` shortly, or raise --wait.",
+);
+
+/** Waits until the editor this gd started answers. */
+async function waitForHost(context: Context, globals: GlobalOptions, deadline: number, pid: number): Promise<CommandResult> {
   for (;;) {
     const found = await resolveInstance(context, globals);
     if (!isEnvelopeError(found)) {
@@ -113,10 +102,73 @@ async function start(context: Context, globals: GlobalOptions, waitMs: number): 
       );
     }
     if (Date.now() >= deadline) {
-      return fail(
-        "host",
-        errorOf("TIMEOUT", "The headless editor did not become reachable in time.", "It may still be importing; check `gd status` shortly, or raise --wait."),
-      );
+      return fail("host", TIMED_OUT);
+    }
+    await sleep(Math.min(POLL_INTERVAL_MS, Math.max(deadline - Date.now(), 1)));
+  }
+}
+
+async function findRunning(context: Context, globals: GlobalOptions): Promise<CommandResult | undefined> {
+  const already = await resolveInstance(context, globals);
+  if (!isEnvelopeError(already)) {
+    return { envelope: success("host", describe(already.instance, false)), human: "an editor is already running for this project\n" };
+  }
+  return already.code === "NO_EDITOR" ? undefined : fail("host", already);
+}
+
+interface Launch {
+  readonly project: string;
+  readonly godot: string;
+  readonly args: readonly string[];
+  readonly deadline: number;
+}
+
+/** With the start lock held: start the editor unless another gd just did. */
+async function launch(context: Context, globals: GlobalOptions, plan: Launch): Promise<CommandResult> {
+  const startedMeanwhile = await findRunning(context, globals);
+  if (startedMeanwhile !== undefined) {
+    return startedMeanwhile;
+  }
+  const pid = context.processes.startDetached(plan.godot, plan.args, plan.project);
+  if (pid === undefined) {
+    return fail("host", errorOf("GODOT_NOT_FOUND", "Godot could not be started.", undefined, { path: plan.godot }));
+  }
+  return waitForHost(context, globals, plan.deadline, pid);
+}
+
+async function start(context: Context, globals: GlobalOptions, waitMs: number): Promise<CommandResult> {
+  const project = findProject(context, globals);
+  if (typeof project !== "string") {
+    return fail("host", project);
+  }
+  const running = await findRunning(context, globals);
+  if (running !== undefined) {
+    return running;
+  }
+  const plan = await planStart(context, globals, project);
+  if (isResult(plan)) {
+    return plan;
+  }
+  if (globals.dryRun) {
+    const data = { dry_run: true, godot: plan.godot, args: plan.args };
+    return { envelope: success("host", data), human: `would run: ${[plan.godot, ...plan.args].join(" ")}\n` };
+  }
+
+  const deadline = Date.now() + waitMs;
+  const maxLockAgeMs = (MAX_WAIT_SECONDS + LOCK_MARGIN_SECONDS) * MS_PER_SECOND;
+  for (;;) {
+    const release = acquireHostLock(context, project, context.pid, maxLockAgeMs);
+    if (release !== undefined) {
+      try {
+        return await launch(context, globals, { project, godot: plan.godot, args: plan.args, deadline });
+      } finally {
+        release();
+      }
+    }
+    // Another gd is starting the host. When it is done (or gone) the lock
+    // becomes free; taking it then shows the editor it started.
+    if (Date.now() >= deadline) {
+      return fail("host", TIMED_OUT);
     }
     await sleep(Math.min(POLL_INTERVAL_MS, Math.max(deadline - Date.now(), 1)));
   }

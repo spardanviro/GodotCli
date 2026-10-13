@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
-import { enablePlugin, isPluginEnabled } from "../src/commands/bridge.js";
+import { addGameHelper, enablePlugin, hasGameHelper, isPluginEnabled } from "../src/commands/bridge.js";
 import { ExitCode } from "../src/protocol.js";
 import { type Call, fakeBridge, fakeProcesses, harness, makeProject, tempDir, writeFile, writeLockFile } from "./helpers.js";
 
@@ -16,6 +16,8 @@ function addonFixture(root: string, version = "1.2.3"): string {
   writeFile(join(addon, "core", "bridge.gd"), "extends RefCounted\n");
   return addon;
 }
+
+const HELPER_LINE = 'GdcliGame="*res://addons/gdcli/runtime/game_agent.gd"';
 
 describe("enablePlugin", () => {
   test("adds the section when the project has none", () => {
@@ -69,7 +71,44 @@ describe("enablePlugin", () => {
   });
 });
 
+describe("addGameHelper", () => {
+  test("adds the autoload section when the project has none", () => {
+    const result = addGameHelper('config_version=5\n\n[application]\n\nconfig/name="x"\n');
+
+    expect(result).toBe(`config_version=5\n\n[application]\n\nconfig/name="x"\n\n[autoload]\n\n${HELPER_LINE}\n`);
+    expect(hasGameHelper(result)).toBe(true);
+  });
+
+  test("keeps the autoloads the project already has, and Windows line endings", () => {
+    const result = addGameHelper('[autoload]\r\n\r\nGame="*res://game.gd"\r\n\r\n[rendering]\r\n');
+
+    expect(result).toBe(`[autoload]\r\n\r\n${HELPER_LINE}\r\n\r\nGame="*res://game.gd"\r\n\r\n[rendering]\r\n`);
+  });
+
+  test("changes nothing when the helper is there, even with another script", () => {
+    const text = '[autoload]\n\nGdcliGame="*res://elsewhere.gd"\n';
+
+    expect(addGameHelper(text)).toBe(text);
+  });
+
+  test("is not fooled by the name in another section", () => {
+    expect(hasGameHelper(`[other]\n\n${HELPER_LINE}\n`)).toBe(false);
+  });
+});
+
 describe("gd bridge", () => {
+  test("adds the game helper to a project that has only the plugin", async () => {
+    const home = tempDir();
+    const project = makeProject(home, `\n[editor_plugins]\n\n${ENABLED_LINE}\n`);
+    const gd = harness({ homeDir: home, cwd: project, addonDir: addonFixture(home) });
+    writeFile(join(project, "addons", "gdcli", "plugin.cfg"), 'version="1.2.3"\n');
+
+    const { envelope } = await gd.json("bridge", "install");
+
+    expect((envelope.data as { actions: string[] }).actions).toEqual(["add the GdcliGame autoload to project.godot"]);
+    expect(hasGameHelper(readFileSync(join(project, "project.godot"), "utf8"))).toBe(true);
+  });
+
   test("installs the addon and enables it with one command", async () => {
     const home = tempDir();
     const project = makeProject(home);
@@ -81,6 +120,8 @@ describe("gd bridge", () => {
     expect(envelope.data).toMatchObject({ installed_version: "1.2.3", enabled: true, editor_running: false });
     expect(readdirSync(join(project, "addons", "gdcli")).sort()).toEqual(["core", "plugin.cfg", "plugin.gd"]);
     expect(readFileSync(join(project, "project.godot"), "utf8")).toContain(ENABLED_LINE);
+    expect(readFileSync(join(project, "project.godot"), "utf8")).toContain(HELPER_LINE);
+    expect(envelope.data).toMatchObject({ game_helper: true });
     expect((await gd.json("bridge", "status")).exitCode).toBe(ExitCode.Success);
   });
 
@@ -104,7 +145,8 @@ describe("gd bridge", () => {
 
     const { envelope } = await harness({ homeDir: home, cwd: project, addonDir: addonFixture(home) }).json("bridge", "install", "--dry-run");
 
-    expect((envelope.data as { actions: string[] }).actions).toHaveLength(2);
+    // Copy the addon, enable the plugin, register the game helper.
+    expect((envelope.data as { actions: string[] }).actions).toHaveLength(3);
     expect(existsSync(join(project, "addons"))).toBe(false);
     expect(readFileSync(join(project, "project.godot"), "utf8")).toBe(before);
   });

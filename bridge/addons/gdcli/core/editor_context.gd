@@ -8,10 +8,15 @@ const SETTING_MODE := "gdcli/access/mode"
 const SETTING_ALLOW_EVAL := "gdcli/access/allow_eval"
 const PROJECT_SETTING_PREFIX := "gdcli/"
 const HOST_FLAG := "--gdcli-host"
+const GAME_HELPER_SETTING := "autoload/GdcliGame"
 const SCREENSHOT_DIR_NAME := "screenshots"
 const MAX_SCREENSHOTS := 20
+const MAX_SCREENSHOT_BYTES := 64 * 1024 * 1024
+const _SCREENSHOT_NAME_PATTERN := "^(editor|game)-[0-9]+[.]png$"
 
 var _plugin: EditorPlugin
+var _game_link: Object
+var _screenshot_regex := RegEx.create_from_string(_SCREENSHOT_NAME_PATTERN)
 var _error_log: RefCounted
 var _home_dir: String
 
@@ -90,6 +95,11 @@ func save_scene() -> Error:
 	return EditorInterface.save_scene()
 
 
+## Loads an open scene again from its file, dropping what is in memory.
+func reload_scene(path: String) -> void:
+	EditorInterface.reload_scene_from_path(path)
+
+
 ## Tells the editor about one file written behind its back.
 func file_changed(path: String) -> void:
 	EditorInterface.get_resource_filesystem().update_file(path)
@@ -134,20 +144,56 @@ func quit_soon() -> void:
 ## Returns {path, width, height}, or {} on failure.
 func save_screenshot() -> Dictionary:
 	var image := EditorInterface.get_base_control().get_viewport().get_texture().get_image()
-	if image == null or _home_dir == "":
+	if image == null:
 		return {}
+	var path := store_screenshot(image.save_png_to_buffer(), "editor")
+	if path == "":
+		return {}
+	return {"path": path, "width": image.get_width(), "height": image.get_height()}
+
+
+## Writes PNG data into the screenshot folder under the gd home directory.
+## Returns the absolute path, or "" on failure.
+func store_screenshot(png: PackedByteArray, prefix: String) -> String:
+	if _home_dir == "" or png.is_empty() or png.size() > MAX_SCREENSHOT_BYTES:
+		return ""
 	var directory := _home_dir.path_join(SCREENSHOT_DIR_NAME)
 	if DirAccess.make_dir_recursive_absolute(directory) != OK:
-		return {}
-	var path := directory.path_join("editor-%d.png" % Time.get_ticks_usec())
-	if image.save_png(path) != OK:
-		return {}
-	# Keep the folder from growing without bound.
-	var files := Array(DirAccess.get_files_at(directory))
-	files.sort()
+		return ""
+	var path := directory.path_join("%s-%d.png" % [prefix, Time.get_ticks_usec()])
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		return ""
+	file.store_buffer(png)
+	file.close()
+	# Keep the folder from growing without bound: the oldest files go first.
+	var files := []
+	for name in DirAccess.get_files_at(directory):
+		if _screenshot_regex.search(name) != null:
+			files.append(name)
+	files.sort_custom(_older_first)
 	for stale in files.slice(0, maxi(files.size() - MAX_SCREENSHOTS, 0)):
 		DirAccess.remove_absolute(directory.path_join(stale))
-	return {"path": path, "width": image.get_width(), "height": image.get_height()}
+	return path
+
+
+# File names are "<prefix>-<microseconds>.png".
+func _older_first(a: String, b: String) -> bool:
+	return a.get_slice("-", 1).to_int() < b.get_slice("-", 1).to_int()
+
+
+func set_game_link(link: Object) -> void:
+	_game_link = link
+
+
+## The connection to the game the editor is running (core/game_link.gd).
+func game_link() -> Object:
+	return _game_link
+
+
+## Whether the project loads the helper that answers from inside the game.
+func game_helper_installed() -> bool:
+	return ProjectSettings.has_setting(GAME_HELPER_SETTING)
 
 
 ## Settings under gdcli/ in the project file are ignored; say so once.

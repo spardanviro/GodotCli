@@ -1,5 +1,6 @@
 extends "res://tests/suite.gd"
 
+const ValueCodec = preload("res://addons/gdcli/core/value_codec.gd")
 const ValueDecoder = preload("res://addons/gdcli/core/value_decoder.gd")
 
 var _nodes: Array[Node] = []
@@ -157,5 +158,53 @@ func test_value_decoder_unsupported_and_too_deep_values_fail_cleanly() -> void:
 	for level in ValueDecoder.MAX_DEPTH + 4:
 		deep = [deep]
 
-	check(_fails([1, 0, 0, 1, 0, 0], TYPE_TRANSFORM2D), "a type without a JSON form yet")
+	check(_fails(1, TYPE_RID), "a type without a JSON form")
 	check(_fails(deep, TYPE_ARRAY), "nesting beyond the limit")
+
+
+func test_value_decoder_matrices_accept_nested_and_flat_columns() -> void:
+	var moved := Transform2D(Vector2(0, 1), Vector2(-1, 0), Vector2(30, 40))
+	var basis := Basis(Vector3(0, 0, 1), Vector3(0, 1, 0), Vector3(-1, 0, 0))
+
+	equal(_value([[0, 1], [-1, 0], [30, 40]], TYPE_TRANSFORM2D), moved, "Transform2D as columns")
+	equal(_value([0, 1, -1, 0, 30, 40], TYPE_TRANSFORM2D), moved, "Transform2D flat")
+	equal(_value([[0, 0, 1], [0, 1, 0], [-1, 0, 0]], TYPE_BASIS), basis, "Basis")
+	equal(
+		_value([[0, 0, 1], [0, 1, 0], [-1, 0, 0], [1, 2, 3]], TYPE_TRANSFORM3D), Transform3D(basis, Vector3(1, 2, 3)), "Transform3D"
+	)
+	equal(_value([1, 2, 3, 4, 5, 6], TYPE_AABB), AABB(Vector3(1, 2, 3), Vector3(4, 5, 6)), "AABB")
+	equal(_value([0, 1, 0, 5], TYPE_PLANE), Plane(0, 1, 0, 5), "Plane")
+	check(_fails([[0, 1], [-1, 0]], TYPE_TRANSFORM2D), "a missing column")
+	check(_fails([[0, 1], [-1, 0], [30, "x"]], TYPE_TRANSFORM2D), "a column that is not numbers")
+	check(_fails("Transform2D(1, 0, 0, 1, 0, 0)", TYPE_TRANSFORM2D), "Godot's text form is not parsed")
+
+
+func test_value_decoder_matrices_round_trip_through_the_codec() -> void:
+	var originals := [
+		Transform2D(0.5, Vector2(3, 4)),
+		Basis(Vector3(0, 1, 0), 0.25),
+		Transform3D(Basis(Vector3(1, 0, 0), 1.0), Vector3(7, 8, 9)),
+		AABB(Vector3(1, 2, 3), Vector3(4, 5, 6)),
+		Plane(Vector3(0, 1, 0), 2.0),
+	]
+
+	for original in originals:
+		var wire: Variant = JSON.parse_string(JSON.stringify(ValueCodec.encode(original)))
+		check(_value(wire, typeof(original)).is_equal_approx(original), type_string(typeof(original)))
+	var projection := Projection(Vector4(1, 2, 3, 4), Vector4(5, 6, 7, 8), Vector4(9, 10, 11, 12), Vector4(13, 14, 15, 16))
+	var projection_wire: Variant = JSON.parse_string(JSON.stringify(ValueCodec.encode(projection)))
+	equal(_value(projection_wire, TYPE_PROJECTION), projection, "Projection")
+
+
+func test_value_decoder_packed_arrays_convert_every_element() -> void:
+	equal(_value([[0, 0], [16, 0], [16, 8]], TYPE_PACKED_VECTOR2_ARRAY), PackedVector2Array([Vector2(0, 0), Vector2(16, 0), Vector2(16, 8)]), "points")
+	equal(_value([1.0, 2.0], TYPE_PACKED_INT32_ARRAY), PackedInt32Array([1, 2]), "ints")
+	equal(_value(["a", "b"], TYPE_PACKED_STRING_ARRAY), PackedStringArray(["a", "b"]), "strings")
+	equal(_value(["#ff0000", "blue"], TYPE_PACKED_COLOR_ARRAY), PackedColorArray([Color.RED, Color.BLUE]), "colours")
+	equal(_value([0, 255], TYPE_PACKED_BYTE_ARRAY), PackedByteArray([0, 255]), "bytes")
+	check(_fails([256], TYPE_PACKED_BYTE_ARRAY), "a byte out of range")
+	check(_fails([[0, 0], [1]], TYPE_PACKED_VECTOR2_ARRAY), "a malformed element")
+	check(_fails("points", TYPE_PACKED_VECTOR2_ARRAY), "not an array")
+
+	var wire: Variant = JSON.parse_string(JSON.stringify(ValueCodec.encode(PackedVector3Array([Vector3(1, 2, 3)]))))
+	equal(_value(wire, TYPE_PACKED_VECTOR3_ARRAY), PackedVector3Array([Vector3(1, 2, 3)]), "the codec's own output is accepted")

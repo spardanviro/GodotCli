@@ -25,6 +25,7 @@ process.exitCode = await run(process.argv.slice(2), {
   cwd: process.cwd(),
   platform: process.platform,
   homeDir: homedir(),
+  pid: process.pid,
   // Copied next to dist/ by the build (scripts/copy-addon.mjs).
   addonDir: fileURLToPath(new URL("../addon/", import.meta.url)),
   processes,

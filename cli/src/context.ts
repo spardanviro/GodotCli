@@ -37,6 +37,8 @@ export interface Context {
   readonly cwd: string;
   readonly platform: NodeJS.Platform;
   readonly homeDir: string;
+  /** Process id of this gd. */
+  readonly pid: number;
   /** Folder holding the bridge addon shipped with this package. */
   readonly addonDir: string;
   readonly processes: ProcessRunner;

@@ -23,6 +23,8 @@ var _port := 0
 var _startup_warnings: Array = []
 var _last_command_msec := Time.get_ticks_msec()
 var _nonce_regex := RegEx.create_from_string(NONCE_PATTERN)
+# Multi-frame changes in progress (see Reply.later).
+var _exclusive_running := 0
 
 
 ## `identity` holds instance_id, protocol and bridge_version.
@@ -105,6 +107,28 @@ func _run_command(name: String, body: PackedByteArray) -> Dictionary:
 	var started := Time.get_ticks_msec()
 	_last_command_msec = started
 	var reply := _execute(name, body)
+	if reply["ok"] and reply.has("later"):
+		# The answer is not known yet; the HTTP layer asks again every frame.
+		var exclusive: bool = reply.get("exclusive", false)
+		if exclusive:
+			_exclusive_running += 1
+		return {"pending": _poll_later.bind(name, reply["later"], started, exclusive)}
+	return _finish(name, reply, started)
+
+
+# {} while the answer is still awaited, then the response.
+func _poll_later(name: String, waiter: RefCounted, started: int, exclusive: bool) -> Dictionary:
+	var reply: Variant = waiter.poll()
+	if reply is Dictionary and reply.is_empty():
+		return {}
+	if exclusive:
+		_exclusive_running -= 1
+	if not (reply is Dictionary and reply.has("ok")):
+		reply = Reply.fail("INTERNAL_ERROR", "The command did not return a reply.")
+	return _finish(name, reply, started)
+
+
+func _finish(name: String, reply: Dictionary, started: int) -> Dictionary:
 	var meta := _meta()
 	meta["duration_ms"] = Time.get_ticks_msec() - started
 	var scene: String = _context.scene_path()
@@ -132,6 +156,8 @@ func _execute(name: String, body: PackedByteArray) -> Dictionary:
 	)
 	if not denied.is_empty():
 		return denied
+	if _exclusive_running > 0 and descriptor["risk"] != AccessPolicy.RISK_READ and not payload["dry_run"]:
+		return Reply.fail("EDITOR_BUSY", "The editor is in the middle of a change that takes several frames.", "Retry in a moment.")
 	var unmet := _unmet_requirement(descriptor["requires"])
 	if not unmet.is_empty():
 		return unmet

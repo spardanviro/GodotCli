@@ -7,6 +7,15 @@ config_version=5
 
 config/name="gdcli bridge dev"
 
+[autoload]
+
+GdcliGame="*res://addons/gdcli/runtime/game_agent.gd"
+
+[editor]
+
+; Lets the tests run the game from a headless editor on a machine without a display.
+run/main_run_args="--headless"
+
 [editor_plugins]
 
 enabled=PackedStringArray("res://addons/gdcli/plugin.cfg")

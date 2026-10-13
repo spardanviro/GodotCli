@@ -13,6 +13,8 @@ const EditorCommands = preload("commands/editor_commands.gd")
 const EditorControlCommands = preload("commands/editor_control_commands.gd")
 const FsCommands = preload("commands/fs_commands.gd")
 const FsEditCommands = preload("commands/fs_edit_commands.gd")
+const GameCommands = preload("commands/game_commands.gd")
+const GameLink = preload("core/game_link.gd")
 const NodeCommands = preload("commands/node_commands.gd")
 const NodeEditCommands = preload("commands/node_edit_commands.gd")
 const ProjectCommands = preload("commands/project_commands.gd")
@@ -37,6 +39,7 @@ var _bridge: Bridge
 var _context: EditorContext
 var _error_log: RefCounted
 var _custom_commands: CustomCommands
+var _game_link: GameLink
 var _idle_check_in := IDLE_CHECK_SECONDS
 # Command handlers are Callables, which do not keep their objects alive.
 var _command_sets: Array = []
@@ -53,6 +56,9 @@ func _enter_tree() -> void:
 	_error_log = ErrorLog.create()
 	var context := EditorContext.new(self, _error_log, LockFile.home_dir())
 	_context = context
+	_game_link = GameLink.new()
+	add_debugger_plugin(_game_link)
+	context.set_game_link(_game_link)
 	var registry := Registry.new()
 	_command_sets = [
 		EditorCommands.new(context),
@@ -65,6 +71,7 @@ func _enter_tree() -> void:
 		FsEditCommands.new(context),
 		ProjectEditCommands.new(context),
 		EditorControlCommands.new(context),
+		GameCommands.new(context),
 	]
 	for command_set in _command_sets:
 		command_set.register(registry)
@@ -98,7 +105,22 @@ func _enter_tree() -> void:
 	print("gdcli bridge %s listening on 127.0.0.1:%d (protocol %d)" % [BRIDGE_VERSION, port, PROTOCOL])
 
 
+# Called when the plugin is switched on in the project settings. The helper
+# that answers from inside a running game is an autoload of the project.
+func _enable_plugin() -> void:
+	if not ProjectSettings.has_setting(GameLink.AUTOLOAD_SETTING):
+		add_autoload_singleton(GameLink.AUTOLOAD_NAME, GameLink.AUTOLOAD_SCRIPT)
+
+
+func _disable_plugin() -> void:
+	if ProjectSettings.has_setting(GameLink.AUTOLOAD_SETTING):
+		remove_autoload_singleton(GameLink.AUTOLOAD_NAME)
+
+
 func _exit_tree() -> void:
+	if _game_link != null:
+		remove_debugger_plugin(_game_link)
+		_game_link = null
 	if _lock_file != null:
 		_lock_file.remove()
 		_lock_file = null

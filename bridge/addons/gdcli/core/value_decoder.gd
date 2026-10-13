@@ -21,10 +21,36 @@ const _COMPONENTS := {
 	TYPE_VECTOR4I: ["x", "y", "z", "w"],
 	TYPE_QUATERNION: ["x", "y", "z", "w"],
 }
+# Matrices: [number of column vectors, components of each].
+const _MATRIX_SHAPES := {
+	TYPE_TRANSFORM2D: [3, 2],
+	TYPE_BASIS: [3, 3],
+	TYPE_TRANSFORM3D: [4, 3],
+	TYPE_PROJECTION: [4, 4],
+}
+const _FLAT_SIZES := {TYPE_PLANE: 4, TYPE_AABB: 6}
+const _PACKED_ELEMENTS := {
+	TYPE_PACKED_BYTE_ARRAY: TYPE_INT,
+	TYPE_PACKED_INT32_ARRAY: TYPE_INT,
+	TYPE_PACKED_INT64_ARRAY: TYPE_INT,
+	TYPE_PACKED_FLOAT32_ARRAY: TYPE_FLOAT,
+	TYPE_PACKED_FLOAT64_ARRAY: TYPE_FLOAT,
+	TYPE_PACKED_STRING_ARRAY: TYPE_STRING,
+	TYPE_PACKED_VECTOR2_ARRAY: TYPE_VECTOR2,
+	TYPE_PACKED_VECTOR3_ARRAY: TYPE_VECTOR3,
+	TYPE_PACKED_COLOR_ARRAY: TYPE_COLOR,
+	TYPE_PACKED_VECTOR4_ARRAY: TYPE_VECTOR4,
+}
+const MAX_PACKED_ELEMENTS := 65536
+const _BYTE_MAX := 255
+const _INT32_MAX := 2147483647
 const _INTEGER_VECTORS: Array[int] = [TYPE_VECTOR2I, TYPE_VECTOR3I, TYPE_VECTOR4I, TYPE_RECT2I]
 # Classes that carry code or whole scenes; they come from project files only.
 const _NOT_CONSTRUCTIBLE: Array[String] = ["Script", "PackedScene", "GDExtension"]
 const _SCRIPT_PROPERTY := "script"
+const SAVED_USAGE := PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_STORAGE
+const ANY_USAGE := -1
+const _STRUCTURAL_USAGE := PROPERTY_USAGE_CATEGORY | PROPERTY_USAGE_GROUP | PROPERTY_USAGE_SUBGROUP
 
 var _scene_root: Node
 
@@ -35,11 +61,13 @@ func _init(scene_root: Node = null) -> void:
 
 ## Sets `properties` on `object` after converting every value.
 ## Returns {ok = true, values = {name: converted}} without changing the object,
-## or a failed reply.
-func decode_properties(object: Object, properties: Dictionary, depth: int = 0) -> Dictionary:
+## or a failed reply. `usage` selects the properties that may be set: by
+## default those the inspector shows or a file stores; a running game passes
+## ANY_USAGE to reach properties such as velocity and script variables.
+func decode_properties(object: Object, properties: Dictionary, depth: int = 0, usage: int = SAVED_USAGE) -> Dictionary:
 	var known := {}
 	for property in object.get_property_list():
-		if property["usage"] & (PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_STORAGE):
+		if property["usage"] & usage and not property["usage"] & _STRUCTURAL_USAGE:
 			known[property["name"]] = property
 	var values := {}
 	for name in properties:
@@ -96,7 +124,13 @@ func decode(value: Variant, type: int, info: Dictionary = {}, depth: int = 0) ->
 			return _decode_untyped(value, depth) if value is Dictionary else _mismatch_type(type)
 	if _COMPONENTS.has(type):
 		return _decode_components(value, type)
-	return _mismatch("Values of this type cannot be set through the bridge yet.", "", type_string(type))
+	if _MATRIX_SHAPES.has(type):
+		return _decode_matrix(value, type)
+	if _FLAT_SIZES.has(type):
+		return _decode_flat(value, type)
+	if _PACKED_ELEMENTS.has(type):
+		return _decode_packed(value, type, depth)
+	return _mismatch("Values of this type cannot be set through the bridge.", "", type_string(type))
 
 
 func _decode_tagged(value: Dictionary, type: int, info: Dictionary, depth: int) -> Dictionary:
@@ -203,6 +237,76 @@ func _decode_components(value: Variant, type: int) -> Dictionary:
 		TYPE_VECTOR4: return _ok(Vector4(numbers[0], numbers[1], numbers[2], numbers[3]))
 		TYPE_VECTOR4I: return _ok(Vector4i(numbers[0], numbers[1], numbers[2], numbers[3]))
 	return _ok(Quaternion(numbers[0], numbers[1], numbers[2], numbers[3]))
+
+
+# Column vectors, either nested ([[xx, xy], [yx, yy], [ox, oy]]) or as one
+# flat list in the same order.
+func _decode_matrix(value: Variant, type: int) -> Dictionary:
+	var columns: int = _MATRIX_SHAPES[type][0]
+	var rows: int = _MATRIX_SHAPES[type][1]
+	var failure := _mismatch(
+		"Expected the column vectors of the matrix.", "", "%s as %d columns of %d numbers" % [type_string(type), columns, rows]
+	)
+	if not value is Array:
+		return failure
+	var n := []
+	if value.size() == columns * rows:
+		n = value
+	elif value.size() == columns:
+		for column in value:
+			if not (column is Array and column.size() == rows):
+				return failure
+			n.append_array(column)
+	if n.size() != columns * rows or not _all_numbers(n):
+		return failure
+	match type:
+		TYPE_TRANSFORM2D:
+			return _ok(Transform2D(Vector2(n[0], n[1]), Vector2(n[2], n[3]), Vector2(n[4], n[5])))
+		TYPE_BASIS:
+			return _ok(Basis(Vector3(n[0], n[1], n[2]), Vector3(n[3], n[4], n[5]), Vector3(n[6], n[7], n[8])))
+		TYPE_TRANSFORM3D:
+			return _ok(Transform3D(
+				Basis(Vector3(n[0], n[1], n[2]), Vector3(n[3], n[4], n[5]), Vector3(n[6], n[7], n[8])),
+				Vector3(n[9], n[10], n[11]),
+			))
+	return _ok(Projection(
+		Vector4(n[0], n[1], n[2], n[3]), Vector4(n[4], n[5], n[6], n[7]),
+		Vector4(n[8], n[9], n[10], n[11]), Vector4(n[12], n[13], n[14], n[15]),
+	))
+
+
+func _decode_flat(value: Variant, type: int) -> Dictionary:
+	var size: int = _FLAT_SIZES[type]
+	if not (value is Array and value.size() == size and _all_numbers(value)):
+		var form := "[x, y, z, width, height, depth]" if type == TYPE_AABB else "[normal x, normal y, normal z, d]"
+		return _mismatch("Expected %d numbers." % size, "", "%s as %s" % [type_string(type), form])
+	if type == TYPE_AABB:
+		return _ok(AABB(Vector3(value[0], value[1], value[2]), Vector3(value[3], value[4], value[5])))
+	return _ok(Plane(value[0], value[1], value[2], value[3]))
+
+
+func _decode_packed(value: Variant, type: int, depth: int) -> Dictionary:
+	if not value is Array:
+		return _mismatch_type(type)
+	if value.size() > MAX_PACKED_ELEMENTS:
+		return _mismatch("The array is too long to send in one command.", "", "at most %d elements" % MAX_PACKED_ELEMENTS)
+	var elements := []
+	for item in value:
+		var decoded := decode(item, _PACKED_ELEMENTS[type], {}, depth + 1)
+		if not decoded["ok"]:
+			return decoded
+		if not _fits_packed(decoded["value"], type):
+			return _mismatch("A number does not fit the element type.", "", type_string(type))
+		elements.append(decoded["value"])
+	return _ok(type_convert(elements, type))
+
+
+func _fits_packed(element: Variant, type: int) -> bool:
+	if type == TYPE_PACKED_BYTE_ARRAY:
+		return element >= 0 and element <= _BYTE_MAX
+	if type == TYPE_PACKED_INT32_ARRAY:
+		return element >= -_INT32_MAX - 1 and element <= _INT32_MAX
+	return true
 
 
 func _decode_rect(value: Variant, type: int) -> Dictionary:

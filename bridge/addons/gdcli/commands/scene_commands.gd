@@ -1,13 +1,13 @@
 extends RefCounted
 
 const AccessPolicy = preload("../core/access_policy.gd")
+const NodeInspect = preload("../core/node_inspect.gd")
 const NodeRef = preload("../core/node_ref.gd")
 const Reply = preload("../core/reply.gd")
 const TextSanitizer = preload("../core/text_sanitizer.gd")
 
 const DEFAULT_MAX_DEPTH := 8
 const MAX_DEPTH_LIMIT := 64
-const MAX_NODES := 2000
 
 var _context: RefCounted
 
@@ -39,7 +39,7 @@ func register(registry: RefCounted) -> void:
 				},
 			},
 		},
-		"returns": "tree: nested {name, type, path, script?, instance?, groups?, children}; truncated when over %d nodes." % MAX_NODES,
+		"returns": "tree: nested {name, type, path, script?, instance?, groups?, children}; truncated when over %d nodes." % NodeInspect.MAX_NODES,
 	}, _tree)
 	registry.register({
 		"name": "scene_list_open",
@@ -57,50 +57,7 @@ func _tree(args: Dictionary) -> Dictionary:
 			"NODE_NOT_FOUND", "The node does not exist.", "Paths are relative to the scene root; \".\" is the root.",
 			{"path": TextSanitizer.clean_line(args["path"])},
 		)
-	var budget := {"remaining": MAX_NODES, "truncated": false}
-	var tree := _describe(root, start, args["max_depth"], budget)
-	return Reply.ok({"tree": tree, "truncated": budget["truncated"]})
-
-
-func _describe(root: Node, node: Node, depth_left: int, budget: Dictionary) -> Dictionary:
-	budget["remaining"] -= 1
-	var described := {
-		"name": TextSanitizer.clean_line(str(node.name)),
-		"type": node.get_class(),
-		"path": TextSanitizer.clean_line(NodeRef.path_of(root, node)),
-	}
-	var script: Script = node.get_script()
-	if script != null and script.resource_path != "":
-		described["script"] = TextSanitizer.clean_line(script.resource_path)
-	if node != root and node.scene_file_path != "":
-		described["instance"] = TextSanitizer.clean_line(node.scene_file_path)
-	var groups := _visible_groups(node)
-	if not groups.is_empty():
-		described["groups"] = groups
-
-	var children := []
-	var omitted := 0
-	for child in node.get_children():
-		if depth_left > 0 and budget["remaining"] > 0:
-			children.append(_describe(root, child, depth_left - 1, budget))
-		else:
-			omitted += 1
-			if budget["remaining"] <= 0:
-				budget["truncated"] = true
-	described["children"] = children
-	if omitted > 0:
-		described["children_omitted"] = omitted
-	return described
-
-
-# Groups starting with an underscore are the editor's own bookkeeping.
-func _visible_groups(node: Node) -> Array:
-	var groups := []
-	for group in node.get_groups():
-		var name := str(group)
-		if not name.begins_with("_"):
-			groups.append(TextSanitizer.clean_line(name))
-	return groups
+	return Reply.ok(NodeInspect.tree(root, start, args["max_depth"]))
 
 
 func _list_open(_args: Dictionary) -> Dictionary:

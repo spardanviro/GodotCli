@@ -46,13 +46,14 @@ Godot 自带的命令行是"一次性进程"模型：每条命令启动一个新
 - **没有显卡的环境必须加 `--headless`**。
 - **`--recovery-mode` 会禁用编辑器插件**，桥接不会加载。这是唯一一种"编辑器开着但连不上"的常态情形，`gd doctor` 要能指出来。
 - **`--` 之后的参数引擎不处理**，可用 `OS.get_cmdline_user_args()` 读到。`gd host start` 用它告诉桥接"你是被命令行拉起的无头宿主"，以便空闲超时后自行退出。
+- **`gd host start` 对同一个项目互斥。** 启动前在 `~/.gdcli/host-locks/<项目路径哈希>.lock` 独占创建一个锁文件（内容是本次 `gd` 的进程号），宿主可达或启动失败后删除。拿不到锁说明另一个 `gd` 正在启动宿主，这时不再启动第二个，只等那一个可达，返回 `started: false`。持锁的 `gd` 已经不在，或锁比最长等待时间还旧，视为过期并接管。
 - Windows 上要用带 `console` 后缀的可执行文件才能拿到标准输出。
 
 Godot 可执行文件的查找顺序：`--godot <路径>` 参数 → 环境变量 `GODOT_BIN` → `~/.gdcli/config.json` → `PATH` 里的 `godot`、`godot4`。找不到返回 `GODOT_NOT_FOUND`。
 
 ### 1.2 为什么"运行并收集报错"走离线通道
 
-游戏进程与编辑器是两个进程，4.5 之前编辑器插件没有公开接口读取运行中游戏的报错。由 `gd` 直接启动游戏进程，就能拿到完整的标准输出和标准错误，4.3 起都能用，也不依赖桥接。编辑器内的"播放/停止"仍作为在线命令提供，给人看效果用。
+游戏进程与编辑器是两个进程，4.5 之前编辑器插件没有公开接口读取运行中游戏的报错。由 `gd` 直接启动游戏进程，就能拿到完整的标准输出和标准错误，4.3 起都能用，也不依赖桥接。编辑器内的"播放/停止"仍作为在线命令提供；用它启动的游戏可以用 `game_*` 命令查看和操作（第 6.7 节），但报错仍以 `gd run` 为准。
 
 ### 1.3 离线通道的安全约束
 
@@ -335,7 +336,7 @@ HTTP 状态码与类别对应（`200` 成功、`400` 参数、`401` 认证、`40
 | `EVAL_DISABLED` | `eval` 未开启 | 4 |
 | `PRECONDITION_FAILED` | 状态不满足，例如没有打开的场景 | 4 |
 | `EDITOR_BUSY` | 编辑器在忙，稍后重试 | 5 |
-| `TIMEOUT` | 超过 `--timeout` | 5 |
+| `TIMEOUT` | 超过 `--timeout`；或运行中的游戏没有在时限内回答（桥接返回，HTTP 504） | 5 |
 | `PATH_NOT_ALLOWED` | 路径不在允许范围内 | 6 |
 | `NODE_NOT_FOUND` | 节点不存在 | 6 |
 | `RESOURCE_NOT_FOUND` | 资源或文件不存在 | 6 |
@@ -419,6 +420,8 @@ JSON 能直接表示的类型原样传。其余类型：
 { "$type": "Vector2", "value": [10, 20] }
 { "$type": "Color", "value": "#ff8800ff" }
 { "$type": "NodePath", "value": "../Target" }
+{ "$type": "Transform2D", "value": [[1, 0], [0, 1], [30, 40]] }
+{ "$type": "PackedVector2Array", "value": [{ "$type": "Vector2", "value": [0, 0] }], "size": 1 }
 { "$res": "res://art/player.png", "class": "CompressedTexture2D" }
 { "$node": "World/Spawn" }
 ```
@@ -430,6 +433,9 @@ JSON 能直接表示的类型原样传。其余类型：
 | `int` | 整数；整数值的浮点数 |
 | `Vector2` / `Vector3` 等 | 数组 `[x, y]`；对象 `{"x":1,"y":2}`；带标签 |
 | `Color` | `"#rrggbb"`、`"#rrggbbaa"`、颜色名；数组 `[r,g,b,a]` |
+| `Rect2` / `AABB` / `Plane` | 数组：`[x, y, 宽, 高]`；`[x, y, z, 宽, 高, 深]`；`[法线 x, 法线 y, 法线 z, d]` |
+| `Transform2D` / `Basis` / `Transform3D` / `Projection` | 列向量数组，顺序与构造函数一致：`Transform2D` 是 `[x 轴, y 轴, 原点]`，`Basis` 是 `[x, y, z]`，`Transform3D` 是 `[x, y, z, 原点]`，`Projection` 是 `[x, y, z, w]`；也接受把这些数摊平成一个数组 |
+| `Packed*Array` | 数组，每个元素按元素类型转换，如 `PackedVector2Array` 写 `[[0,0],[16,0]]`；最多 65536 个元素 |
 | `NodePath`、`StringName` | 字符串 |
 | 枚举 | 整数或成员名 |
 | 资源 | `{"$res":"res://…"}` 加载已有资源；`{"$new":"RectangleShape2D","properties":{…}}` 新建子资源 |
@@ -465,16 +471,29 @@ JSON 能直接表示的类型原样传。其余类型：
 | node | `node_delete` | write（可撤销） | 3 |
 | resource | `resource_create`、`resource_set`（不进撤销栈） | write | 3 |
 | fs | `fs_write_text`、`fs_scan` | write | 3 |
-| fs | `fs_delete`（移到系统回收站，可找回）、`fs_move`（不更新其他文件里的引用） | destructive | 3 |
+| fs | `fs_delete`（移到系统回收站，可找回）、`fs_move`（同时更新引用，见下） | destructive | 3 |
 | project | `project_settings_set`、`project_input_map_set` | destructive | 3 |
 | edit | `edit_undo`、`edit_redo` | write | 3 |
 | editor | `editor_play`、`editor_stop` | write | 3 |
 | exec | `eval` | exec | 3 |
 | host | `host_quit`（只对 `gd host start` 拉起的无头宿主有效） | write | 3 |
+| game | `game_tree`、`game_node_get`（第 6.7 节） | read | 3 |
+| game | `game_node_set`、`game_input`、`game_screenshot`（第 6.7 节） | write | 3 |
 
 表里是命令的基础等级。目标落在第 4.4 节的敏感路径上时，`fs_write_text` 等命令按 `destructive` 处理；覆盖已有文件同样如此。
 
 类信息、脚本检查、运行并收集报错、导入、导出不在这张表里，它们走离线通道（第 1.1 节）。
+
+**`fs_move` 与引用。** 移动文件后，桥接把其他文件里对旧路径的引用改成新路径：
+
+- 范围：项目里的 `.tscn`、`.tres`、`.gd`、`.gdshader`、`.gdshaderinc` 文件，以及项目设置（主场景、自动加载等字符串值）。隐藏目录、任意深度的 `.git`、桥接自己的目录不动。
+- 匹配规则：只替换**带引号的完整旧路径**（`"res://a.gd"` 或 `'res://a.gd'`）。注释里的、拼接出来的、作为更长路径一部分的不改。`uid://` 引用本来就不受移动影响。路径里带引号或换行的文件不做引用更新。
+- 编辑器里打开着、且引用了该文件的场景：先保存，改写磁盘文件后重新加载，最后切回原来正在编辑的场景。这些场景的撤销历史会清空，响应的 `warnings` 会说明。编辑器每帧只接受一次场景切换，所以这种情况下命令要跨几帧才返回。
+- 空跑（`dry_run`）返回将要改动的文件、项目设置和会被保存重载的场景，不做任何改动。其中落在敏感位置（第 4.4 节，如 `addons/`、`gdcli_commands/`）的文件单独列在 `sensitive_files` 里；`fs_move` 本身需要确认，这些文件不再单独确认，实际执行后会在 `warnings` 里点名。改了项目设置就会保存 `project.godot`。
+- 跨帧执行期间，其他会改动东西的命令返回 `EDITOR_BUSY`（可重试），只读命令照常。调用方中途断开连接或等不及，桥接仍会把剩下的步骤做完，不会停在"文件已移动、场景还没重新加载"的状态。
+- 查找在编辑器主线程上做，上限是 2 万个文件、256 MB；超出时空跑结果里 `search_incomplete` 为真，实际执行会给出警告。
+- `update_references=false` 关闭以上行为，只移动文件及其 `.uid`、`.import`。
+- 只处理文件，不处理文件夹。
 
 ### 6.6 项目自定义命令
 
@@ -504,6 +523,28 @@ func run(args: Dictionary, options: Dictionary) -> Variant:
 - 该目录是第 4.4 节的敏感路径，通过桥接写入需要确认。
 
 ---
+
+### 6.7 运行中的游戏
+
+编辑器启动的游戏是另一个进程。`game_*` 命令通过编辑器与游戏之间**已有的调试器连接**同游戏里的一个辅助节点通信，不新开端口，游戏进程也不监听任何东西。
+
+```
+gd ──HTTP──▶ 桥接（编辑器进程）──调试器消息 gdcli:request──▶ GdcliGame（游戏进程）
+   ◀────────                    ◀──────── gdcli:reply ────────
+```
+
+- **辅助节点**是自动加载项 `GdcliGame`（`res://addons/gdcli/runtime/game_agent.gd`）。`gd bridge install` 把它写进 `project.godot` 的 `[autoload]`；在编辑器里启用插件时也会加上，停用时移除。只有同时满足"有调试器连接"和"运行的是编辑器版本的可执行文件"（即由编辑器启动的游戏）它才工作；其他情况（导出的游戏，包括用 `--remote-debug` 连到别处的调试版导出）它在 `_ready` 里立刻把自己删掉，什么都不做。导出时如果排除了 `addons/gdcli`，要同时去掉这个自动加载项，否则引擎会报找不到脚本。
+- **只对编辑器启动的游戏有效**（`editor_play`，或在编辑器里按 F5）。`gd run` 启动的游戏没有编辑器的调试器连接，不能用这些命令。
+- **节点路径相对根窗口**，主场景通常是第一段：`Main/Player`。`game_tree` 返回的 `current_scene` 给出当前场景的路径和文件。自动加载项也在这棵树里。
+- `game_node_get` 能读到检视面板不显示的属性（`velocity`、`global_position`、脚本变量）；不带 `properties` 时返回检视面板属性加脚本变量。`game_node_set` 同样能写这些属性，值按第 6.4 节转换；改的只是运行中的游戏，场景文件和编辑器里的场景都不变。
+- `game_input` 按下或松开输入映射里的一个动作，相当于玩家操作；`hold` 是按住的秒数（游戏时间，0 表示一直按着直到再发一次 `pressed=false`），上限 10 秒。
+- `game_screenshot` 的图片由游戏发给编辑器、由编辑器写到 `~/.gdcli/screenshots/`（先检查是 PNG）；游戏不写文件。游戏以无头方式运行时没有画面，返回 `PRECONDITION_FAILED`。
+- **等待**：答案要过几帧才到，桥接保持 HTTP 连接，最多等 5 秒。游戏还没启动完（辅助节点还没报到）时会在这 5 秒内等它；始终没报到返回 `PRECONDITION_FAILED`，发出请求后没有回答返回 `TIMEOUT`。**游戏停在调试器里**（断点，或脚本运行时报错——从编辑器运行时报错会让游戏暂停）时立刻返回 `PRECONDITION_FAILED`，不等超时。
+- **信任**：游戏是项目代码，它发回的内容按项目文本对待：只保留 JSON 值，字符串全部清洗；失败时错误码只接受固定的几种，`message` 用桥接自己的文案，游戏给的文字放进 `details.reported_message`。
+- **分级说明**：`game_tree`、`game_node_get` 是 `read`，所以只读模式下也能用。它们读到的是运行时的值，包括脚本变量；游戏运行时才载入内存的东西（比如从 `user://` 读进来的内容）也在其中，这比读项目文件能看到的多。`game_node_set` 是 `write`：它能改运行中任何节点的任何属性，效果取决于游戏自己的代码。
+- 调用方法、读取运行时报错、单步调试不在范围内。
+
+无头环境（CI）里要让编辑器启动的游戏也无头运行，在项目设置里把 `editor/run/main_run_args` 设为 `--headless`。
 
 ## 7. 版本
 

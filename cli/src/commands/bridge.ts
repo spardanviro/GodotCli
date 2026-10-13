@@ -10,7 +10,13 @@ import { fail, parseCommandArgs, usage } from "./shared.js";
 export const ADDON_RELATIVE_DIR = join("addons", "gdcli");
 export const PLUGIN_CFG_RES = "res://addons/gdcli/plugin.cfg";
 const PLUGIN_CFG = "plugin.cfg";
-const SECTION_HEADER = "[editor_plugins]";
+const PLUGINS_SECTION = "editor_plugins";
+const SECTION_HEADER = `[${PLUGINS_SECTION}]`;
+const AUTOLOAD_SECTION = "autoload";
+/** The helper that answers the game_* commands from inside a running game. */
+export const GAME_HELPER_NAME = "GdcliGame";
+const GAME_HELPER_FILE = join("runtime", "game_agent.gd");
+const GAME_HELPER_ENTRY = `${GAME_HELPER_NAME}="*res://addons/gdcli/runtime/game_agent.gd"`;
 
 export function readPluginVersion(addonDir: string): string | undefined {
   try {
@@ -33,10 +39,10 @@ export function isPluginEnabled(projectText: string): boolean {
   return enabled !== null && quotedEntries(enabled[1] ?? "").includes(PLUGIN_CFG_RES);
 }
 
-function sectionRange(text: string): { readonly start: number; readonly end: number } | undefined {
+function sectionRange(text: string, name = PLUGINS_SECTION): { readonly start: number; readonly end: number } | undefined {
   // The header match stops before the line break, so `start` is at the end
   // of the header line for both LF and CRLF files.
-  const header = /^\[editor_plugins\][ \t]*(?=\r?$)/mu.exec(text);
+  const header = new RegExp(`^\\[${name}\\][ \\t]*(?=\\r?$)`, "mu").exec(text);
   if (header === null) {
     return undefined;
   }
@@ -73,11 +79,31 @@ export function enablePlugin(projectText: string): string {
   return `${projectText.slice(0, at)}${line}${projectText.slice(at + enabled[0].length)}`;
 }
 
+export function hasGameHelper(projectText: string): boolean {
+  const section = sectionRange(projectText, AUTOLOAD_SECTION);
+  return section !== undefined && new RegExp(`^${GAME_HELPER_NAME}=`, "mu").test(projectText.slice(section.start, section.end));
+}
+
+/** Adds the autoload of the game helper to project.godot, leaving everything else as it was. */
+export function addGameHelper(projectText: string): string {
+  if (hasGameHelper(projectText)) {
+    return projectText;
+  }
+  const eol = projectText.includes("\r\n") ? "\r\n" : "\n";
+  const section = sectionRange(projectText, AUTOLOAD_SECTION);
+  if (section === undefined) {
+    const separator = projectText.endsWith(eol) || projectText === "" ? "" : eol;
+    return `${projectText}${separator}${eol}[${AUTOLOAD_SECTION}]${eol}${eol}${GAME_HELPER_ENTRY}${eol}`;
+  }
+  return `${projectText.slice(0, section.start)}${eol}${eol}${GAME_HELPER_ENTRY}${projectText.slice(section.start)}`;
+}
+
 interface BridgeState {
   readonly project: string;
   readonly installed_version: string | null;
   readonly bundled_version: string | null;
   readonly enabled: boolean;
+  readonly game_helper: boolean;
   readonly editor_running: boolean;
 }
 
@@ -91,6 +117,7 @@ function inspect(context: Context, project: string): BridgeState {
     installed_version: readPluginVersion(join(project, ADDON_RELATIVE_DIR)) ?? null,
     bundled_version: readPluginVersion(context.addonDir) ?? null,
     enabled: isPluginEnabled(projectText),
+    game_helper: hasGameHelper(projectText),
     editor_running: running,
   };
 }
@@ -139,9 +166,17 @@ function install(context: Context, globals: GlobalOptions, project: string, forc
       }),
     );
   }
-  const copy = before.installed_version === null || force;
+  // An installed copy of the same version from before the game helper existed
+  // is brought up to date, or the autoload would name a missing script.
+  const lacksHelper = !existsSync(join(target, GAME_HELPER_FILE)) && existsSync(join(context.addonDir, GAME_HELPER_FILE));
+  const copy = before.installed_version === null || force || lacksHelper;
   const enable = !before.enabled;
-  const actions = [...(copy ? [`copy the addon to ${target}`] : []), ...(enable ? [`enable it in ${PROJECT_FILE}`] : [])];
+  const addHelper = !before.game_helper;
+  const actions = [
+    ...(copy ? [`copy the addon to ${target}`] : []),
+    ...(enable ? [`enable it in ${PROJECT_FILE}`] : []),
+    ...(addHelper ? [`add the ${GAME_HELPER_NAME} autoload to ${PROJECT_FILE}`] : []),
+  ];
   if (globals.dryRun) {
     return { envelope: success("bridge", { ...before, dry_run: true, actions }), human: `${actions.join("\n") || "nothing to do"}\n` };
   }
@@ -151,12 +186,14 @@ function install(context: Context, globals: GlobalOptions, project: string, forc
     mkdirSync(join(project, "addons"), { recursive: true });
     cpSync(context.addonDir, target, { recursive: true });
   }
-  if (enable) {
+  if (enable || addHelper) {
     // Written beside the original and renamed over it, so an interruption
     // cannot leave half a project file.
     const projectFile = join(project, PROJECT_FILE);
     const temporary = `${projectFile}.gdcli-tmp`;
-    writeFileSync(temporary, enablePlugin(readFileSync(projectFile, "utf8")));
+    // "wx": never write through something a project has put at this name.
+    rmSync(temporary, { force: true });
+    writeFileSync(temporary, addGameHelper(enablePlugin(readFileSync(projectFile, "utf8"))), { flag: "wx" });
     renameSync(temporary, projectFile);
   }
   const after = inspect(context, project);

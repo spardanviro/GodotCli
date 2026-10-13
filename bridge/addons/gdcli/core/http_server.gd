@@ -22,12 +22,17 @@ const FALLBACK_PORT_FIRST := 49152
 const FALLBACK_PORT_LAST := 65535
 const FALLBACK_ATTEMPTS := 32
 
-enum State { READ_HEAD, READ_BODY, HANDLING, WRITE, DRAIN }
+# An answer that is still being waited for (see Reply.later) is given up after
+# this long, whatever the patience of the command itself.
+const PENDING_DEADLINE_MS := 60000
+
+enum State { READ_HEAD, READ_BODY, HANDLING, PENDING, WRITE, DRAIN }
 
 const _REASONS := {
 	200: "OK", 400: "Bad Request", 401: "Unauthorized", 403: "Forbidden", 404: "Not Found",
 	409: "Conflict", 413: "Content Too Large", 415: "Unsupported Media Type",
 	422: "Unprocessable Content", 500: "Internal Server Error", 503: "Service Unavailable",
+	504: "Gateway Timeout",
 }
 const _FALLBACK_STATUS := 500
 const _FALLBACK_ERROR := {"code": "INTERNAL_ERROR", "message": "The bridge failed to handle the request."}
@@ -36,10 +41,15 @@ var _server := TCPServer.new()
 var _connections: Array = []
 var _handler: RefCounted
 var _polling := false
+# Answers still being worked on whose client has gone, as Callables.
+# They are polled to their end so that what they started gets finished.
+var _orphans: Array = []
 
 
 ## `handler` provides check_head(head), handle(head, body) and
-## transport_error(status, reason); each returns {status, body}.
+## transport_error(status, reason); each returns {status, body}. handle() may
+## instead return {pending = Callable}: the callable is asked on every poll and
+## returns {} until it has the {status, body} to send.
 ## Returns the port, or 0 when no port could be opened.
 func start(handler: RefCounted) -> int:
 	_handler = handler
@@ -57,6 +67,7 @@ func stop() -> void:
 	for connection in _connections:
 		connection["peer"].disconnect_from_host()
 	_connections = []
+	_orphans = []
 	_server.stop()
 
 
@@ -94,7 +105,23 @@ func _poll_once() -> void:
 			open.append(connection)
 		else:
 			connection["peer"].disconnect_from_host()
+			if connection.has("pending"):
+				_orphans.append(connection["pending"])
 	_connections = open
+	_poll_orphans()
+
+
+# A command that works over several frames (moving a file around open scenes)
+# must not stop halfway because the client hung up or ran out of patience.
+func _poll_orphans() -> void:
+	var waiting := []
+	for orphan in _orphans:
+		# Every waiter ends by itself (each has its own time limits), so these
+		# are asked until they do.
+		var response: Variant = orphan.call()
+		if response is Dictionary and response.is_empty():
+			waiting.append(orphan)
+	_orphans = waiting
 
 
 # Makes room by dropping the oldest connection that has not sent a complete
@@ -132,6 +159,14 @@ func _step(connection: Dictionary) -> bool:
 			# must not be handled a second time on the next poll.
 			connection["state"] = State.HANDLING
 			_begin_response(connection, _handler.handle(head, buffer.slice(connection["body_start"], body_end)))
+	if connection["state"] == State.PENDING:
+		var late := now - int(connection["pending_since"]) > PENDING_DEADLINE_MS
+		var response: Variant = null if late else connection["pending"].call()
+		if late:
+			_orphans.append(connection["pending"])
+		if late or not (response is Dictionary and response.is_empty()):
+			connection.erase("pending")
+			_begin_response(connection, response)
 	if connection["state"] == State.WRITE:
 		if now - int(connection["write_started"]) > WRITE_DEADLINE_MS or not _write(connection):
 			return false
@@ -194,6 +229,12 @@ func _begin_early_response(connection: Dictionary, response: Variant) -> void:
 # `response` is untyped on purpose: a handler that hit a script error returns
 # null, and the connection must still get an answer and be closed.
 func _begin_response(connection: Dictionary, response: Variant) -> void:
+	if response is Dictionary and response.get("pending") is Callable:
+		connection["pending"] = response["pending"]
+		connection["pending_since"] = Time.get_ticks_msec()
+		connection["state"] = State.PENDING
+		connection["buffer"] = PackedByteArray()
+		return
 	var status := _FALLBACK_STATUS
 	var body := JSON.stringify({
 		"success": false, "command": "", "data": null, "errors": [_FALLBACK_ERROR], "warnings": [], "meta": {},
