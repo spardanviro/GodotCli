@@ -656,16 +656,18 @@ async function checkGameDebugging(instance) {
   check(live.body?.data?.properties?.ticks === count, "the halted game still answers game_node_get", live.body);
 
   await command(instance, "game_breakpoint", { path: TICKER_SCRIPT, line: TICK_LINE, enabled: false });
+  // Stepping out exists from Godot 4.6 on; older engines are told so and
+  // stay where they are.
+  const out = await command(instance, "game_step", { mode: "out" });
+  check(
+    out.body?.errors?.[0]?.code === "UNSUPPORTED_GODOT_VERSION" ||
+      (out.status === 200 && out.body?.data?.stopped === true && out.body?.data?.stack?.[0]?.function === "_process"),
+    "game_step out returns to the caller, or says the engine is too old",
+    out.body,
+  );
   const over = await command(instance, "game_step", { mode: "over" });
   const overTop = over.body?.data?.stack?.[0];
   check(over.status === 200 && over.body?.data?.stopped === true && !(overTop?.function === "_tick" && overTop?.line === TICK_LINE), "game_step over moves on and halts again", over.body);
-  // Stepping out exists from Godot 4.6 on; older engines are told so.
-  const out = await command(instance, "game_step", { mode: "out" });
-  check(
-    out.body?.errors?.[0]?.code === "UNSUPPORTED_GODOT_VERSION" || (out.status === 200 && out.body?.data?.stopped === true),
-    "game_step out halts again, or says the engine is too old",
-    out.body,
-  );
 
   const resumed = await command(instance, "game_continue");
   check(resumed.status === 200, "game_continue", resumed.body);
