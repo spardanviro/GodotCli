@@ -204,6 +204,14 @@ function verbOf(word) {
   return basename(word.replaceAll("\\", "/")).toLowerCase().replace(/\.(exe|cmd|bat|ps1)$/u, "");
 }
 
+/**
+ * A path as written for Windows, readable on any system: a command meant for
+ * PowerShell or cmd is judged the same wherever this runs.
+ */
+function slashed(word) {
+  return word.replaceAll("\\", "/");
+}
+
 /** Whether a word can be read as a path at all. */
 function isPathLike(word) {
   return word !== "" && !word.startsWith("-") && !word.includes("://") && !/[$`%]/u.test(word) && !word.startsWith("~");
@@ -247,7 +255,7 @@ function withoutWrappers(words) {
  * @returns {boolean}
  */
 function segmentWrites(segment, cwd) {
-  const guarded = (word) => isPathLike(word) && isGuardedWrite(word, cwd);
+  const guarded = (word) => isPathLike(word) && isGuardedWrite(slashed(word), cwd);
   if (segment.redirects.some(guarded)) {
     return true;
   }
@@ -283,7 +291,7 @@ function segmentWrites(segment, cwd) {
       return false;
     }
     // Into a folder, the files keep their names.
-    return [destination, ...paths.filter((path) => path !== destination).map((path) => join(destination, basename(path)))].some(guarded);
+    return [destination, ...paths.filter((path) => path !== destination).map((path) => join(slashed(destination), basename(slashed(path))))].some(guarded);
   }
   if (IN_PLACE.has(verb) && rest.some((word) => IN_PLACE.get(verb)?.test(word))) {
     return paths.some(guarded);
@@ -319,7 +327,7 @@ function findWrites(rest, cwd, text) {
   }
   const firstTest = rest.findIndex((word) => word.startsWith("-"));
   const roots = rest.slice(0, firstTest === -1 ? rest.length : firstTest).filter(isPathLike);
-  const insideProject = (roots.length === 0 ? ["."] : roots).some((root) => isGuardedWrite(join(root, "x.gd"), cwd));
+  const insideProject = (roots.length === 0 ? ["."] : roots).some((root) => isGuardedWrite(join(slashed(root), "x.gd"), cwd));
   // With a name filter, only when the filter is for guarded files.
   const filtered = rest.some((word) => /^-i?(name|path|regex)$/u.test(word));
   return insideProject && (!filtered || GUARDED_IN_TEXT.test(text));
@@ -334,14 +342,14 @@ function gitWrites(rest, cwd) {
     if (word === "-C" && rest[index + 1] !== undefined) {
       index += 1;
       if (isPathLike(rest[index] ?? "")) {
-        directory = resolve(directory, rest[index] ?? "");
+        directory = resolve(directory, slashed(rest[index] ?? ""));
       }
     } else {
       words.push(word);
     }
   }
   const subcommand = words.find((word) => !word.startsWith("-"));
-  return subcommand !== undefined && GIT_WRITES.has(subcommand) && words.some((word) => isPathLike(word) && isGuardedWrite(word, directory));
+  return subcommand !== undefined && GIT_WRITES.has(subcommand) && words.some((word) => isPathLike(word) && isGuardedWrite(slashed(word), directory));
 }
 
 /**
@@ -368,7 +376,7 @@ export function commandWrites(command, cwd) {
     }
     const [first, target] = segment.words;
     if (first !== undefined && CHANGES_DIRECTORY.has(verbOf(first)) && target !== undefined && isPathLike(target)) {
-      current = isAbsolute(target) ? resolve(target) : resolve(current, target);
+      current = isAbsolute(slashed(target)) ? resolve(slashed(target)) : resolve(current, slashed(target));
     }
   }
   return false;
