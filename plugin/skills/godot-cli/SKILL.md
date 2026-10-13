@@ -23,6 +23,9 @@ about anything that is missing. The usual fixes:
   `gd host start` runs an editor without a window (`gd host stop` ends it). A headless editor has no one to approve
   anything and cannot take screenshots.
 - `gd` not found: it is the npm package `gdcli`; tell the user rather than working around it.
+- `NO_EDITOR` although the editor is open, in a session with a sandboxed shell: the sandbox keeps `gd` from
+  reaching the editor unless the call is a `gd` command on its own. Send it again without a pipe, a redirection,
+  `cd` or a second command on the same line (use `--json` and read the whole answer instead of piping to `head`).
 
 `gd status` lists the editors `gd` can reach. Run `gd` from inside the project folder, or pass `--project <folder>`.
 
@@ -94,7 +97,8 @@ such a change goes in. Moving and deleting them goes through `fs_move` and `fs_d
 
 New script:
 
-1. Write the complete script to a scratch file outside the project (the system temp folder or your scratch folder).
+1. Write the complete script to a scratch file outside the project (the system temp folder or your scratch
+   folder), with your file tool. In a sandboxed session the shell cannot write inside the project at all.
 2. `gd command fs_write_text --path res://scripts/player.gd --text-file <scratch file>`
 3. Read the answer: `check.compiles` says whether the script compiles (`check.errors` has the lines when it does
    not; the file is written either way). `check.skipped` means it could not be judged there: run `gd check res://scripts/player.gd`.

@@ -85,31 +85,61 @@ GDCLI_UPDATE_PLUGIN=1 GODOT_BIN=/path/to/godot node scripts/bridge-test.mjs
 **它管不住的**，要说清楚：
 
 - **shell 命令只能按文本检查。** 第二个钩子 `hooks/guard-shell-writes.mjs` 在 Bash 和 PowerShell 命令执行前读命令文本，拦住常见的写法：重定向到这些文件、`cp`/`mv`/`rm`/`tee`/`touch`/`sed -i`、`Set-Content`/`Out-File`/`Copy-Item`/`Remove-Item` 等、`git checkout`/`git restore` 指定这些文件、一行脚本（`python -c`、`node -e`、`bash -c`）里写这些文件。读文件、把文件复制到项目外、`gd` 命令都放行。它挡不住变量拼出来的路径、先写一个脚本文件再运行、没列进去的工具。这是护栏，不是沙箱。
-- **硬约束要靠 Claude Code 的沙箱**（见下一节），而沙箱不支持原生 Windows。
+- **硬约束要靠 Claude Code 的沙箱**（见下一节，已在 WSL2 上实测），而沙箱不支持原生 Windows。
 - C# 的批准规则（桥接一侧）只按文本判断 `[Tool]` 和 `[ModuleInitializer]`，没有在 .NET 版 Godot 上验证过。
 - Claude Code 自己的配置不归它管：项目里的 `.claude/settings.json` 可以设置环境变量或关掉全部钩子。克隆来的仓库如果自带这样的配置，这个钩子可能根本不运行。
 - 游戏进程里的代码不受约束，离线通道（`gd run`、`gd exec`）也不经过桥接。
 
 ### 用沙箱做成硬约束
 
-Claude Code 的沙箱由操作系统限制 shell 命令能写哪些文件，不靠读命令文本。它支持 macOS、Linux 和 WSL2，**不支持原生 Windows**：在 Windows 上要在 WSL2 里运行 Claude Code 才有。在游戏项目的 `.claude/settings.json`（或你自己的用户设置）里：
+Claude Code 的沙箱由操作系统限制 shell 命令能写哪些文件，不靠读命令文本。它支持 macOS、Linux 和 WSL2，**不支持原生 Windows**：在 Windows 上要在 WSL2 里运行 Claude Code，项目和 Godot 也都放在 WSL2 里（WSL2 里的 `gd` 找不到 Windows 上的编辑器：主目录和路径写法都不同）。
+
+把 [sandbox-settings.example.json](sandbox-settings.example.json) 的内容放进游戏项目的 `.claude/settings.json`：
 
 ```json
 {
   "sandbox": {
     "enabled": true,
     "allowUnsandboxedCommands": false,
+    "excludedCommands": ["gd command *", "gd status", "gd status *", "gd list", "gd list *", "gd doctor", "gd doctor *", "gd api *", "gd eval *"],
     "filesystem": {
-      "denyWrite": ["./project.godot", "./override.cfg", "./export_presets.cfg", "./addons", "./gdcli_commands", "./.godot"]
+      "denyWrite": ["."],
+      "allowWrite": ["~/.local/share/godot", "~/.cache/godot", "~/.config/godot", "~/.gdcli"]
     }
-  },
-  "permissions": {
-    "deny": ["Edit(**/*.gd)", "Edit(**/*.cs)", "Edit(**/*.tscn)", "Edit(**/*.tres)", "Edit(**/*.import)"]
   }
 }
 ```
 
-`Edit` 的拒绝规则对文件工具和沙箱里的命令都生效，所以按扩展名的限制写在那里。`gd` 把改动交给编辑器进程去写，编辑器不在沙箱里，所以经过桥接的写入不受影响；`gd` 自己要连本机回环地址上的桥接端口，而沙箱默认不放行任何网络目的地：如果 `gd` 在沙箱里连不上编辑器，在 `sandbox.network.allowedDomains` 里放行 `127.0.0.1`。**不要**把 `gd` 列进 `sandbox.excludedCommands`：`gd exec` 和 `gd run` 会在沙箱外运行项目里的脚本，上面的写入限制对它们就全部失效了。还有两点没把握：按扩展名的 `Edit` 拒绝规则在沙箱一侧是否按通配符生效（文件工具一侧是生效的）；拒绝写 `.godot` 之后，沙箱里的 `gd import`、`gd check` 写不了导入缓存，这类命令要由已经开着的编辑器来做。这段配置是按官方文档写的，**没有在 WSL2 上实测**，第一次用时请先试一条被拒绝的写入和一条 `gd command`。还要注意：编辑器要和 Claude Code 能互相访问到同一个项目目录和回环端口，WSL2 里的 Claude Code 配 Windows 上的编辑器是否走得通，同样没有验证。
+它的意思是：
+
+- **shell 命令对整个项目只读**（`denyWrite` 写的是项目根）。项目里的文件只有两条路能改：Claude 的文件工具（受上面第一个钩子管，脚本、场景、项目文件会被拒绝），和 `gd command`（交给编辑器写，该批准的会弹给人）。
+- **跟编辑器对话的 `gd` 子命令在沙箱外运行**（`excludedCommands`）。在 Linux 和 WSL2 上，沙箱里的命令连不到宿主机回环地址上的服务，所以不排除就连不上桥接。只排除了经过桥接的子命令；`gd run`、`gd check`、`gd exec`、`gd import`、`gd export` 会启动 Godot 运行项目里的代码，它们**留在沙箱里**。
+- `allowWrite` 让沙箱里的 Godot 能写它自己的数据目录，否则 `gd run` 起不来。
+
+这套配置在 WSL2（Ubuntu，Claude Code 2.1，Godot 4.5）上实测过，结果如下：
+
+| 做法 | 结果 |
+|---|---|
+| 用变量拼出路径写一个新脚本（钩子看不出来） | 被系统拒绝：`Read-only file system` |
+| 追加内容到 `project.godot`、在 `addons/` 下建文件 | 被系统拒绝 |
+| shell 重定向写一个普通文件（`notes.md`） | 同样被拒绝：shell 对整个项目只读 |
+| 用 Write 工具写 `notes.md` | 成功 |
+| 用 Write 工具写 `.gd` | 被钩子拒绝 |
+| 单独一条 `gd command editor_status` | 成功（在沙箱外运行） |
+| `gd command fs_write_text --text-file /tmp/x.gd` | 成功，文件由编辑器写入 |
+| `gd command ... \| head`（带管道） | 失败，报 `NO_EDITOR`：带管道、重定向或 `cd` 的整条命令会留在沙箱里 |
+| `gd run --headless`、`gd check` | 成功，在沙箱里运行；游戏代码同样写不了项目 |
+
+实测中确认**行不通**的两种写法，不要用：
+
+- `permissions.deny` 里的 `Edit(**/*.gd)` 管得住文件工具，**管不住沙箱里的 shell**：用变量拼路径照样写进去了。
+- `denyWrite` 里写通配符（`./**/*.gd`）在 WSL2 上**不起作用**，已有的脚本和新建的脚本都能被改。所以只能按目录禁写，也就是整个项目。
+
+这套配置的边界：
+
+- 把 `gd command *` 放到沙箱外，等于信任 `gd` 本身。它只把请求发给编辑器，由编辑器按访问模式和人工批准的规则处理。
+- 由编辑器启动的游戏（`gd command editor_play`）是编辑器的子进程，不在沙箱里。只有 `gd run` 启动的游戏在沙箱里。
+- 只读的是当前项目。Claude Code 的其他可写目录（临时目录等）不受影响。
 
 需要临时关掉时（比如开发桥接自身），由用户在自己的 Claude Code 设置的 `env` 里加 `GDCLI_ALLOW_DIRECT_WRITES=1`。Claude 在 shell 里设这个变量不起作用，钩子读的是 Claude Code 进程自己的环境。
 

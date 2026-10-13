@@ -56,7 +56,9 @@
 
 - 新增 6 条命令：`tileset_add_atlas`、`tilemap_set_cells`、`tilemap_get`、`sprite_frames_create`、`animation_state_machine_create`、`navigation_bake`；`animation_create` 支持方法调用轨道。两个按任务切的新技能：`godot-tilemap`、`godot-sprite-animation`。技能里的写法同样逐条在真实编辑器里跑过：瓦片关卡上的角色 `is_on_floor` 为真，帧动画在播放。
 - **钩子在真实会话里生效了**：装上插件后，它拦住了对 `bridge/` 里脚本的直接写入（桥接自己的开发项目也是一个装了桥接的 Godot 项目）。开发桥接时需要停用插件，或由用户在设置里加 `GDCLI_ALLOW_DIRECT_WRITES=1`。
-- shell 检查按命令文本判断，挡得住重定向、`cp`/`mv`/`rm`/`tee`/`sed -i`、PowerShell 的对应命令、一行脚本；挡不住变量拼出来的路径、脚本文件、没列进去的工具。**硬约束只有 Claude Code 的沙箱，而沙箱不支持原生 Windows**（支持 macOS、Linux、WSL2）。配置写在插件的 README 里，没有在 WSL2 上实测。
+- shell 检查按命令文本判断，挡得住重定向、`cp`/`mv`/`rm`/`tee`/`sed -i`、PowerShell 的对应命令、一行脚本；挡不住变量拼出来的路径、脚本文件、没列进去的工具。**硬约束只有 Claude Code 的沙箱，而沙箱不支持原生 Windows**（支持 macOS、Linux、WSL2）。
+- **沙箱配置已在 WSL2 上实测**（Ubuntu、Claude Code 2.1、Godot 4.5，结果表在插件 README 里）：shell 对整个项目只读，`gd command` 等经过桥接的子命令在沙箱外运行，`gd run`、`gd check` 留在沙箱里。两种看起来可行的写法实测无效：按扩展名的 `Edit` 拒绝规则管不住沙箱里的 shell，`denyWrite` 里的通配符在 WSL2 上不起作用。两个钩子也在真实会话里验证了：直接写脚本和 shell 重定向都被拒绝，模型随后自己改用 `gd command fs_write_text`。
+- 插件从 GitHub 安装和更新（`claude plugin marketplace add spardanviro/GodotCli`）同样在 WSL2 上实测过。
 - C# 的批准规则只按文本判断，没有在 .NET 版 Godot 上验证；留给第 6 阶段的版本矩阵。
 
 ## 留给第 5 阶段

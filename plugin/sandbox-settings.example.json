@@ -1,0 +1,21 @@
+{
+  "sandbox": {
+    "enabled": true,
+    "allowUnsandboxedCommands": false,
+    "excludedCommands": [
+      "gd command *",
+      "gd status",
+      "gd status *",
+      "gd list",
+      "gd list *",
+      "gd doctor",
+      "gd doctor *",
+      "gd api *",
+      "gd eval *"
+    ],
+    "filesystem": {
+      "denyWrite": ["."],
+      "allowWrite": ["~/.local/share/godot", "~/.cache/godot", "~/.config/godot", "~/.gdcli"]
+    }
+  }
+}
