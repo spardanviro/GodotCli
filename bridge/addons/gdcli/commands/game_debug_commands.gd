@@ -36,6 +36,82 @@ class Waiter:
 		return {}
 
 
+## The variables of one frame. The editor asks the game for those of frame 0
+## by itself when the game halts, and the answers do not say which frame they
+## belong to; so this first lets that exchange finish, then asks, then takes
+## the next complete set.
+class LocalsRequest:
+	extends RefCounted
+
+	const SETTLE_MSEC := 400
+
+	var _link: Object
+	var _record: RefCounted
+	var _frame: int
+	var _deadline: int
+	var _asked_after := -1
+
+	func _init(link: Object, frame: int) -> void:
+		_link = link
+		_record = link.debug_log()
+		_frame = frame
+		_deadline = Time.get_ticks_msec() + WAIT_MSEC
+
+	func poll() -> Dictionary:
+		if _asked_after == -1:
+			if _record.variable_batches() > 0 or _record.stack_age_msec() >= SETTLE_MSEC:
+				_asked_after = _record.variable_batches()
+				_link.debugger_command("get_stack_frame_vars", [_frame])
+		elif _record.variable_batches() > _asked_after:
+			var data: Dictionary = _record.variables()
+			data["frame"] = _frame
+			return Reply.ok(data)
+		if Time.get_ticks_msec() >= _deadline:
+			return Reply.fail("TIMEOUT", "The running game did not send the variables in time.")
+		return {}
+
+
+## Runs the halted game until the function it is in has returned, by stepping
+## over one line at a time.
+class StepOut:
+	extends RefCounted
+
+	const MAX_STEPS := 2000
+	const STEP_OUT_MSEC := 10000
+
+	var _link: Object
+	var _record: RefCounted
+	var _status: Callable
+	var _depth: int
+	var _stops_seen: int
+	var _steps := 0
+	var _deadline: int
+
+	func _init(link: Object, status: Callable) -> void:
+		_link = link
+		_record = link.debug_log()
+		_status = status
+		_depth = _record.status()["stack"].size()
+		_stops_seen = -1
+		_deadline = Time.get_ticks_msec() + STEP_OUT_MSEC
+
+	func poll() -> Dictionary:
+		var stack: Array = _record.status()["stack"]
+		var halted: bool = _record.is_stopped() and not stack.is_empty() and _record.stop_count() != _stops_seen
+		if halted and _steps > 0 and stack.size() < _depth:
+			return Reply.ok(_status.call(_link))
+		if Time.get_ticks_msec() >= _deadline or _steps >= MAX_STEPS:
+			return Reply.ok(_status.call(_link), ["The function had not returned when gd stopped stepping; the game is where game_debug shows."])
+		if halted:
+			# In the outermost function there is no caller to halt in.
+			if _depth <= 1 and _steps > 0:
+				return Reply.ok(_status.call(_link), ["This was the outermost function; the game halted at the next line it ran."])
+			_stops_seen = _record.stop_count()
+			_steps += 1
+			_link.debugger_command("next")
+		return {}
+
+
 var _context: RefCounted
 
 
@@ -102,6 +178,7 @@ func register(registry: RefCounted) -> void:
 			"type": "object",
 			"properties": {
 				"mode": {"type": "string", "enum": _STEP_COMMANDS.keys(), "default": "over", "description": "over: stay in this function; into: enter calls; out: until this function returns."},
+				"emulate": {"type": "boolean", "default": false, "description": "For out: step over repeatedly instead of using the engine's own command (always done before Godot 4.6)."},
 			},
 		},
 		"returns": "The same as game_debug.",
@@ -159,17 +236,7 @@ func _locals(args: Dictionary) -> Dictionary:
 	var frame: int = args["frame"]
 	if frame >= record.status()["stack"].size():
 		return Reply.fail("INVALID_ARGS", "There is no such frame.", "game_debug lists the frames.", {"frame": frame})
-	record.expect_variables()
-	link.debugger_command("get_stack_frame_vars", [frame])
-	return Reply.later(Waiter.new(record.variables_ready, _locals_reply.bind(record, frame), WAIT_MSEC))
-
-
-func _locals_reply(ready: bool, record: RefCounted, frame: int) -> Dictionary:
-	if not ready:
-		return Reply.fail("TIMEOUT", "The running game did not send the variables in time.")
-	var data: Dictionary = record.variables()
-	data["frame"] = frame
-	return Reply.ok(data)
+	return Reply.later(LocalsRequest.new(link, frame))
 
 
 func _breakpoint(args: Dictionary, options: Dictionary) -> Dictionary:
@@ -227,11 +294,10 @@ func _step(args: Dictionary, options: Dictionary) -> Dictionary:
 	var running := _needs_halted(link)
 	if not running.is_empty():
 		return running
-	if args["mode"] == "out" and Engine.get_version_info()["hex"] < _STEP_OUT_SINCE:
-		return Reply.fail(
-			"UNSUPPORTED_GODOT_VERSION", "Stepping out of a function needs Godot 4.6 or newer.",
-			"Step over until the function returns, or set a breakpoint in the caller.",
-		)
+	# Older engines have no "out": the same is reached by stepping over until
+	# the function has returned.
+	if args["mode"] == "out" and (Engine.get_version_info()["hex"] < _STEP_OUT_SINCE or args["emulate"]):
+		return Reply.later(StepOut.new(link, _status_data))
 	return _halt_with(_STEP_COMMANDS[args["mode"]], link)
 
 

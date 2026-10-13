@@ -25,6 +25,16 @@ var _can_continue := false
 var _stack: Array = []
 var _variables_expected := -1
 var _variables: Array = []
+var _batches := 0
+var _batch_counted := true
+var _stack_msec := 0
+var _pending_script_error: Dictionary = {}
+
+## Engines before 4.5 halt on a script error without also reporting it as an
+## error; with this set, the log adds the entry itself from the halt.
+var record_script_errors := false
+# What the debugger gives as the reason of a halt that is not an error.
+const _BREAKPOINT_REASON := "Breakpoint"
 
 
 ## A new run of the game starts with nothing known.
@@ -37,6 +47,10 @@ func reset() -> void:
 	_stack = []
 	_variables_expected = -1
 	_variables = []
+	_batches = 0
+	_batch_counted = true
+	_stack_msec = 0
+	_pending_script_error = {}
 
 
 func on_message(message: String, data: Array) -> void:
@@ -49,18 +63,32 @@ func on_message(message: String, data: Array) -> void:
 			_can_continue = data.size() > 0 and data[0] == true
 			_reason = TextSanitizer.clean(str(data[1]).left(MAX_MESSAGE_CHARS)) if data.size() > 1 else ""
 			_stack = []
+			_batches = 0
+			_batch_counted = true
+			_stack_msec = 0
+			_note_script_error()
 		"debug_exit":
 			_stopped = false
 			_reason = ""
 			_stack = []
 		"stack_dump":
 			_stack = _frames(data, 1, 0, 1, 2)
+			_stack_msec = Time.get_ticks_msec()
+			# The stack of a script error that was noted when the game halted.
+			if not _pending_script_error.is_empty():
+				_pending_script_error["stack"] = _stack.duplicate(true)
+				if not _stack.is_empty():
+					_pending_script_error["source"] = {"file": _stack[0]["file"], "line": _stack[0]["line"], "function": _stack[0]["function"]}
+				_pending_script_error = {}
 		"stack_frame_vars":
 			_variables_expected = int(data[0]) if data.size() > 0 and (data[0] is int or data[0] is float) else 0
 			_variables = []
+			_batch_counted = false
+			_count_batch()
 		"stack_frame_var":
 			if data.size() >= 4 and _variables.size() < MAX_VARIABLES:
 				_variables.append(data)
+			_count_batch()
 
 
 ## The most recent errors and warnings: {entries: [{severity, message,
@@ -68,6 +96,39 @@ func on_message(message: String, data: Array) -> void:
 ## total}. `total` counts all of them since the game started.
 func errors(limit: int) -> Dictionary:
 	return {"entries": _errors.slice(maxi(_errors.size() - limit, 0)), "total": _error_total}
+
+
+# The variables of a frame arrive as a count followed by that many messages.
+func _count_batch() -> void:
+	if not _batch_counted and variables_ready():
+		_batch_counted = true
+		_batches += 1
+
+
+func _note_script_error() -> void:
+	if not record_script_errors or _reason == "" or _reason == _BREAKPOINT_REASON:
+		return
+	_error_total += 1
+	_pending_script_error = {
+		"severity": "error",
+		"message": _reason,
+		"source": {"file": "", "line": 0, "function": ""},
+		"stack": [],
+	}
+	_errors.append(_pending_script_error)
+	if _errors.size() > MAX_ERRORS:
+		_errors.pop_front()
+
+
+## How many complete sets of variables have arrived since the game halted.
+## The editor asks for those of frame 0 by itself when a game halts.
+func variable_batches() -> int:
+	return _batches
+
+
+## Milliseconds since the call stack of the current halt arrived; -1 before.
+func stack_age_msec() -> int:
+	return Time.get_ticks_msec() - _stack_msec if _stack_msec > 0 else -1
 
 
 func error_total() -> int:

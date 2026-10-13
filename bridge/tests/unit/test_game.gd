@@ -502,3 +502,78 @@ func test_game_debug_commands_breakpoints_and_errors_go_through_the_link() -> vo
 	equal(outside["error"]["code"], "PATH_NOT_ALLOWED", "a path outside the project")
 	equal(errors["data"]["entries"][0]["message"], "boom", "errors")
 	equal(unsupported["error"]["code"], "UNSUPPORTED_GODOT_VERSION", "an editor without the debugger hook")
+
+
+func test_game_debug_log_records_a_script_error_itself_on_older_engines() -> void:
+	var older := GameDebugLog.new()
+	older.record_script_errors = true
+	var newer := GameDebugLog.new()
+
+	for record in [older, newer]:
+		record.on_message("debug_enter", [true, "Breakpoint", true, 1])
+		record.on_message("debug_exit", [])
+		record.on_message("debug_enter", [false, "Invalid call on a null value.", true, 1])
+		record.on_message("stack_dump", [3, "res://player.gd", 27, "crash"])
+	var entry: Dictionary = older.errors(10)["entries"][0]
+
+	equal(older.error_total(), 1, "the error halt is counted, the breakpoint is not")
+	equal(entry["message"], "Invalid call on a null value.", "the reason of the halt is the message")
+	equal(entry["source"], {"file": "res://player.gd", "line": 27, "function": "crash"}, "where it happened")
+	equal(entry["stack"].size(), 1, "with the stack that arrived afterwards")
+	equal(newer.error_total(), 0, "engines that report the error themselves are left alone")
+
+
+func _halted_channel() -> FakeChannel:
+	var channel := FakeChannel.new()
+	channel.log.on_message("debug_enter", [true, "Breakpoint", true, 1])
+	channel.log.on_message("stack_dump", [6, "res://a.gd", 14, "_tick", "res://a.gd", 9, "_process"])
+	return channel
+
+
+func test_game_locals_waits_for_the_editors_own_request_before_asking() -> void:
+	var context := FakeContext.new()
+	var channel := _halted_channel()
+	context.link = channel
+	var registry := _debug_commands(context)
+
+	var waiter: RefCounted = registry.handler_of("game_locals").call({"frame": 1})["later"]
+	var first: Dictionary = waiter.poll()
+	var asked_early := channel.commands.size()
+	# The answer to what the editor asked for frame 0 when the game halted.
+	channel.log.on_message("stack_frame_vars", [1])
+	channel.log.on_message("stack_frame_var", ["count", 0, TYPE_INT, 7, ""])
+	var second: Dictionary = waiter.poll()
+	channel.log.on_message("stack_frame_vars", [1])
+	channel.log.on_message("stack_frame_var", ["delta", 0, TYPE_FLOAT, 0.5, ""])
+	var third: Dictionary = waiter.poll()
+
+	equal(first, {}, "nothing yet")
+	equal(asked_early, 0, "and nothing asked while the editor's own exchange is under way")
+	equal(second, {}, "frame 0 is not mistaken for the frame that was asked for")
+	equal(channel.commands, [["get_stack_frame_vars", [1]]], "then the request goes out")
+	equal(third["data"], {"frame": 1, "locals": {"delta": 0.5}, "members": {}, "globals": {}}, "and its answer is returned")
+
+
+func test_game_step_out_is_done_by_stepping_over_until_the_function_returns() -> void:
+	var context := FakeContext.new()
+	var channel := _halted_channel()
+	context.link = channel
+	var registry := _debug_commands(context)
+	var options := {"dry_run": false, "confirm": false, "mode": "standard"}
+
+	var waiter: RefCounted = registry.handler_of("game_step").call({"mode": "out", "emulate": true}, options)["later"]
+	var first: Dictionary = waiter.poll()
+	channel.log.on_message("debug_exit", [])
+	channel.log.on_message("debug_enter", [true, "Breakpoint", true, 1])
+	channel.log.on_message("stack_dump", [6, "res://a.gd", 15, "_tick", "res://a.gd", 9, "_process"])
+	var still_inside: Dictionary = waiter.poll()
+	channel.log.on_message("debug_exit", [])
+	channel.log.on_message("debug_enter", [true, "Breakpoint", true, 1])
+	channel.log.on_message("stack_dump", [3, "res://a.gd", 10, "_process"])
+	var returned: Dictionary = waiter.poll()
+
+	equal(first, {}, "one line is stepped")
+	equal(still_inside, {}, "and another while the function is still running")
+	equal(channel.commands, [["next", []], ["next", []]], "with the command every engine understands")
+	equal(returned["data"]["stack"][0]["function"], "_process", "until the caller is on top")
+	equal(returned["warnings"], [], "without a warning")

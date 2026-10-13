@@ -32,6 +32,13 @@ var _replies := {}
 var _ready_sessions := {}
 var _debug_log := GameDebugLog.new()
 var _listening := false
+# Before this engine version (0xMMmmpp) a script error halts the game without
+# also being reported as an error.
+const _SCRIPT_ERRORS_REPORTED_SINCE := 0x040500
+
+
+func _init() -> void:
+	_debug_log.record_script_errors = Engine.get_version_info()["hex"] < _SCRIPT_ERRORS_REPORTED_SINCE
 
 
 func _has_capture(capture: String) -> bool:

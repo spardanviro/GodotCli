@@ -654,6 +654,9 @@ async function checkGameDebugging(instance) {
   check(top?.file === TICKER_SCRIPT && top?.line === TICK_LINE && top?.function === "_tick", "the game halts at the breakpoint", halted.body);
   check(halted.body?.data?.stack?.[1]?.function === "_process", "the caller is on the stack", halted.body?.data?.stack);
 
+  // Asked at once, while the editor's own request for frame 0 may be under way.
+  const callerLocals = await command(instance, "game_locals", { frame: 1 });
+  check(callerLocals.status === 200 && "_delta" in (callerLocals.body?.data?.locals ?? {}) && !("doubled" in callerLocals.body.data.locals), "game_locals of the caller's frame is not mixed up with frame 0", callerLocals.body);
   const locals = await command(instance, "game_locals", { frame: 0 });
   const count = locals.body?.data?.locals?.count;
   check(locals.status === 200 && Number.isInteger(count) && locals.body?.data?.locals?.doubled === count * 2, "game_locals reads the frame", locals.body);
@@ -662,13 +665,10 @@ async function checkGameDebugging(instance) {
   check(live.body?.data?.properties?.ticks === count, "the halted game still answers game_node_get", live.body);
 
   await command(instance, "game_breakpoint", { path: TICKER_SCRIPT, line: TICK_LINE, enabled: false });
-  // Stepping out exists from Godot 4.6 on; older engines are told so and
-  // stay where they are.
   const out = await command(instance, "game_step", { mode: "out" });
   check(
-    out.body?.errors?.[0]?.code === "UNSUPPORTED_GODOT_VERSION" ||
-      (out.status === 200 && out.body?.data?.stopped === true && out.body?.data?.stack?.[0]?.function === "_process"),
-    "game_step out returns to the caller, or says the engine is too old",
+    out.status === 200 && out.body?.data?.stopped === true && out.body?.data?.stack?.[0]?.function === "_process",
+    "game_step out returns to the caller on every engine version",
     out.body,
   );
   const over = await command(instance, "game_step", { mode: "over" });
@@ -692,6 +692,9 @@ async function checkGameDebugging(instance) {
   const wreck = await until(() => command(instance, "game_debug"), (reply) => reply.body?.data?.stack?.length > 0);
   check(wreck.body?.data?.stopped === true && /null/i.test(wreck.body?.data?.reason ?? ""), "game_debug gives the error as the reason", wreck.body);
   check(wreck.body?.data?.stack?.[0]?.function === "crash", "and the line that failed", wreck.body?.data?.stack);
+  const crashReport = await until(() => command(instance, "game_errors"), (reply) => reply.body?.data?.entries?.some((entry) => /null/i.test(entry.message)) === true);
+  const crash = crashReport.body?.data?.entries?.find((entry) => /null/i.test(entry.message));
+  check(crash?.severity === "error" && crash?.stack?.[0]?.function === "crash", "the script error is in game_errors on every engine version", crashReport.body);
   await command(instance, "game_continue");
   await until(() => command(instance, "game_debug"), (reply) => reply.body?.data?.stopped === false);
 
