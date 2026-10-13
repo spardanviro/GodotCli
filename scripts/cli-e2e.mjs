@@ -374,6 +374,14 @@ try {
 }
 
 if (failures.length > 0) {
+  // On GitHub, failures also become annotations, which can be read without
+  // access to the full log.
+  if (process.env.GITHUB_ACTIONS === "true") {
+    for (const failure of failures) {
+      const message = failure.slice(0, 3000).replaceAll("%", "%25").replaceAll("\r", "%0D").replaceAll("\n", "%0A");
+      process.stdout.write(`::error title=cli end-to-end::${message}\n`);
+    }
+  }
   process.stderr.write(`cli end-to-end test failed (${failures.length} of ${checks} checks):\n- ${failures.join("\n- ")}\n`);
   process.exit(1);
 }
