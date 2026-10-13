@@ -1,6 +1,6 @@
 # Commands of the editor bridge
 
-The 55 commands a running editor answers, each run as `gd command <name> --<argument> <value>`. `gd list --json` prints the same
+The 61 commands a running editor answers, each run as `gd command <name> --<argument> <value>`. `gd list --json` prints the same
 for the editor you are talking to, including commands the project adds itself. Search this file for the command you need; do not read it whole.
 
 After the summary, in brackets: the risk tier (`read`, `write`, `destructive`, `exec`) and whether the change is one step on the editor's undo stack.
@@ -244,12 +244,12 @@ Returns: {path, set}. Not undoable.
 
 ### animation_create
 
-Create an animation on an AnimationPlayer from property keyframes. [write, one undo step] Needs a scene open in the editor.
+Create an animation on an AnimationPlayer from property keyframes and method calls. [write, one undo step] Needs a scene open in the editor.
 
 - `length` (number, required, 0.001..3600) Seconds.
 - `name` (string, required)
 - `player` (string, required) Path of the AnimationPlayer node.
-- `tracks` (array, required) Each: {node: path in the scene, property: name, keys: [{time: seconds, value}], interpolation?: nearest|linear|cubic, update?: continuous|discrete}. Values are converted to the property's type.
+- `tracks` (array, required) Each: {node: path in the scene, property: name, keys: [{time: seconds, value}], interpolation?: nearest|linear|cubic, update?: continuous|discrete}; values are converted to the property's type. Or, to call a method at given times: {node, method: name, keys: [{time, args?: [values]}]}.
 - `autoplay` (boolean, default false) Play this animation when the scene starts.
 - `library` (string, default "") Animation library; the default one has an empty name.
 - `loop` (string, default "none", one of none, linear, pingpong)
@@ -264,6 +264,81 @@ Animations of an AnimationPlayer in the edited scene. [read] Needs a scene open 
 - `player` (string, required) Path of the AnimationPlayer node.
 
 Returns: {player, autoplay, animations: [{name, library, length, loop, tracks: [path]}]}
+
+### animation_state_machine_create
+
+Give an AnimationTree a state machine: one state per animation, with transitions between them. [write, one undo step] Needs a scene open in the editor.
+
+- `states` (array, required) Each: {name: letters, digits and _, animation: name in the player}.
+- `tree` (string, required) Path of the AnimationTree node.
+- `player` (string) Path of the AnimationPlayer whose animations are played. Default: the one the tree already points to.
+- `start` (string) State entered first. Default: the first state.
+- `transitions` (array) Each: {from, to} plus optional switch: immediate|sync|at_end (default immediate), auto: boolean (taken by itself, e.g. after at_end), xfade: seconds, condition: name of a boolean set from code, expression: text evaluated on the tree's parent. Without auto, condition or expression, a transition is taken by travel() from code. With an expression anywhere, the tree is left inactive (see returns).
+
+Returns: {tree, states, transitions, parameters: paths to set from code, active}; meta.undo names the undo step. Replaces the tree's root. The tree is made active, except when a transition has an expression: an active tree also runs in the editor, where the expression would be evaluated too, so the game's script sets active = true in _ready().
+
+## sprite
+
+### sprite_frames_create
+
+Give an AnimatedSprite2D or AnimatedSprite3D frame animations cut from sprite sheets or made of single images. [write, one undo step] Needs a scene open in the editor.
+
+- `animations` (array, required) Each: {name, sheet: res:// image, hframes?: columns, vframes?: rows, frames?: [indices, counted row by row from 0; default all]} or {name, files: [res:// images]}; plus fps?: number (default 10) and loop?: boolean (default true). An animation of the same name is replaced.
+- `node` (string, required) Path of the AnimatedSprite2D or AnimatedSprite3D node.
+- `autoplay` (string, default "") Animation to play when the scene starts.
+- `replace` (boolean, default false) Drop the animations the node already has instead of adding to them.
+
+Returns: {node, animations: [{name, frames, fps, loop}]} for all animations the node has afterwards; meta.undo names the undo step.
+
+## tilemap
+
+### tilemap_get
+
+The tile set sources of a TileMapLayer and the cells that are painted. [read] Needs a scene open in the editor.
+
+- `layer` (string, required) Path of the TileMapLayer node.
+- `limit` (integer, default 500, 0..2000)
+- `rect` (array) [x, y, width, height] in cells: list only the cells inside.
+
+Returns: {layer, tile_size, sources: [{id, texture, columns, rows, tiles}], used_rect, cell_count, cells: [{x, y, source, atlas: [column, row]}], truncated}
+
+### tilemap_set_cells
+
+Paint or erase cells of a TileMapLayer. [write, one undo step] Needs a scene open in the editor.
+
+- `layer` (string, required) Path of the TileMapLayer node.
+- `alternative` (integer, default 0, 0..)
+- `atlas` (array) [column, row] of the tile in the atlas. Default [0, 0].
+- `cells` (array) Cells as [x, y] pairs in map coordinates.
+- `erase` (boolean, default false) Clear the cells instead of painting them.
+- `rect` (array) [x, y, width, height] in cells: every cell of the rectangle, in addition to `cells`.
+- `source` (integer, default 0) Id of the tile set source, as tileset_add_atlas returned it.
+
+Returns: {layer, cells: number changed, used_rect: [x, y, width, height]}; meta.undo names the undo step.
+
+### tileset_add_atlas
+
+Cut an image into tiles and add them to the tile set of a TileMapLayer, creating the tile set if the layer has none. [write, one undo step] Needs a scene open in the editor.
+
+- `layer` (string, required) Path of the TileMapLayer node.
+- `texture` (string, required) res:// path of the atlas image.
+- `collision` (boolean, default false) Give every tile a collision shape that fills it (the tile set gets a physics layer when it has none).
+- `margins` (array) [x, y] pixels around the tiles in the image. Default [0, 0].
+- `separation` (array) [x, y] pixels between tiles in the image. Default [0, 0].
+- `tile_size` (array) [width, height] of one tile in pixels. Default: the tile set's tile size, or 16 by 16 for a new one.
+
+Returns: {layer, source: id to paint with, columns, rows, tiles, tile_size}; meta.undo names the undo step. A tile is addressed by its column and row in the image: [0, 0] is the top left one.
+
+## navigation
+
+### navigation_bake
+
+Bake the navigation mesh of a NavigationRegion3D or the navigation polygon of a NavigationRegion2D from the geometry under it. [write, one undo step] Needs a scene open in the editor.
+
+- `region` (string, required) Path of the NavigationRegion3D or NavigationRegion2D node.
+- `outline` (array) 2D only: the points [[x, y], ...] of the area agents may walk in, in the region's own coordinates. Replaces the outlines the polygon has. Obstacles found inside are cut out.
+
+Returns: {region, kind: 2d|3d, polygons, vertices}; meta.undo names the undo step. The region gets a baked copy of its mesh or polygon (a new one when it had none); undo puts the earlier one back.
 
 ## fs
 

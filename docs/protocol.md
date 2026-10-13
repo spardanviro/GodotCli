@@ -222,6 +222,8 @@ HTTP 解析是手写的，所以把它能接受的东西限定得很窄，其余
 - **人工批准**是唯一不经过调用方的确认：桥接在编辑器里弹出对话框，写明命令、原因、目标和将要写入的**完整内容**，人点"Allow"才执行，默认焦点在"Deny"上。它在两种情况下出现：
   1. **会让代码进入编辑器进程、或改变编辑器和项目加载什么的改动**，在 `standard` 和 `ask` 模式下都要人批准，调用方自己带 `confirm: true` 不算数：
      - `fs_write_text` 写入的内容里出现工具注解（`@tool`）。不看扩展名也不看它在哪一行：写在别的注解后面、藏在场景或资源文件内嵌的脚本里都算；注释里提到它也算，宁可多问一次。
+     - `fs_write_text` 写入 `.cs` 文件，且内容里出现 `Tool`、`ToolAttribute`、`ModuleInitializer`、`ModuleInitializerAttribute` 这几个词中的任何一个，或者出现 `\u` 转义字符。前两个让类在编辑器里运行，后两个在编辑器加载构建好的程序集时就运行。特性可以跨行写、嵌在别的特性里、用转义拼出来，所以不去解析特性语法，只找词，宁可多问。这一条只按文本判断；本仓库的测试环境没有 .NET 版 Godot，没有在真实的 C# 项目上验证过，C# 里不带这些标记也可能在编辑器里运行的代码（例如被编辑器实例化的类型的静态构造函数）不在覆盖范围内。
+     - `fs_move` 把文件改成另一种扩展名，而它的内容在新扩展名下属于上面两类（例如把写成 `notes.txt` 的 C# 工具类改名为 `Notes.cs`）。
      - `fs_write_text` 写入第 4.4 节的敏感位置：`addons/`、`gdcli_commands/`、`project.godot`、`project.binary`、`override.cfg`、`*.gdextension`，以及 C# 构建会执行的 `*.csproj`、`*.sln`、`*.props`、`*.targets` 等。
      - `node_attach_script` 挂的脚本带工具注解。这一条不管脚本是怎么进到项目里的，在加载之前就问。
      - `resource_create`、`resource_set`、`scene_new`、`scene_save` 落在敏感位置。
@@ -506,7 +508,11 @@ JSON 能直接表示的类型原样传。其余类型：
 | exec | `eval` | exec | 3 |
 | host | `host_quit`（只对 `gd host start` 拉起的无头宿主有效） | write | 3 |
 | animation | `animation_list` | read | 3 |
-| animation | `animation_create`（可撤销） | write | 3 |
+| animation | `animation_create`、`animation_state_machine_create`（可撤销） | write | 3 / 4.5 |
+| sprite | `sprite_frames_create`（可撤销） | write | 4.5 |
+| tilemap | `tilemap_get` | read | 4.5 |
+| tilemap | `tileset_add_atlas`、`tilemap_set_cells`（可撤销） | write | 4.5 |
+| navigation | `navigation_bake`（可撤销） | write | 4.5 |
 | game | `game_tree`、`game_node_get`、`game_errors`、`game_output`、`game_debug`、`game_locals`（第 6.7 节） | read | 3 |
 | game | `game_node_set`、`game_call`、`game_input`、`game_screenshot`、`game_breakpoint`、`game_pause`、`game_step`、`game_continue`（第 6.7 节） | write | 3 |
 
@@ -523,6 +529,13 @@ JSON 能直接表示的类型原样传。其余类型：
 - `fs_write_text` 写完 `.gd` 后立刻编译检查，结果放在 `data.check`（`{compiles, errors?}`，报错文本需要 4.5 及以上）。**不通过也照样写入**，因为它可能引用下一步才创建的东西；此时带一条警告。有三类脚本不做这项检查，`data.check` 里是 `{skipped: 原因}`，需要时用 `gd check`：带工具注解的；用了 `preload` 或 `extends "路径"` 的（编译会去加载别的文件）；引用了自己的 `class_name` 的（文本是单独编译的，那时类名还不存在）。在编辑器里编译一个非工具脚本不会运行其中任何代码（包括静态初始化），这一点实测确认过。
 - `animation_create` 用关键帧在 AnimationPlayer 上建一个动画：每条轨道给出场景里的节点路径、属性名和若干 `{time, value}`，值按属性类型转换；不能混合的类型（布尔、整数、字符串、资源）默认在关键帧处跳变。可指定循环方式和是否自动播放。只支持属性轨道，不支持方法调用、音频、贝塞尔轨道。
 - `gd run` 用的是磁盘上的文件。发现有编辑器开着这个项目时会给一条警告，提醒先保存场景；它无法知道是否真有未保存的改动。
+- `animation_create` 的轨道写 `method` 而不是 `property` 时是方法调用轨道：`{node, method, keys: [{time, args?}]}`。`call`、`set`、`set_script`、`connect` 这类"间接做别的事"的方法不接受。方法不必已经存在（脚本可能随后才挂上）。
+- `animation_state_machine_create` 给 AnimationTree 建一个状态机：每个状态播放 AnimationPlayer 里的一个动画；转移可以带条件名（代码里设的布尔量）、表达式（在树的父节点上求值）、或"播完自动转移"。它替换树的根节点。**启用的动画树在编辑器里也会运行**，表达式也会在那里被求值，而表达式是调用方给的文本；所以只要有转移带表达式，命令就把树设为不启用并在警告里说明，由游戏脚本在 `_ready()` 里启用；没有表达式时设为启用。混合树、混合空间、嵌套状态机不在范围内。
+- `sprite_frames_create` 给 AnimatedSprite2D/3D 建帧动画：每个动画要么从一张图集按行列切出若干格（`sheet`、`hframes`、`vframes`、`frames`），要么由若干单张图片组成（`files`）。节点原有的 SpriteFrames 不被修改，而是复制一份改好后换上去，所以撤销能回到原样。
+- `tileset_add_atlas` 把一张图按网格切成瓦片，加进 TileMapLayer 的瓦片集（没有就新建）；`collision` 为真时每个瓦片得到一个占满整格的碰撞形状。`tilemap_set_cells` 用 `cells`（坐标列表）和 `rect`（矩形）指定格子，一次调用画一种瓦片或擦除，上限 2 万格。**独立成文件的瓦片集不改**（它被多个场景共用，保存场景也不会保存它），返回 `PRECONDITION_FAILED`。地形（自动拼接）、动画瓦片、替代瓦片、瓦片上的导航和自定义数据不在范围内。
+- `navigation_bake` 在调用所在的线程上烘焙完再返回，是一步撤销：烘焙进原有网格或多边形的**副本**（没有就新建），再把副本换到区域上，原来的资源不被改动。独立成文件的导航数据不改。2D 区域需要一个轮廓（`outline`，或导航多边形里已有的）。结果里多边形数为 0 时带一条警告。无窗口的编辑器里网格没有几何数据，要用静态碰撞体作为烘焙来源。
+- 这些命令只加载图片文件（按扩展名：png、jpg、webp、svg 等）。资源文件（`.tres`、`.tscn`）即使类型是纹理也不接受，因为资源文件可以带脚本，加载它就会在编辑器里运行那段脚本。
+- 方法调用轨道在编辑器里不执行（引擎只在游戏里调用）；它和脚本一样属于游戏代码。
 
 **`fs_move` 与引用。** `fs_move` 移动文件或文件夹，然后把其他文件里对旧路径的引用改成新路径：
 

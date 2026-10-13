@@ -10,6 +10,7 @@ const HttpServer = preload("core/http_server.gd")
 const LockFile = preload("core/lock_file.gd")
 const Registry = preload("core/registry.gd")
 const AnimationCommands = preload("commands/animation_commands.gd")
+const AnimationTreeCommands = preload("commands/animation_tree_commands.gd")
 const EditorCommands = preload("commands/editor_commands.gd")
 const EditorControlCommands = preload("commands/editor_control_commands.gd")
 const FsCommands = preload("commands/fs_commands.gd")
@@ -18,11 +19,14 @@ const GameCommands = preload("commands/game_commands.gd")
 const GameDebugCommands = preload("commands/game_debug_commands.gd")
 const GameLink = preload("core/game_link.gd")
 const NodeCommands = preload("commands/node_commands.gd")
+const NavigationCommands = preload("commands/navigation_commands.gd")
 const NodeEditCommands = preload("commands/node_edit_commands.gd")
 const ProjectCommands = preload("commands/project_commands.gd")
 const ProjectEditCommands = preload("commands/project_edit_commands.gd")
 const SceneCommands = preload("commands/scene_commands.gd")
 const SceneEditCommands = preload("commands/scene_edit_commands.gd")
+const SpriteCommands = preload("commands/sprite_commands.gd")
+const TileCommands = preload("commands/tile_commands.gd")
 
 # Kept in step with plugin.cfg, cli/package.json and cli/src/protocol.ts
 # by scripts/check-versions.mjs.
@@ -75,6 +79,10 @@ func _enter_tree() -> void:
 		ProjectEditCommands.new(context),
 		EditorControlCommands.new(context),
 		AnimationCommands.new(context),
+		AnimationTreeCommands.new(context),
+		TileCommands.new(context),
+		SpriteCommands.new(context),
+		NavigationCommands.new(context),
 		GameCommands.new(context),
 		GameDebugCommands.new(context),
 	]

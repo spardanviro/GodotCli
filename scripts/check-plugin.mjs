@@ -18,7 +18,7 @@ const MAX_SKILL_LINES = 500;
 const IMPORTED = new Set(["gotchas.md", "api.md"]);
 // Options of `gd` itself, which may follow any command.
 const GLOBAL_FLAGS = new Set(["args", "args_file", "json", "format", "project", "godot", "instance", "timeout", "yes", "dry_run"]);
-const COMMAND_PREFIXES = ["animation", "edit", "editor", "fs", "game", "host", "node", "project", "resource", "scene"];
+const COMMAND_PREFIXES = ["animation", "edit", "editor", "fs", "game", "host", "navigation", "node", "project", "resource", "scene", "sprite_frames", "tilemap", "tileset"];
 const FILE_SUFFIX = "_file";
 
 /** @type {string[]} */

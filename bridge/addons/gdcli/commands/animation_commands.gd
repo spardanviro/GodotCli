@@ -22,9 +22,17 @@ const _UPDATE_MODES := {"continuous": Animation.UPDATE_CONTINUOUS, "discrete": A
 const _STEPPED_TYPES: Array[int] = [TYPE_BOOL, TYPE_INT, TYPE_STRING, TYPE_STRING_NAME, TYPE_OBJECT, TYPE_NODE_PATH]
 const _STRUCTURAL_USAGE := PROPERTY_USAGE_CATEGORY | PROPERTY_USAGE_GROUP | PROPERTY_USAGE_SUBGROUP
 const _NAME_PATTERN := "^[^/:,\\[\\]]+\\z"
+const _METHOD_PATTERN := "^[A-Za-z_][A-Za-z0-9_]*\\z"
+# Methods that run something else than themselves.
+const _INDIRECT_METHODS: Array[String] = [
+	"call", "callv", "call_deferred", "call_thread_safe", "call_deferred_thread_group", "call_thread_group", "propagate_call", "propagate_notification",
+	"set", "set_deferred", "set_indexed", "set_thread_safe", "set_script", "set_meta",
+	"connect", "emit_signal", "add_user_signal", "rpc", "rpc_id", "rpc_config", "notification",
+]
 
 var _context: RefCounted
 var _name_regex := RegEx.create_from_string(_NAME_PATTERN)
+var _method_regex := RegEx.create_from_string(_METHOD_PATTERN)
 
 
 func _init(context: RefCounted) -> void:
@@ -42,7 +50,7 @@ func register(registry: RefCounted) -> void:
 	}, _list)
 	registry.register({
 		"name": "animation_create",
-		"summary": "Create an animation on an AnimationPlayer from property keyframes.",
+		"summary": "Create an animation on an AnimationPlayer from property keyframes and method calls.",
 		"risk": AccessPolicy.RISK_WRITE,
 		"undoable": true,
 		"requires": ["scene_open"],
@@ -56,7 +64,7 @@ func register(registry: RefCounted) -> void:
 				"loop": {"type": "string", "enum": _LOOP_MODES.keys(), "default": "none"},
 				"tracks": {
 					"type": "array",
-					"description": "Each: {node: path in the scene, property: name, keys: [{time: seconds, value}], interpolation?: nearest|linear|cubic, update?: continuous|discrete}. Values are converted to the property's type.",
+					"description": "Each: {node: path in the scene, property: name, keys: [{time: seconds, value}], interpolation?: nearest|linear|cubic, update?: continuous|discrete}; values are converted to the property's type. Or, to call a method at given times: {node, method: name, keys: [{time, args?: [values]}]}.",
 					"items": {"type": "object"},
 				},
 				"overwrite": {"type": "boolean", "default": false},
@@ -171,13 +179,16 @@ func _commit(action: String, player: AnimationPlayer, library: AnimationLibrary,
 	undo.commit_action()
 
 
-# Adds one value track. Returns {ok, path} or a failed reply.
+# Adds one track. Returns {ok, path} or a failed reply.
 func _add_track(animation: Animation, player: AnimationPlayer, track: Variant) -> Dictionary:
-	if not (track is Dictionary and track.get("node") is String and track.get("property") is String and track.get("keys") is Array):
-		return Reply.fail("INVALID_ARGS", "A track needs node, property and keys.")
+	var names_one: bool = track is Dictionary and (track.get("property") is String) != (track.get("method") is String)
+	if not (names_one and track.get("node") is String and track.get("keys") is Array):
+		return Reply.fail("INVALID_ARGS", "A track needs node, keys, and either property or method.")
 	var target := NodeRef.resolve(_root(), track["node"])
 	if target == null:
 		return Reply.fail("NODE_NOT_FOUND", "The animated node does not exist.", "", {"path": TextSanitizer.clean_line(track["node"])})
+	if track.get("method") is String:
+		return _add_method_track(animation, player, target, track)
 	var info := _property_info(target, track["property"])
 	if info.is_empty():
 		return Reply.fail(
@@ -218,6 +229,44 @@ func _add_track(animation: Animation, player: AnimationPlayer, track: Variant) -
 			return Reply.fail("INVALID_ARGS", "A node cannot be a keyframe value.", "Animate a NodePath property with the path as text.")
 		animation.track_insert_key(index, key["time"], decoded["value"])
 	return {"ok": true, "path": TextSanitizer.clean_line(path)}
+
+
+# The node the player's track paths start from, or null when it is not in this scene.
+func _base_of(player: AnimationPlayer) -> Node:
+	var base: Node = player.get_node_or_null(player.root_node)
+	return base if base != null and (base == _root() or _root().is_ancestor_of(base)) else null
+
+
+# A track that calls a method of `target` at its keys.
+func _add_method_track(animation: Animation, player: AnimationPlayer, target: Node, track: Dictionary) -> Dictionary:
+	var method: String = track["method"]
+	# The method need not exist yet: the script may be attached later. The
+	# ones that do something other than what their name says are left out.
+	if method in _INDIRECT_METHODS or _method_regex.search(method) == null:
+		return Reply.fail("INVALID_ARGS", "This method cannot be called from a track.", "Call a method of the node's own script.", {"method": TextSanitizer.clean_line(method)})
+	var keys: Array = track["keys"]
+	if keys.is_empty() or keys.size() > MAX_KEYS:
+		return Reply.fail("INVALID_ARGS", "A track needs between 1 and %d keys." % MAX_KEYS)
+	var base := _base_of(player)
+	if base == null:
+		return Reply.fail(
+			"PRECONDITION_FAILED", "The player's root_node does not point to a node of this scene.",
+			"An AnimationPlayer that is the scene root needs root_node set to \".\" (node_set).",
+		)
+	var path := str(base.get_path_to(target))
+	var index := animation.add_track(Animation.TYPE_METHOD)
+	animation.track_set_path(index, NodePath(path))
+	var decoder := ValueDecoder.new(_root())
+	for key in keys:
+		if not (key is Dictionary and (key.get("time") is float or key.get("time") is int) and key.get("args", []) is Array):
+			return Reply.fail("INVALID_ARGS", "A key of a method track needs time, and args as a list when the method takes any.")
+		if key["time"] < 0.0 or key["time"] > animation.length:
+			return Reply.fail("INVALID_ARGS", "A key lies outside the length of the animation.", "", {"time": key["time"]})
+		var decoded: Dictionary = decoder.decode(key.get("args", []), TYPE_ARRAY)
+		if not decoded["ok"]:
+			return decoded
+		animation.track_insert_key(index, key["time"], {"method": StringName(method), "args": decoded["value"]})
+	return {"ok": true, "path": TextSanitizer.clean_line("%s:%s()" % [path, method])}
 
 
 func _property_info(target: Node, property: String) -> Dictionary:

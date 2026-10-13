@@ -12,6 +12,16 @@
             "onFailure": "block"
           }
         ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/guard-shell-writes.mjs\"",
+            "timeout": 10
+          }
+        ]
       }
     ]
   }

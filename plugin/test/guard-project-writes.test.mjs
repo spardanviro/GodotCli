@@ -37,7 +37,7 @@ function writeEvent(filePath, cwd, tool = "Write") {
 
 describe("isGuardedRelativePath", () => {
   test("guards scripts, scenes and resources anywhere in the project", () => {
-    for (const path of ["player.gd", "scripts/player.gd", "scenes/main.tscn", "data/item.tres", "a/b/c.SCN", "x.res", "bin/lib.gdextension", "Game.csproj", "models/crate.glb.import"]) {
+    for (const path of ["player.gd", "scripts/player.gd", "scenes/main.tscn", "data/item.tres", "a/b/c.SCN", "x.res", "bin/lib.gdextension", "Game.csproj", "models/crate.glb.import", "src/Player.cs"]) {
       assert.equal(isGuardedRelativePath(path), true, path);
     }
   });
@@ -49,7 +49,7 @@ describe("isGuardedRelativePath", () => {
   });
 
   test("leaves everything else alone", () => {
-    for (const path of ["README.md", "notes/design.md", "art/player.png", "shaders/water.gdshader", "data/levels.json", "docs/project.godot", "src/Player.cs", ""]) {
+    for (const path of ["README.md", "notes/design.md", "art/player.png", "shaders/water.gdshader", "data/levels.json", "docs/project.godot", "tools/build.py", ""]) {
       assert.equal(isGuardedRelativePath(path), false, path);
     }
   });
@@ -170,11 +170,13 @@ describe("decide", () => {
 describe("hooks.json", () => {
   test("runs the guard as one command line, which every Claude Code version understands", () => {
     const configuration = JSON.parse(readFileSync(join(dirname(HOOK), "hooks.json"), "utf8"));
-    const [group] = configuration.hooks.PreToolUse;
+    const [group, shell] = configuration.hooks.PreToolUse;
 
     assert.equal(group.matcher, "Write|Edit|MultiEdit|NotebookEdit");
     assert.deepEqual(Object.keys(group.hooks[0]).sort(), ["command", "onFailure", "timeout", "type"]);
     assert.equal(group.hooks[0].command, 'node "${CLAUDE_PLUGIN_ROOT}/hooks/guard-project-writes.mjs"');
+    assert.equal(shell.matcher, "Bash|PowerShell");
+    assert.equal(shell.hooks[0].command, 'node "${CLAUDE_PLUGIN_ROOT}/hooks/guard-shell-writes.mjs"');
   });
 });
 

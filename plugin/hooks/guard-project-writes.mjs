@@ -20,10 +20,9 @@ const OVERRIDE_VARIABLE = "GDCLI_ALLOW_DIRECT_WRITES";
 const GUARDED_ROOT_FILES = new Set(["project.godot", "project.binary", "override.cfg", "export_presets.cfg"]);
 const GUARDED_FOLDERS = new Set(["addons", "gdcli_commands", ".godot"]);
 // Scripts, the scene and resource files that can carry a script inside, import
-// settings (they can name a script to run on import), native libraries and
-// what a C# build runs. C# sources are not here: the bridge has no approval
-// rule for them, so sending them through it would add nothing.
-const GUARDED_EXTENSIONS = new Set([".gd", ".tscn", ".tres", ".scn", ".res", ".import", ".gdextension", ".csproj", ".sln", ".props", ".targets"]);
+// settings (they can name a script to run on import), native libraries, C#
+// sources and what a C# build runs.
+const GUARDED_EXTENSIONS = new Set([".gd", ".cs", ".tscn", ".tres", ".scn", ".res", ".import", ".gdextension", ".csproj", ".sln", ".props", ".targets"]);
 
 const REASON = [
   "This file belongs to a Godot project that is driven through gdcli, and it decides what code the editor runs.",

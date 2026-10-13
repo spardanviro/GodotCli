@@ -59,7 +59,9 @@ arguments. Search that file for the command you need.
 | Build the node tree | `node_create`, `node_set`, `node_rename`, `node_move`, `node_duplicate`, `node_delete`, `node_instantiate_scene`, `node_add_to_group` |
 | Add behaviour | `fs_write_text` (the script), `node_attach_script`, `node_connect_signal` |
 | Make resources | inline in a property (`{"$new": ...}`), or as files with `resource_create`, `resource_set` |
-| Animate | `animation_create`, `animation_list` |
+| Animate | `animation_create`, `animation_list`, `sprite_frames_create`, `animation_state_machine_create` |
+| Build a tile level | `tileset_add_atlas`, `tilemap_set_cells`, `tilemap_get` |
+| Bake navigation | `navigation_bake` |
 | Change the project | `project_settings_set`, `project_input_map_set`, `fs_move`, `fs_delete`, `fs_scan` |
 | Take a step back | `edit_undo`, `edit_redo` |
 | Run and check | `gd run`, `gd check`, `editor_play`, `editor_stop`, `editor_errors` |
@@ -86,8 +88,9 @@ Things worth knowing before you use them:
 ## Scripts and other project files
 
 Scripts, scenes, resources, `project.godot` and everything under `addons/` are written **through the editor**, not
-with your own file tools. This plugin blocks direct writes to them, and the reason is not a formality: these files
-decide what code the editor runs, and the editor asks the person in front of it before such a change goes in.
+with your own file tools and not with shell commands. This plugin blocks direct writes to them, and the reason is
+not a formality: these files decide what code the editor runs, and the editor asks the person in front of it before
+such a change goes in. Moving and deleting them goes through `fs_move` and `fs_delete` for the same reason.
 
 New script:
 
@@ -104,8 +107,9 @@ run `gd command fs_scan` afterwards so the editor notices them.
 
 ## When a person has to agree
 
-Some changes are shown to the person at the editor, who allows or denies them: a script with `@tool`, anything under
-`addons/`, autoloads and similar project settings, `eval`, and in the editor's `ask` mode every destructive command.
+Some changes are shown to the person at the editor, who allows or denies them: a script with `@tool` (in C#: a
+class marked `[Tool]`), anything under `addons/`, autoloads and similar project settings, `eval`, and in the
+editor's `ask` mode every destructive command.
 The call waits up to 50 seconds for the answer.
 
 - `NOT_APPROVED`: the person said no, did not answer, or the editor has no window. **Stop and tell the user** what you
@@ -168,5 +172,6 @@ work without it (an input action your script reads). Delete files only when the 
 - `references/walkthrough-platformer.md` - a complete worked example: a 2D character that runs and jumps, built, run and tested.
 - `references/editor-code.md` - writing code for `gd eval` and for project commands, when no command does the job.
 
-The domain skills of this plugin (`godot-gdscript`, `godot-physics-gameplay`, `godot-ui`, `godot-3d-rendering`,
-`godot-animation-audio`) hold the Godot knowledge: how things are built and the mistakes that are easy to make.
+The other skills of this plugin hold the Godot knowledge: how things are built and the mistakes that are easy to
+make. By topic: `godot-gdscript`, `godot-physics-gameplay`, `godot-ui`, `godot-3d-rendering`, `godot-animation-audio`.
+By task: `godot-tilemap` (levels made of tiles), `godot-sprite-animation` (sprite sheets, frame animation, pixel art).

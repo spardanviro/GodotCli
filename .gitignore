@@ -13,3 +13,8 @@ export_presets.cfg
 # Local tooling
 .claude/settings.local.json
 bridge/tests/tmp/
+
+# Packaged copies of the plugin made for uploading
+/plugin/Godot/
+/plugin/*.zip
+/*.zip

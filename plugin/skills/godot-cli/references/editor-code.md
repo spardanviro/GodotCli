@@ -1,7 +1,8 @@
 # Code that runs in the editor
 
-For what no command does: painting tile map cells, building an `AnimationTree`, changing many nodes at once,
-anything that needs a loop over the scene. There are three ways, in the order to consider them.
+For what no command does: terrain rules of a tile set, a blend space in an `AnimationTree`, changing many nodes at
+once, anything that needs a loop over the scene. Look in `commands.md` first: tile maps, sprite frames, animation
+state machines and navigation baking have commands. There are three ways, in the order to consider them.
 
 ## 1. Do it in the game instead
 
@@ -53,14 +54,15 @@ Rules for the code:
   the game runs.
 - No `OS.execute`, `OS.create_process`, `OS.shell_open`, no network access, no file writes outside `res://`.
 
-Example: fill a rectangle of a tile map layer.
+Example: put every node of a group on the same collision layer.
 
 ```gdscript
-var layer: TileMapLayer = scene.get_node("Ground")
-for x in range(0, 40):
-	for y in range(10, 12):
-		layer.set_cell(Vector2i(x, y), 0, Vector2i(1, 0))
-return layer.get_used_cells().size()
+var changed := 0
+for node in scene.find_children("*", "CollisionObject2D", true, false):
+	if node.is_in_group("enemies"):
+		node.collision_layer = 4
+		changed += 1
+return changed
 ```
 
 ## 3. A command of the project's own

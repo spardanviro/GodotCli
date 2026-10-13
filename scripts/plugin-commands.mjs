@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 
 export const COMMANDS_FILE = fileURLToPath(new URL("../plugin/skills/godot-cli/references/commands.md", import.meta.url));
 
-const GROUP_ORDER = ["editor", "scene", "node", "resource", "animation", "fs", "project", "edit", "game", "exec", "host"];
+const GROUP_ORDER = ["editor", "scene", "node", "resource", "animation", "sprite", "tilemap", "navigation", "fs", "project", "edit", "game", "exec", "host"];
 const REQUIREMENTS = {
   scene_open: "a scene open in the editor",
   playing: "the game running from the editor (editor_play)",

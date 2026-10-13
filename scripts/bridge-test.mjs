@@ -512,6 +512,7 @@ async function checkEdits(instance) {
   check(moved.status === 200, "fs_move", moved.body);
   await checkMoveUpdatesReferences(instance, scene, script);
   await checkLayoutMoveAndAnimation(instance);
+  await checkContentCommands(instance);
   await checkFolderMove(instance);
 
   const removed = await command(instance, "fs_delete", { path: `${TMP_DIR}/moved/e2e_box.tres` }, { confirm: true });
@@ -713,6 +714,75 @@ async function checkLayoutMoveAndAnimation(instance) {
   const fine = await command(instance, "fs_write_text", { path: `${TMP_DIR}/e2e_fine.gd`, text: "extends Node\n\nvar speed := 3\n" });
   check(fine.body?.data?.check?.compiles === true, "a script that compiles is reported as such", fine.body);
   await command(instance, "fs_write_text", { path: `${TMP_DIR}/e2e_broken.gd`, text: "extends Node\n", overwrite: true }, { confirm: true });
+}
+
+const ATLAS = "res://tests/fixtures/tiles.png";
+
+/**
+ * What used to need code run in the editor: a tile map, frame animations, an
+ * animation state machine, a baked navigation mesh.
+ * Runs on the fixture scene, which is the edited one here.
+ * @param {Instance} instance
+ */
+async function checkContentCommands(instance) {
+  await command(instance, "node_create", { type: "TileMapLayer", name: "Tiles" });
+  const atlas = await command(instance, "tileset_add_atlas", { layer: "Tiles", texture: ATLAS, collision: true });
+  check(atlas.status === 200 && atlas.body?.data?.tiles === 8 && atlas.body?.meta?.undo === "gdcli: tileset_add_atlas Tiles", "tileset_add_atlas", atlas.body);
+  const painted = await command(instance, "tilemap_set_cells", { layer: "Tiles", rect: [0, 4, 6, 1], source: atlas.body?.data?.source, atlas: [1, 0] });
+  check(painted.status === 200 && painted.body?.data?.cells === 6, "tilemap_set_cells paints a rectangle", painted.body);
+  const tiles = await command(instance, "tilemap_get", { layer: "Tiles" });
+  check(tiles.body?.data?.cell_count === 6 && tiles.body?.data?.sources?.[0]?.columns === 4, "tilemap_get reads it back", tiles.body);
+  await command(instance, "edit_undo");
+  const unpainted = await command(instance, "tilemap_get", { layer: "Tiles" });
+  check(unpainted.body?.data?.cell_count === 0 && unpainted.body?.data?.sources?.length === 1, "undo takes the cells away and leaves the tile set", unpainted.body);
+  const noTile = await command(instance, "tilemap_set_cells", { layer: "Tiles", cells: [[0, 0]], atlas: [9, 9] });
+  check(noTile.status === 400 && noTile.body?.errors?.[0]?.code === "INVALID_ARGS", "a tile the atlas does not have is refused", noTile.body);
+
+  await command(instance, "node_create", { type: "AnimatedSprite2D", name: "Runner" });
+  const frames = await command(instance, "sprite_frames_create", {
+    node: "Runner",
+    autoplay: "run",
+    animations: [{ name: "run", sheet: ATLAS, hframes: 4, vframes: 2, frames: [0, 1, 2, 3], fps: 8 }],
+  });
+  check(frames.status === 200 && frames.body?.data?.animations?.[0]?.frames === 4, "sprite_frames_create cuts a sheet", frames.body);
+  const runner = await command(instance, "node_get", { path: "Runner", properties: ["animation", "autoplay"] });
+  check(runner.body?.data?.properties?.autoplay === "run", "and sets what plays first", runner.body);
+
+  await command(instance, "node_create", { type: "AnimationPlayer", name: "Moves" });
+  const still = { player: "Moves", name: "still", length: 1, tracks: [{ node: "Runner", property: "position", keys: [{ time: 0, value: [0, 0] }] }] };
+  await command(instance, "animation_create", still);
+  const leaving = await command(instance, "animation_create", {
+    player: "Moves",
+    name: "leave",
+    length: 1,
+    tracks: [
+      { node: "Runner", property: "position", keys: [{ time: 0, value: [0, 0] }, { time: 1, value: [200, 0] }] },
+      { node: "Runner", method: "hide", keys: [{ time: 1 }] },
+    ],
+  });
+  check(leaving.status === 200 && leaving.body?.data?.tracks?.[1] === "Runner:hide()", "animation_create adds a method track", leaving.body);
+  await command(instance, "node_create", { type: "AnimationTree", name: "Brain" });
+  const machine = await command(instance, "animation_state_machine_create", {
+    tree: "Brain",
+    player: "Moves",
+    states: [{ name: "Still", animation: "still" }, { name: "Leave", animation: "leave" }],
+    transitions: [{ from: "Still", to: "Leave", condition: "leaving", xfade: 0.2 }, { from: "Leave", to: "Still", switch: "at_end", auto: true }],
+  });
+  check(machine.status === 200 && machine.body?.data?.transitions === 2, "animation_state_machine_create", machine.body);
+  check(machine.body?.data?.parameters?.includes("parameters/conditions/leaving"), "and names what code sets", machine.body?.data);
+  const brain = await command(instance, "node_get", { path: "Brain", properties: ["tree_root", "active"] });
+  check(brain.body?.data?.properties?.tree_root?.class === "AnimationNodeStateMachine" && brain.body?.data?.properties?.active === true, "the tree has the machine and is active", brain.body);
+
+  await command(instance, "node_create", { type: "NavigationRegion2D", name: "Walkable" });
+  const baked = await command(instance, "navigation_bake", { region: "Walkable", outline: [[0, 0], [400, 0], [400, 300], [0, 300]] });
+  check(baked.status === 200 && baked.body?.data?.kind === "2d" && baked.body?.data?.polygons >= 1, "navigation_bake bakes a 2D region inside its outline", baked.body);
+  await command(instance, "node_create", { type: "NavigationRegion3D", name: "Walkable3D" });
+  const baked3d = await command(instance, "navigation_bake", { region: "Walkable3D" });
+  check(baked3d.status === 200 && baked3d.body?.data?.kind === "3d", "and a 3D region, which gets a mesh when it has none", baked3d.body);
+
+  // C#: code the editor runs after a build is for a person to allow.
+  const tool = await command(instance, "fs_write_text", { path: `${TMP_DIR}/Hud.cs`, text: "[Tool]\npublic partial class Hud : Godot.Control {}\n" });
+  check(tool.status === 409 && tool.body?.errors?.[0]?.code === "NOT_APPROVED", "a C# tool class needs a person, and a headless editor has none", tool.body);
 }
 
 const TICKER_SCENE = "res://tests/fixtures/ticker.tscn";

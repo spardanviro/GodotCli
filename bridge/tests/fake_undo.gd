@@ -13,12 +13,12 @@ func create_action(name: String, _merge_mode: int = 0, _context: Object = null, 
 	_building = {"name": name, "do": [], "undo": []}
 
 
-func add_do_method(object: Object, method: String, a: Variant = _unset, b: Variant = _unset, c: Variant = _unset) -> void:
-	_building["do"].append(_callable(object, method, [a, b, c]))
+func add_do_method(object: Object, method: String, a: Variant = _unset, b: Variant = _unset, c: Variant = _unset, d: Variant = _unset, e: Variant = _unset) -> void:
+	_building["do"].append(_callable(object, method, [a, b, c, d, e]))
 
 
-func add_undo_method(object: Object, method: String, a: Variant = _unset, b: Variant = _unset, c: Variant = _unset) -> void:
-	_building["undo"].append(_callable(object, method, [a, b, c]))
+func add_undo_method(object: Object, method: String, a: Variant = _unset, b: Variant = _unset, c: Variant = _unset, d: Variant = _unset, e: Variant = _unset) -> void:
+	_building["undo"].append(_callable(object, method, [a, b, c, d, e]))
 
 
 func add_do_property(object: Object, property: String, value: Variant) -> void:

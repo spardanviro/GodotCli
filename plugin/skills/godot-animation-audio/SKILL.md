@@ -39,8 +39,10 @@ gd command animation_list --player Anim
 - `overwrite: true` replaces an animation of the same name. The whole thing is one undo step.
 - Track paths are relative to the player's `root_node`, which is its parent by default. The command works that out;
   an `AnimationPlayer` that is itself the scene root needs `root_node` set to `"."`.
-- Only property tracks are made this way. Method-call, audio and bezier tracks, and editing single keys of an existing
-  animation, are jobs for the animation editor (ask the user) or for `gd eval`.
+- A track with `method` instead of `property` calls that method of the node at its keys:
+  `{"node": "Enemy", "method": "queue_free", "keys": [{"time": 1.0}]}`; arguments go in `"args": [...]`.
+- Audio and bezier tracks, and editing single keys of an existing animation, are jobs for the animation editor
+  (ask the user). To change an animation, create it again with `overwrite: true`.
 
 Sprite-sheet walk cycle: a `Sprite2D` with `hframes`/`vframes` set, and a track on `frame`:
 
@@ -80,19 +82,32 @@ func pop_and_vanish() -> void:
 
 ## AnimatedSprite2D
 
-Needs a `SpriteFrames` resource holding named animations with their frame textures. There is no command for
-filling one: with individual frame images it is quickest for the user to drop them in the sprite frames editor.
-From a script of the game, `sprite_frames.add_animation("run")` and `add_frame("run", texture)` build it. When the
-art is one sheet, a `Sprite2D` with `hframes`/`vframes` plus an `AnimationPlayer` (above) needs nothing else.
+`sprite_frames_create` fills one from sprite sheets or single images, one named animation each:
+
+```bash
+gd command sprite_frames_create --args '{"node": "Player/Sprite", "autoplay": "idle", "animations": [
+  {"name": "idle", "sheet": "res://art/hero.png", "hframes": 4, "vframes": 2, "frames": [0, 1], "fps": 4},
+  {"name": "run",  "sheet": "res://art/hero.png", "hframes": 4, "vframes": 2, "frames": [4, 5, 6, 7], "fps": 12}]}'
+```
+
+The `godot-sprite-animation` skill covers this workflow, driving it from movement code, and pixel-art settings.
 
 ## AnimationTree
 
 For a character with many animations: a state machine (idle, run, jump, fall) or blend spaces (walk direction).
 
 - It plays the animations of an `AnimationPlayer` (`anim_player` path); it has none of its own. Set `active` true.
-- The tree (`tree_root`: `AnimationNodeStateMachine`, `AnimationNodeBlendTree`, `AnimationNodeBlendSpace2D`) with
-  its states and transitions is built in the animation tree editor, or in code. There is no command for it: ask the
-  user to wire it, or build it with `gd eval` when they have enabled that.
+- A state machine is built with `animation_state_machine_create`: states that each play one animation, and
+  transitions with a condition, an expression, or "when the animation ends":
+  ```bash
+  gd command animation_state_machine_create --args '{"tree": "Player/Tree", "player": "Player/Anim",
+    "states": [{"name": "Idle", "animation": "idle"}, {"name": "Run", "animation": "run"}],
+    "transitions": [{"from": "Idle", "to": "Run", "condition": "moving", "xfade": 0.1},
+                    {"from": "Run", "to": "Idle", "expression": "velocity.length() < 1.0"}]}'
+  ```
+  With an expression the tree is left inactive (it would run in the editor too): the script sets
+  `active = true` in `_ready()`. Blend trees, blend spaces and nested machines are built in the animation tree
+  editor: ask the user.
 - Drive it from the script: `var playback: AnimationNodeStateMachinePlayback = $AnimationTree["parameters/playback"]`,
   then `playback.travel("run")`; blend positions are `$AnimationTree["parameters/Move/blend_position"] = direction`.
 - For a handful of animations a few `play()` calls in the script are simpler and easier to debug. Reach for the

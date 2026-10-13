@@ -126,7 +126,7 @@ func _write_text(args: Dictionary, options: Dictionary) -> Dictionary:
 	# An ordinary script runs when the game runs. A tool script runs inside
 	# the editor as soon as something loads it, with everything the editor
 	# can do; so do the files in the sensitive locations. A person allows those.
-	var is_tool := Edit.runs_in_editor(args["text"])
+	var is_tool := Edit.runs_in_editor(args["text"], path.get_extension())
 	if checked["sensitive"] or is_tool:
 		var what := {"command": "fs_write_text", "reason": _TOOL_SCRIPT if is_tool else _SENSITIVE, "target": path, "preview": args["text"]}
 		var person := Edit.person_gate(_context, options, what, _write_text.bind(args, Edit.approved(options)))
@@ -266,10 +266,14 @@ func _move(args: Dictionary, options: Dictionary) -> Dictionary:
 	if args["update_references"]:
 		references = updater.find()
 	var open_scenes := _open_among(references["files"])
-	if source["sensitive"] or target["sensitive"] or not references["sensitive"].is_empty():
+	# Text that was harmless under one extension can be code under another:
+	# a C# tool class written as notes.txt and renamed to Notes.cs.
+	var becomes_code := not is_folder and to.get_extension().to_lower() != from.get_extension().to_lower() \
+			and Edit.runs_in_editor(FileAccess.get_file_as_string(from), to.get_extension())
+	if source["sensitive"] or target["sensitive"] or not references["sensitive"].is_empty() or becomes_code:
 		var what := {
-			"command": "fs_move", "reason": _SENSITIVE, "target": "%s -> %s" % [from, to],
-			"preview": "Files in sensitive locations that would be rewritten:\n" + "\n".join(references["sensitive"]),
+			"command": "fs_move", "reason": _TOOL_SCRIPT if becomes_code else _SENSITIVE, "target": "%s -> %s" % [from, to],
+			"preview": FileAccess.get_file_as_string(from) if becomes_code else "Files in sensitive locations that would be rewritten:\n" + "\n".join(references["sensitive"]),
 		}
 		var person := Edit.person_gate(_context, options, what, _move.bind(args, Edit.approved(options)))
 		if not person.is_empty():

@@ -141,19 +141,17 @@ out of walls. Mouse look rotates the body around Y and the pivot around X; never
 
 ## Tile maps
 
-`TileMapLayer` is the node (one layer each); `TileMap` is deprecated since 4.3. A layer needs a `TileSet` with a
-source, usually an atlas texture:
+`TileMapLayer` is the node (one layer each); `TileMap` is deprecated since 4.3. The `godot-tilemap` skill has the
+whole workflow; in short:
 
 ```bash
-gd command node_create --type TileMapLayer --name Ground --properties '{
-  "tile_set": {"$new": "TileSet", "properties": {"tile_size": [16, 16]}}}'
+gd command node_create --type TileMapLayer --name Ground
+gd command tileset_add_atlas --layer Ground --texture res://art/tiles.png --tile-size '[16, 16]' --collision true
+gd command tilemap_set_cells --layer Ground --rect '[0, 10, 40, 2]' --atlas '[1, 0]'
 ```
 
-There is no command for adding atlas sources to a tile set or for painting cells. Options, in order: ask the user to
-set up the tile set and paint in the editor (it is what the tile editor is for); fill cells from a script of the
-game in `_ready()` with `set_cell(Vector2i(x, y), source_id, atlas_coords)` when the level is generated; or
-`gd eval` when the user has enabled it (see `references/editor-code.md` of the `godot-cli` skill).
-Collision, navigation and custom data of tiles are set per tile in the tile set, not on the layer.
+With `--collision true` every tile of the image is solid, on collision layer 1. Terrains (autotiling), slopes and
+one-way tiles are set per tile in the tile set editor, by the user.
 
 ## Navigation
 
@@ -172,8 +170,16 @@ Collision, navigation and custom data of tiles are set per tile in the tile set,
   	velocity = global_position.direction_to(next) * speed
   	move_and_slide()
   ```
-- Baking a navigation mesh and drawing a navigation polygon are editor jobs: ask the user, or bake at run time
-  (`NavigationRegion3D.bake_navigation_mesh()`).
+- Bake from here. 2D: give the walkable area as an outline; obstacles under the region are cut out of it.
+  3D: the mesh is baked from the geometry under the region.
+  ```bash
+  gd command node_create --type NavigationRegion2D --name Nav
+  gd command navigation_bake --region Nav --outline '[[0, 0], [640, 0], [640, 360], [0, 360]]'
+  gd command navigation_bake --region World/Nav3D
+  ```
+  It is one undo step. The answer has the number of polygons; 0 means nothing walkable was found (what is parsed, meshes or static
+  colliders and on which layers, is a property of the navigation mesh or polygon). A level that changes while the
+  game runs is baked again from code (`bake_navigation_mesh()`, `bake_navigation_polygon()`).
 
 ## Spawning
 
