@@ -32,6 +32,7 @@ const EXIT_CODE_BY_ERROR = {
   READONLY_MODE: ExitCode.Precondition,
   CONFIRMATION_REQUIRED: ExitCode.Precondition,
   EVAL_DISABLED: ExitCode.Precondition,
+  NOT_APPROVED: ExitCode.Precondition,
   PRECONDITION_FAILED: ExitCode.Precondition,
   EDITOR_BUSY: ExitCode.Transient,
   TIMEOUT: ExitCode.Transient,

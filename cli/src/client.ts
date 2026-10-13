@@ -7,7 +7,8 @@ import { type Instance, readInstances, removeStale } from "./instances.js";
 import { findProject, gdcliHome, sameLocation } from "./project.js";
 import { PROTOCOL_VERSION } from "./protocol.js";
 
-export const DEFAULT_TIMEOUT_MS = 30_000;
+/** Longer than the bridge waits for a person to answer a question in the editor (50 s). */
+export const DEFAULT_TIMEOUT_MS = 60_000;
 const HANDSHAKE_TIMEOUT_MS = 3_000;
 const NONCE_BYTES = 16;
 const MIN_PROTOCOL = 1;

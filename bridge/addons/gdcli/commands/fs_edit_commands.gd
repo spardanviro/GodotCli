@@ -11,11 +11,12 @@ const TextSanitizer = preload("../core/text_sanitizer.gd")
 const ValueDecoder = preload("../core/value_decoder.gd")
 
 const _RESOURCE_EXTENSIONS: Array[String] = ["tres", "res"]
-const _SENSITIVE := "sensitive path"
+const _SENSITIVE := "sensitive location: files here are loaded by the editor or change how the project loads"
 const _OVERWRITE := "overwrites an existing file"
-const _TOOL_SCRIPT := "tool script, runs inside the editor"
+const _TOOL_SCRIPT := "tool script: it runs inside the editor as soon as it is loaded"
 const _UNSAFE_IN_REFERENCES: Array[String] = ["\"", "'", ";", "%", "{", "}", "(", ")", "#", "$"]
-const _TOOL_PATTERN := "(?m)^[ \\t]*@tool\\b"
+# Binary scene and resource files can carry a script and cannot be reviewed.
+const _BINARY_EXTENSIONS: Array[String] = ["scn", "res"]
 
 var _context: RefCounted
 
@@ -107,22 +108,26 @@ func _write_text(args: Dictionary, options: Dictionary) -> Dictionary:
 	var path: String = checked["path"]
 	if path == PathPolicy.ROOT or DirAccess.dir_exists_absolute(ProjectSettings.globalize_path(path)):
 		return Reply.fail("INVALID_ARGS", "The path names a folder.", "", {"path": path})
+	if path.get_extension().to_lower() in _BINARY_EXTENSIONS:
+		return Reply.fail("INVALID_ARGS", "Binary scene and resource files are not written as text.", "Use the text formats .tscn and .tres.", {"path": path})
 	var exists := FileAccess.file_exists(path)
 	if exists and not args["overwrite"]:
 		return Reply.fail("ALREADY_EXISTS", "The file already exists.", "Pass overwrite to replace it.", {"path": path})
 	# Overwriting loses the old content; sensitive files change how the
 	# project or the editor loads. Both need an explicit yes.
-	if exists or checked["sensitive"]:
-		var gate := Edit.confirmation_gate(options, _OVERWRITE if exists else _SENSITIVE)
+	if exists:
+		var gate := Edit.confirmation_gate(options, _OVERWRITE)
 		if not gate.is_empty():
 			return gate
 	# An ordinary script runs when the game runs. A tool script runs inside
 	# the editor as soon as something loads it, with everything the editor
-	# can do, so writing one is confirmed like other sensitive changes.
-	if path.get_extension().to_lower() == "gd" and _is_tool_script(args["text"]):
-		var tool_gate := Edit.confirmation_gate(options, _TOOL_SCRIPT)
-		if not tool_gate.is_empty():
-			return tool_gate
+	# can do; so do the files in the sensitive locations. A person allows those.
+	var is_tool := Edit.runs_in_editor(args["text"])
+	if checked["sensitive"] or is_tool:
+		var what := {"command": "fs_write_text", "reason": _TOOL_SCRIPT if is_tool else _SENSITIVE, "target": path, "preview": args["text"]}
+		var person := Edit.person_gate(_context, options, what, _write_text.bind(args, Edit.approved(options)))
+		if not person.is_empty():
+			return person
 	var bytes: PackedByteArray = args["text"].to_utf8_buffer()
 	if options["dry_run"]:
 		return Edit.planned({"write": path, "bytes": bytes.size(), "overwrites": exists})
@@ -144,10 +149,6 @@ func _announce(path: String, new_folder: bool) -> void:
 		_context.scan_files()
 	else:
 		_context.file_changed(path)
-
-
-func _is_tool_script(text: String) -> bool:
-	return RegEx.create_from_string(_TOOL_PATTERN).search(text) != null
 
 
 func _scan(_args: Dictionary, options: Dictionary) -> Dictionary:
@@ -214,6 +215,14 @@ func _move(args: Dictionary, options: Dictionary) -> Dictionary:
 	if args["update_references"]:
 		references = updater.find()
 	var open_scenes := _open_among(references["files"])
+	if source["sensitive"] or target["sensitive"] or not references["sensitive"].is_empty():
+		var what := {
+			"command": "fs_move", "reason": _SENSITIVE, "target": "%s -> %s" % [from, to],
+			"preview": "Files in sensitive locations that would be rewritten:\n" + "\n".join(references["sensitive"]),
+		}
+		var person := Edit.person_gate(_context, options, what, _move.bind(args, Edit.approved(options)))
+		if not person.is_empty():
+			return person
 	if options["dry_run"]:
 		return Edit.planned({
 			"move": from,
@@ -270,7 +279,8 @@ func _resource_create(args: Dictionary, options: Dictionary) -> Dictionary:
 	if FileAccess.file_exists(path):
 		return Reply.fail("ALREADY_EXISTS", "The file already exists.", "Change it with resource_set.", {"path": path})
 	if checked["sensitive"]:
-		var gate := Edit.confirmation_gate(options, _SENSITIVE)
+		var what := {"command": "resource_create", "reason": _SENSITIVE, "target": path, "preview": JSON.stringify(args, "  ")}
+		var gate := Edit.person_gate(_context, options, what, _resource_create.bind(args, Edit.approved(options)))
 		if not gate.is_empty():
 			return gate
 	# The decoder applies the rule that only built-in, code-free classes are built.
@@ -302,7 +312,8 @@ func _resource_set(args: Dictionary, options: Dictionary) -> Dictionary:
 	if resource == null or resource is Script or resource is PackedScene:
 		return Reply.fail("TYPE_MISMATCH", "This file is not a plain resource.", "Scripts are written with fs_write_text; scenes are edited with the node commands.", {"path": path})
 	if checked["sensitive"]:
-		var gate := Edit.confirmation_gate(options, _SENSITIVE)
+		var what := {"command": "resource_set", "reason": _SENSITIVE, "target": path, "preview": JSON.stringify(args, "  ")}
+		var gate := Edit.person_gate(_context, options, what, _resource_set.bind(args, Edit.approved(options)))
 		if not gate.is_empty():
 			return gate
 	var properties: Dictionary = args["properties"]

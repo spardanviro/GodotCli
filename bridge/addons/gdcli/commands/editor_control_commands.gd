@@ -133,6 +133,10 @@ func _eval(args: Dictionary, options: Dictionary) -> Dictionary:
 	var code: String = args["code"]
 	if code.strip_edges() == "" or code.length() > _MAX_EVAL_CHARS:
 		return Reply.fail("INVALID_ARGS", "The code is empty or too long.")
+	var what := {"command": "eval", "reason": "runs this code in the editor, with everything the editor can do", "preview": code}
+	var gate := Edit.person_gate(_context, options, what, _eval.bind(args, Edit.approved(options)))
+	if not gate.is_empty():
+		return gate
 	if options["dry_run"]:
 		return Edit.planned({"eval_characters": code.length()})
 

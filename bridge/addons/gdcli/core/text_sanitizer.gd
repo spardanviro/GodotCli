@@ -37,6 +37,17 @@ static func clean(text: String) -> String:
 	return cleaned.substr(0, MAX_TEXT_LENGTH) + TRUNCATION_MARK
 
 
+## For text a person has to judge: what clean() would remove is shown as its
+## code point instead, so that nothing they approve is invisible to them.
+static func reveal(text: String) -> String:
+	var result := ""
+	var copied := 0
+	for found in _regex().search_all(text):
+		result += text.substr(copied, found.get_start() - copied) + "<U+%04X>" % text.unicode_at(found.get_start())
+		copied = found.get_end()
+	return result + text.substr(copied)
+
+
 ## For single-line values such as names, paths and log lines.
 static func clean_line(text: String) -> String:
 	var cleaned := _regex().sub(text, "", true).replace("\n", " ")

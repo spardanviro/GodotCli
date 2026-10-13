@@ -4,7 +4,10 @@ extends "res://tests/suite.gd"
 ## dry runs); the real writes are covered by scripts/bridge-test.mjs.
 
 const AccessPolicy = preload("res://addons/gdcli/core/access_policy.gd")
+const Approval = preload("res://addons/gdcli/core/approval.gd")
 const Bridge = preload("res://addons/gdcli/core/bridge.gd")
+const Edit = preload("res://addons/gdcli/core/edit.gd")
+const Reply = preload("res://addons/gdcli/core/reply.gd")
 const EditorControlCommands = preload("res://addons/gdcli/commands/editor_control_commands.gd")
 const FsEditCommands = preload("res://addons/gdcli/commands/fs_edit_commands.gd")
 const ProjectEditCommands = preload("res://addons/gdcli/commands/project_edit_commands.gd")
@@ -51,7 +54,19 @@ func _call(command: String, args: Dictionary = {}, options: Dictionary = {}) -> 
 		return _registry.handler_of(command).call(validated["args"])
 	var complete := {"dry_run": false, "confirm": false, "mode": "standard"}
 	complete.merge(options, true)
-	return _registry.handler_of(command).call(validated["args"], complete)
+	return _settle(_registry.handler_of(command).call(validated["args"], complete))
+
+
+# A reply that is still waiting (for a person, for the next frame) is polled
+# to its end, the way the HTTP layer does it.
+func _settle(reply: Dictionary) -> Dictionary:
+	if not (reply["ok"] and reply.has("later")):
+		return reply
+	for attempt in 50:
+		var final: Dictionary = reply["later"].poll()
+		if not final.is_empty():
+			return final
+	return {"ok": false, "error": {"code": "STILL_WAITING"}}
 
 
 func _code(command: String, args: Dictionary = {}, options: Dictionary = {}) -> String:
@@ -120,11 +135,12 @@ func test_fs_write_text_refuses_to_replace_without_asking() -> void:
 	equal(FileAccess.get_file_as_string(existing).strip_edges(), "fixture text for fs_read_text", "file untouched")
 
 
-func test_fs_write_text_treats_sensitive_targets_as_destructive() -> void:
+func test_fs_write_text_leaves_sensitive_targets_to_a_person() -> void:
 	_setup()
 
 	for path in ["res://project.godot", "res://addons/other/plugin.cfg", "res://gdcli_commands/x.gd", "res://bin/lib.gdextension"]:
-		equal(_code("fs_write_text", {"path": path, "text": "x", "overwrite": true}), "CONFIRMATION_REQUIRED", path)
+		# Confirmed by the caller, which settles the overwrite but not the location.
+		equal(_code("fs_write_text", {"path": path, "text": "x", "overwrite": true}, {"confirm": true}), "NOT_APPROVED", path)
 	equal(_code("fs_write_text", {"path": "res://gdcli_commands/x.gd", "text": "x"}, {"mode": "full", "dry_run": true}), "", "full mode does not ask")
 	equal(_code("fs_write_text", {"path": "res://addons/gdcli/plugin.gd", "text": "x", "overwrite": true}, {"confirm": true}), "PATH_NOT_ALLOWED", "the bridge itself, even confirmed")
 	equal(_code("fs_write_text", {"path": "res://.godot/x", "text": "x"}), "PATH_NOT_ALLOWED", "hidden folder")
@@ -136,7 +152,7 @@ func test_fs_write_text_asks_before_writing_a_tool_script() -> void:
 	_setup()
 	var tool_script := "# a helper\n@tool\nextends EditorScript\n"
 
-	equal(_code("fs_write_text", {"path": "res://scripts/helper.gd", "text": tool_script}), "CONFIRMATION_REQUIRED", "tool script")
+	equal(_code("fs_write_text", {"path": "res://scripts/helper.gd", "text": tool_script}), "NOT_APPROVED", "tool script")
 	equal(_code("fs_write_text", {"path": "res://scripts/helper.gd", "text": tool_script}, {"confirm": true, "dry_run": true}), "", "confirmed")
 	equal(_code("fs_write_text", {"path": "res://scripts/helper.gd", "text": "extends Node\n# mentions @tool in a comment\n"}, {"dry_run": true}), "", "an ordinary script")
 	equal(_code("fs_write_text", {"path": "res://notes/tooling.txt", "text": "@tool\n"}, {"dry_run": true}), "", "not a script file")
@@ -147,17 +163,17 @@ func test_fs_write_text_keeps_out_of_git_folders_at_any_depth() -> void:
 
 	equal(_code("fs_write_text", {"path": "res://vendor/lib/.git/config", "text": "x"}), "PATH_NOT_ALLOWED", "nested repository")
 	equal(_code("fs_write_text", {"path": "res://vendor/.GIT/hooks/post-checkout", "text": "x"}), "PATH_NOT_ALLOWED", "any case")
-	equal(_code("fs_write_text", {"path": "res://vendor/.gitmodules", "text": "x"}), "CONFIRMATION_REQUIRED", "git control file")
+	equal(_code("fs_write_text", {"path": "res://vendor/.gitmodules", "text": "x"}), "NOT_APPROVED", "git control file")
 	equal(_code("fs_write_text", {"path": "res://.gitignore", "text": "x"}, {"dry_run": true}), "", ".gitignore is an ordinary file")
 
 
 func test_scene_new_and_resource_set_gate_sensitive_paths() -> void:
 	_setup()
 
-	equal(_code("scene_new", {"path": "res://gdcli_commands/a.tscn"}), "CONFIRMATION_REQUIRED", "scene_new into gdcli_commands")
-	equal(_code("scene_new", {"path": "res://addons/other/a.tscn"}), "CONFIRMATION_REQUIRED", "scene_new into addons")
+	equal(_code("scene_new", {"path": "res://gdcli_commands/a.tscn"}), "NOT_APPROVED", "scene_new into gdcli_commands")
+	equal(_code("scene_new", {"path": "res://addons/other/a.tscn"}), "NOT_APPROVED", "scene_new into addons")
 	_context.path = "res://addons/other/a.tscn"
-	equal(_code("scene_save"), "CONFIRMATION_REQUIRED", "saving a scene that lives under addons")
+	equal(_code("scene_save"), "NOT_APPROVED", "saving a scene that lives under addons")
 	_context.path = "res://addons/gdcli/x.tscn"
 	equal(_code("scene_save"), "PATH_NOT_ALLOWED", "saving into the bridge itself")
 
@@ -288,6 +304,7 @@ func test_editor_errors_explains_older_engines() -> void:
 
 func test_eval_runs_code_with_the_scene_and_returns_the_result() -> void:
 	_setup()
+	_context.answer = "allowed"
 
 	var reply := _call("eval", {"code": "var doubled := 21 * 2\nreturn {\"answer\": doubled, \"root\": scene.name}"})
 
@@ -305,10 +322,14 @@ func test_eval_is_refused_by_the_bridge_unless_enabled() -> void:
 
 	var disabled: Dictionary = JSON.parse_string(bridge.handle(head, body)["body"].get_string_from_utf8())
 	_context.eval_allowed = true
-	var enabled: Dictionary = JSON.parse_string(bridge.handle(head, body)["body"].get_string_from_utf8())
+	var denied: Dictionary = JSON.parse_string(bridge.handle(head, body)["pending"].call()["body"].get_string_from_utf8())
+	_context.answer = "allowed"
+	var enabled: Dictionary = JSON.parse_string(bridge.handle(head, body)["pending"].call()["body"].get_string_from_utf8())
 
 	equal(disabled["errors"][0]["code"], "EVAL_DISABLED", "off by default")
-	equal(enabled["data"], {"result": 1.0}, "runs once enabled and confirmed")
+	equal(denied["errors"][0]["code"], "NOT_APPROVED", "enabled and confirmed by the caller is still not enough")
+	equal(_context.questions[0].what["preview"], "return 1", "the person is shown the code")
+	equal(enabled["data"], {"result": 1.0}, "runs once a person allows it")
 
 
 func test_bridge_passes_options_and_reports_the_undo_step() -> void:
@@ -335,3 +356,137 @@ func test_host_quit_only_works_for_a_host_started_by_gd() -> void:
 	_context.host = true
 	equal(_call("host_quit")["data"], {"quitting": true}, "a gd host")
 	check(_context.quit_requested, "quit was requested")
+
+
+func test_person_gate_asks_for_code_carrying_changes_and_runs_them_only_after_a_yes() -> void:
+	_setup()
+	var tool_script := "@tool\nextends Node\n"
+	var args := {"path": "res://tests/tmp/unit_tool.gd", "text": tool_script}
+
+	var confirmed_by_caller := _code("fs_write_text", args, {"confirm": true})
+	_context.has_window = false
+	var headless := _call("fs_write_text", args, {"confirm": true})
+	_context.has_window = true
+	var planned := _call("fs_write_text", args, {"dry_run": true})
+	var full := _call("fs_write_text", args, {"mode": "full", "dry_run": true})
+
+	equal(confirmed_by_caller, "NOT_APPROVED", "the caller's own confirm does not replace the person")
+	equal(_context.questions.size(), 1, "the person was asked once; a dry run and a missing window ask nobody")
+	equal(_context.questions[0].what["target"], args["path"], "and shown the target")
+	equal(_context.questions[0].what["preview"], tool_script, "and the content")
+	equal(headless["error"]["details"]["reason"], "nobody can be asked: this editor has no window", "a headless editor refuses")
+	equal(planned["data"]["dry_run"], true, "a dry run needs nobody")
+	equal(full["data"]["dry_run"], true, "full mode needs nobody")
+
+
+func test_person_gate_covers_autoloads_plugins_and_sensitive_moves() -> void:
+	_setup()
+
+	var autoload := _code("project_settings_set", {"name": "autoload/Evil", "value": "*res://evil.gd"}, {"confirm": true})
+	var plugins := _code("project_settings_set", {"name": "editor_plugins/enabled", "value": []}, {"confirm": true})
+	var ordinary := _call("project_settings_set", {"name": "application/config/description", "value": "x"}, {"confirm": true, "dry_run": true})
+	var move := _code("fs_move", {"from": "res://tests/fixtures/notes.txt", "to": "res://addons/other/notes.txt"}, {"confirm": true})
+
+	equal(autoload, "NOT_APPROVED", "adding an autoload")
+	equal(plugins, "NOT_APPROVED", "changing the enabled plugins")
+	equal(ordinary["data"]["dry_run"], true, "other settings stay with the caller's confirmation")
+	equal(move, "NOT_APPROVED", "moving a file into addons")
+	check(FileAccess.file_exists("res://tests/fixtures/notes.txt"), "nothing moved")
+
+
+func test_approval_times_out_withdraws_the_question_and_can_be_abandoned() -> void:
+	_setup()
+	_context.answer = ""
+	var calls := [0]
+	var action := func() -> Dictionary:
+		calls[0] += 1
+		return Reply.ok({"done": true})
+
+	var late := Approval.new(_context, {"command": "x"}, action, -1)
+	var timed_out: Dictionary = late.poll()
+	var unreadable := Approval.new(_context, {"command": "x", "preview": "x".repeat(60001)}, action)
+	var too_long: Dictionary = unreadable.poll()
+	_context.questions.clear()
+	var waiting := Approval.new(_context, {"command": "x"}, action)
+	var first: Dictionary = waiting.poll()
+	waiting.abandon()
+	var after_abandon: Dictionary = waiting.poll()
+	var allowed := Approval.new(_context, {"command": "x"}, action)
+	_context.questions[1].decision = "allowed"
+	var done: Dictionary = allowed.poll()
+
+	equal(timed_out["error"]["details"]["reason"], "nobody answered in time", "an unanswered question times out")
+	equal(too_long["error"]["details"]["reason"], "too long for a person to review", "what cannot be shown in full is not asked at all")
+	equal(first, {}, "waits for the person")
+	check(_context.questions[0].closed, "a caller that goes away withdraws the question")
+	equal(after_abandon["error"]["code"], "NOT_APPROVED", "which counts as a no")
+	equal(done["data"], {"done": true}, "a yes runs the change")
+	equal(calls[0], 1, "exactly once")
+
+
+func test_bridge_asks_a_person_for_destructive_commands_in_ask_mode() -> void:
+	_setup()
+	_context.mode = "ask"
+	var bridge := Bridge.new(_registry, _context, {"instance_id": "0123456789abcdef", "protocol": 1, "bridge_version": "0"}, "token")
+	var head := {"method": "POST", "path": "/v1/commands/fs_delete", "query": {}, "headers": {}}
+	var body := '{"args": {"path": "res://tests/fixtures/notes.txt"}}'.to_utf8_buffer()
+	var scan_head := {"method": "POST", "path": "/v1/commands/fs_scan", "query": {}, "headers": {}}
+	var missing := '{"args": {"path": "res://tests/fixtures/no_such_file.txt"}}'.to_utf8_buffer()
+
+	var denied: Dictionary = JSON.parse_string(bridge.handle(head, body)["pending"].call()["body"].get_string_from_utf8())
+	var ordinary: Dictionary = JSON.parse_string(bridge.handle(scan_head, PackedByteArray())["body"].get_string_from_utf8())
+	var hopeless: Dictionary = JSON.parse_string(bridge.handle(head, missing)["body"].get_string_from_utf8())
+
+	equal(denied["errors"][0]["code"], "NOT_APPROVED", "without the caller's confirm, and refused by the person")
+	equal(_context.questions[0].what["command"], "fs_delete", "the person is told which command")
+	check(_context.questions[0].what["preview"].contains("\"delete\""), "and what it would do, from a dry run")
+	equal(ordinary["success"], true, "a write-tier command is not asked about, and is not held back afterwards")
+	equal(hopeless["errors"][0]["code"], "RESOURCE_NOT_FOUND", "a request that cannot succeed bothers nobody")
+	equal(_context.questions.size(), 1, "one question in all")
+
+
+func test_edit_runs_in_editor_finds_the_tool_annotation_however_it_is_written() -> void:
+	for text in [
+		"@tool\nextends Node\n",
+		"  @tool\r\nextends Node\r\n",
+		"@icon(\"res://i.svg\") @tool\nextends Node\n",
+		char(0xfeff) + "@tool\nextends Node\n",
+		"[sub_resource type=\"GDScript\" id=\"1\"]\nscript/source = \"@tool\\nextends Node\"\n",
+	]:
+		check(Edit.runs_in_editor(text), text.c_escape())
+	check(not Edit.runs_in_editor("extends Node\n\nvar tools := 3\n# uses a toolbox\n"), "an ordinary script")
+
+
+func test_fs_write_text_asks_for_tool_code_in_any_file_and_refuses_binary_resources() -> void:
+	_setup()
+	var embedded := "[gd_scene format=3]\n[sub_resource type=\"GDScript\" id=\"1\"]\nscript/source = \"@tool\\nextends Node\"\n"
+
+	equal(_code("fs_write_text", {"path": "res://tests/tmp/carrier.tscn", "text": embedded}), "NOT_APPROVED", "a scene with a tool script inside")
+	equal(_code("fs_write_text", {"path": "res://tests/tmp/x.gd", "text": "@icon(\"res://i.svg\") @tool\nextends Node\n"}), "NOT_APPROVED", "the annotation after another one")
+	equal(_code("fs_write_text", {"path": "res://tests/tmp/x.scn", "text": "RSRC"}), "INVALID_ARGS", "a binary scene")
+	equal(_code("fs_write_text", {"path": "res://tests/tmp/Game.csproj", "text": "<Project/>"}), "NOT_APPROVED", "a build file")
+	equal(_code("project_settings_set", {"name": "application/config/project_settings_override", "value": "res://o.cfg"}, {"confirm": true}), "NOT_APPROVED", "a setting that pulls in another settings file")
+
+
+func test_bridge_runs_an_asked_command_once_after_a_yes_and_frees_the_editor_again() -> void:
+	_setup()
+	_context.mode = "ask"
+	_context.answer = "allowed"
+	var runs := [0]
+	_registry.register({"name": "probe_delete", "summary": "", "risk": AccessPolicy.RISK_DESTRUCTIVE},
+		func(_args: Dictionary, options: Dictionary) -> Dictionary:
+			if options["dry_run"]:
+				return Reply.ok({"dry_run": true, "would": {"delete": "everything"}})
+			runs[0] += 1
+			return Reply.ok({"deleted": true}))
+	var bridge := Bridge.new(_registry, _context, {"instance_id": "0123456789abcdef", "protocol": 1, "bridge_version": "0"}, "token")
+	var head := {"method": "POST", "path": "/v1/commands/probe_delete", "query": {}, "headers": {}}
+	var scan_head := {"method": "POST", "path": "/v1/commands/fs_scan", "query": {}, "headers": {}}
+
+	var done: Dictionary = JSON.parse_string(bridge.handle(head, PackedByteArray())["pending"].call()["body"].get_string_from_utf8())
+	var afterwards: Dictionary = JSON.parse_string(bridge.handle(scan_head, PackedByteArray())["body"].get_string_from_utf8())
+
+	equal(done["data"], {"deleted": true}, "allowed by the person, with no confirm from the caller")
+	equal(runs[0], 1, "the real run happened once; the rehearsal was dry")
+	check(_context.questions[0].what["preview"].contains("everything"), "the person saw what the dry run reported")
+	equal(afterwards["success"], true, "other changes are accepted again")

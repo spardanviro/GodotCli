@@ -10,6 +10,10 @@ const ValueDecoder = preload("../core/value_decoder.gd")
 
 const _INPUT_PREFIX := "input/"
 const _OWN_PREFIX := "gdcli/"
+# Settings that decide which code is loaded, directly or through another file.
+const _LOADS_CODE: Array[String] = [
+	"autoload/", "editor_plugins/", "application/config/project_settings_override", "application/run/main_loop_type", "dotnet/",
+]
 const _DEFAULT_DEADZONE := 0.5
 # Section and key as they appear in project.godot; nothing that could start a
 # new line or a new section there.
@@ -71,6 +75,16 @@ func _settings_set(args: Dictionary, options: Dictionary) -> Dictionary:
 	var decoded: Dictionary = ValueDecoder.new(_context.scene_root()).decode(args["value"], typeof(previous))
 	if not decoded["ok"]:
 		return decoded
+	# Autoloads and enabled plugins are code the editor or the game loads.
+	for prefix in _LOADS_CODE:
+		if name.begins_with(prefix):
+			var what := {
+				"command": "project_settings_set", "reason": "this setting decides which code is loaded",
+				"target": name, "preview": JSON.stringify(args["value"]),
+			}
+			var gate := Edit.person_gate(_context, options, what, _settings_set.bind(args, Edit.approved(options)))
+			if not gate.is_empty():
+				return gate
 	if options["dry_run"]:
 		return Edit.planned({"set": name, "new_setting": not existed})
 

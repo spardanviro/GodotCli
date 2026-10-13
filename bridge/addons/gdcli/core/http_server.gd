@@ -49,7 +49,8 @@ var _orphans: Array = []
 ## `handler` provides check_head(head), handle(head, body) and
 ## transport_error(status, reason); each returns {status, body}. handle() may
 ## instead return {pending = Callable}: the callable is asked on every poll and
-## returns {} until it has the {status, body} to send.
+## returns {} until it has the {status, body} to send. An `abandon` Callable
+## beside it is called once if the client goes away first.
 ## Returns the port, or 0 when no port could be opened.
 func start(handler: RefCounted) -> int:
 	_handler = handler
@@ -66,6 +67,9 @@ func start(handler: RefCounted) -> int:
 func stop() -> void:
 	for connection in _connections:
 		connection["peer"].disconnect_from_host()
+		# Nobody will collect the answer: a question to a person is withdrawn.
+		if connection.has("pending"):
+			_orphan(connection)
 	_connections = []
 	_orphans = []
 	_server.stop()
@@ -106,9 +110,19 @@ func _poll_once() -> void:
 		else:
 			connection["peer"].disconnect_from_host()
 			if connection.has("pending"):
-				_orphans.append(connection["pending"])
+				_orphan(connection)
 	_connections = open
 	_poll_orphans()
+
+
+# The client of a waiting answer is gone. The waiter is told, so that it can
+# withdraw what only made sense with someone waiting (a question to a person),
+# and is then still asked until it ends.
+func _orphan(connection: Dictionary) -> void:
+	var abandon: Variant = connection.get("abandon")
+	if abandon is Callable and abandon.is_valid():
+		abandon.call()
+	_orphans.append(connection["pending"])
 
 
 # A command that works over several frames (moving a file around open scenes)
@@ -163,7 +177,7 @@ func _step(connection: Dictionary) -> bool:
 		var late := now - int(connection["pending_since"]) > PENDING_DEADLINE_MS
 		var response: Variant = null if late else connection["pending"].call()
 		if late:
-			_orphans.append(connection["pending"])
+			_orphan(connection)
 		if late or not (response is Dictionary and response.is_empty()):
 			connection.erase("pending")
 			_begin_response(connection, response)
@@ -231,6 +245,7 @@ func _begin_early_response(connection: Dictionary, response: Variant) -> void:
 func _begin_response(connection: Dictionary, response: Variant) -> void:
 	if response is Dictionary and response.get("pending") is Callable:
 		connection["pending"] = response["pending"]
+		connection["abandon"] = response.get("abandon")
 		connection["pending_since"] = Time.get_ticks_msec()
 		connection["state"] = State.PENDING
 		connection["buffer"] = PackedByteArray()

@@ -3,6 +3,7 @@ extends RefCounted
 ## object with the same methods.
 
 const AccessPolicy = preload("access_policy.gd")
+const ApprovalDialog = preload("approval_dialog.gd")
 
 const SETTING_MODE := "gdcli/access/mode"
 const SETTING_ALLOW_EVAL := "gdcli/access/allow_eval"
@@ -180,6 +181,15 @@ func store_screenshot(png: PackedByteArray, prefix: String) -> String:
 # File names are "<prefix>-<microseconds>.png".
 func _older_first(a: String, b: String) -> bool:
 	return a.get_slice("-", 1).to_int() < b.get_slice("-", 1).to_int()
+
+
+## Puts a question to the person at the editor (see approval.gd). Returns an
+## object whose `decision` is "" until they answer, or null when nobody can be
+## asked because the editor has no window.
+func ask_person(what: Dictionary) -> Object:
+	if is_headless():
+		return null
+	return ApprovalDialog.new(EditorInterface.get_base_control(), what)
 
 
 func set_game_link(link: Object) -> void:

@@ -3,6 +3,7 @@ extends RefCounted
 ## so it can be exercised without an editor.
 
 const AccessPolicy = preload("access_policy.gd")
+const Approval = preload("approval.gd")
 const Envelope = preload("envelope.gd")
 const Reply = preload("reply.gd")
 const RequestGuard = preload("request_guard.gd")
@@ -112,7 +113,10 @@ func _run_command(name: String, body: PackedByteArray) -> Dictionary:
 		var exclusive: bool = reply.get("exclusive", false)
 		if exclusive:
 			_exclusive_running += 1
-		return {"pending": _poll_later.bind(name, reply["later"], started, exclusive)}
+		return {
+			"pending": _poll_later.bind(name, reply["later"], started, exclusive),
+			"abandon": _abandon.bind(reply["later"]),
+		}
 	return _finish(name, reply, started)
 
 
@@ -126,6 +130,12 @@ func _poll_later(name: String, waiter: RefCounted, started: int, exclusive: bool
 	if not (reply is Dictionary and reply.has("ok")):
 		reply = Reply.fail("INTERNAL_ERROR", "The command did not return a reply.")
 	return _finish(name, reply, started)
+
+
+# The caller hung up or gave up waiting.
+func _abandon(waiter: RefCounted) -> void:
+	if waiter.has_method("abandon"):
+		waiter.abandon()
 
 
 func _finish(name: String, reply: Dictionary, started: int) -> Dictionary:
@@ -174,10 +184,37 @@ func _execute(name: String, body: PackedByteArray) -> Dictionary:
 		reply = handler.call(validated["args"])
 	else:
 		var options := {"dry_run": payload["dry_run"], "confirm": payload["confirm"], "mode": _context.access_mode()}
+		if AccessPolicy.asks_person(descriptor["risk"], options["mode"], options["dry_run"]):
+			return _ask_first(name, descriptor, handler, validated["args"], options)
 		reply = handler.call(validated["args"], options)
 	if not (reply is Dictionary and reply.has("ok")):
 		return Reply.fail("INTERNAL_ERROR", "The command did not return a reply.")
 	return reply
+
+
+# Ask mode: the command is first run dry, so that a request that would fail is
+# answered without bothering anyone, and so that the person is shown what
+# would change and not only the arguments.
+func _ask_first(name: String, descriptor: Dictionary, handler: Callable, args: Dictionary, options: Dictionary) -> Dictionary:
+	var shown := {"arguments": args}
+	# A project's own command may not honour dry_run, so it is not tried.
+	if not descriptor.get("custom", false):
+		var rehearsal := options.duplicate()
+		rehearsal["dry_run"] = true
+		var planned: Variant = handler.call(args, rehearsal)
+		if not (planned is Dictionary and planned.has("ok")):
+			return Reply.fail("INTERNAL_ERROR", "The command did not return a reply.")
+		if not planned["ok"]:
+			return planned
+		shown["would"] = planned.get("data")
+	var what := {
+		"command": name,
+		"reason": "ask mode: this command deletes, overwrites or runs code",
+		"preview": JSON.stringify(shown, "  "),
+	}
+	var allowed := options.duplicate()
+	allowed["approved"] = true
+	return Reply.later(Approval.new(_context, what, handler.bind(args, allowed)), true)
 
 
 func _parse_payload(body: PackedByteArray) -> Dictionary:

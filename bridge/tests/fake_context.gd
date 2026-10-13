@@ -119,6 +119,36 @@ func quit_soon() -> void:
 	quit_requested = true
 
 
+## Stands in for the question a person answers in the editor.
+class Question:
+	extends RefCounted
+
+	var decision := ""
+	var what: Dictionary
+	var closed := false
+
+	func close() -> void:
+		closed = true
+		if decision == "":
+			decision = "denied"
+
+
+var questions: Array = []
+## What the person answers at once: "allowed", "denied", or "" to keep waiting.
+var answer := "denied"
+var has_window := true
+
+
+func ask_person(what: Dictionary) -> Object:
+	if not has_window:
+		return null
+	var question := Question.new()
+	question.what = what
+	question.decision = answer
+	questions.append(question)
+	return question
+
+
 var link: Object = null
 var helper_installed := true
 var stored: Array = []

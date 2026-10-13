@@ -8,6 +8,7 @@ const Reply = preload("../core/reply.gd")
 const TextSanitizer = preload("../core/text_sanitizer.gd")
 
 const _SCENE_EXTENSIONS: Array[String] = ["tscn", "scn"]
+const _SENSITIVE := "sensitive location: files here are loaded by the editor or change how the project loads"
 
 var _context: RefCounted
 
@@ -91,7 +92,8 @@ func _new(args: Dictionary, options: Dictionary) -> Dictionary:
 	if FileAccess.file_exists(path):
 		return Reply.fail("ALREADY_EXISTS", "A file with this path already exists.", "Open it with scene_open.", {"path": path})
 	if checked["sensitive"]:
-		var gate := Edit.confirmation_gate(options, "sensitive path")
+		var what := {"command": "scene_new", "reason": _SENSITIVE, "target": path}
+		var gate := Edit.person_gate(_context, options, what, _new.bind(args, Edit.approved(options)))
 		if not gate.is_empty():
 			return gate
 	var type: String = args["root_type"]
@@ -125,7 +127,7 @@ func _new(args: Dictionary, options: Dictionary) -> Dictionary:
 	return Reply.ok({"scene": path, "root": {"name": root_name, "type": type}}, [Edit.NOT_UNDOABLE])
 
 
-func _save(_args: Dictionary, options: Dictionary) -> Dictionary:
+func _save(args: Dictionary, options: Dictionary) -> Dictionary:
 	var scene: String = _context.scene_path()
 	if scene == "":
 		return Reply.fail("PRECONDITION_FAILED", "The edited scene has never been saved and has no path.", "Create scenes with scene_new.")
@@ -134,7 +136,8 @@ func _save(_args: Dictionary, options: Dictionary) -> Dictionary:
 	if not checked["ok"]:
 		return checked
 	if checked["sensitive"]:
-		var gate := Edit.confirmation_gate(options, "sensitive path")
+		var what := {"command": "scene_save", "reason": _SENSITIVE, "target": scene}
+		var gate := Edit.person_gate(_context, options, what, _save.bind(args, Edit.approved(options)))
 		if not gate.is_empty():
 			return gate
 	if options["dry_run"]:

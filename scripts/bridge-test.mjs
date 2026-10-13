@@ -499,7 +499,15 @@ async function checkEdits(instance) {
   const setting = await command(instance, "project_settings_set", { name: "application/config/name", value: "x" });
   check(setting.status === 409, "project_settings_set needs confirmation", setting.status);
   const toolScript = await command(instance, "fs_write_text", { path: `${TMP_DIR}/e2e_tool.gd`, text: "@tool\nextends Node\n" });
-  check(toolScript.status === 409 && toolScript.body?.errors?.[0]?.code === "CONFIRMATION_REQUIRED", "writing a tool script needs confirmation", toolScript.status);
+  // A tool script runs inside the editor, so a person has to allow it; the
+  // caller's own confirmation does not count, and a headless editor has nobody.
+  check(toolScript.status === 409 && toolScript.body?.errors?.[0]?.code === "NOT_APPROVED", "writing a tool script needs a person", toolScript.body);
+  const confirmedTool = await command(instance, "fs_write_text", { path: `${TMP_DIR}/e2e_tool.gd`, text: "@tool\nextends Node\n" }, { confirm: true });
+  check(confirmedTool.body?.errors?.[0]?.code === "NOT_APPROVED", "confirm from the caller does not replace the person", confirmedTool.body);
+  const autoload = await command(instance, "project_settings_set", { name: "autoload/E2e", value: "*res://tests/fixtures/empty_script.gd" }, { confirm: true });
+  check(autoload.body?.errors?.[0]?.code === "NOT_APPROVED", "so does adding an autoload", autoload.body);
+  const toolPlan = await command(instance, "fs_write_text", { path: `${TMP_DIR}/e2e_tool.gd`, text: "@tool\nextends Node\n" }, { dry_run: true });
+  check(toolPlan.body?.data?.dry_run === true, "a dry run of it needs nobody", toolPlan.body);
 
   const evalDisabled = await command(instance, "eval", { code: "return 1" }, { confirm: true });
   check(evalDisabled.status === 409 && evalDisabled.body?.errors?.[0]?.code === "EVAL_DISABLED", "eval is off by default", evalDisabled.body?.errors);

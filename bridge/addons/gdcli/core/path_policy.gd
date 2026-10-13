@@ -10,12 +10,13 @@ const ACCESS_WRITE := "write"
 # First path segment, lower case: never readable or writable through the bridge.
 const _HIDDEN_ROOTS: Array[String] = [".godot", ".git"]
 const _OWN_ADDON := "addons/gdcli"
-const _SENSITIVE_ROOT_FILES: Array[String] = ["project.godot", "override.cfg", "export_presets.cfg"]
+const _SENSITIVE_ROOT_FILES: Array[String] = ["project.godot", "project.binary", "override.cfg", "export_presets.cfg"]
 # Files git itself acts on: a submodule URL, a filter command.
 const _SENSITIVE_FILE_NAMES: Array[String] = [".gitmodules", ".gitattributes"]
 const _GIT_DIR := ".git"
 const _SENSITIVE_ROOTS: Array[String] = ["addons", "gdcli_commands"]
-const _SENSITIVE_EXTENSIONS: Array[String] = ["gdextension"]
+# Native libraries, and the files a C# build runs.
+const _SENSITIVE_EXTENSIONS: Array[String] = ["gdextension", "csproj", "sln", "props", "targets"]
 const _FIRST_PRINTABLE := 0x20
 const _DELETE := 0x7f
 const _RESERVED_DEVICE_PATTERN := "^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\\..*)?$"

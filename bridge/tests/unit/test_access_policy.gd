@@ -52,7 +52,18 @@ func test_access_policy_unknown_risk_is_an_internal_error() -> void:
 
 
 func test_access_policy_unknown_mode_falls_back_to_readonly() -> void:
-	equal(AccessPolicy.normalize_mode("ask"), "readonly", "reserved mode")
+	equal(AccessPolicy.normalize_mode("sudo"), "readonly", "a mode that does not exist")
+	equal(AccessPolicy.normalize_mode("ask"), "ask", "ask mode")
 	equal(AccessPolicy.normalize_mode(null), "readonly", "missing")
 	equal(AccessPolicy.normalize_mode(3), "readonly", "wrong type")
 	equal(AccessPolicy.normalize_mode("full"), "full", "known mode")
+
+
+func test_access_policy_ask_mode_leaves_the_confirmation_to_a_person() -> void:
+	equal(_code("destructive", "ask", false, false), "", "the caller's own confirmation is not what counts")
+	check(AccessPolicy.asks_person("destructive", "ask", false), "a person is asked for destructive commands")
+	check(AccessPolicy.asks_person("exec", "ask", false), "and for running code")
+	check(not AccessPolicy.asks_person("write", "ask", false), "not for ordinary changes")
+	check(not AccessPolicy.asks_person("destructive", "ask", true), "not for a dry run")
+	check(not AccessPolicy.asks_person("destructive", "standard", false), "not in standard mode")
+	equal(_code("exec", "ask", false, true), "EVAL_DISABLED", "the eval switch still applies")

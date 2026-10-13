@@ -367,6 +367,14 @@ func test_node_attach_script_refuses_a_script_for_another_class() -> void:
 	equal(_code("node_attach_script", {"path": "Player", "script": "res://tests/fixtures/node2d_script.gd"}), "", "Node2D script on a Node2D")
 
 
+func test_node_attach_script_asks_a_person_for_a_tool_script() -> void:
+	_scene()
+
+	var reply := _call("node_attach_script", {"path": "Player", "script": "res://gdcli_commands/project_echo.gd"})
+
+	check(reply["ok"] and reply.has("later"), "a tool script waits for a person, however it got into the project")
+
+
 func test_edit_confirmation_gate_passes_only_with_confirm_or_full_mode() -> void:
 	equal(Edit.confirmation_gate({"mode": "standard", "confirm": false, "dry_run": true}, "x"), {}, "a dry run")
 	equal(Edit.confirmation_gate({"mode": "standard", "confirm": false}, "x")["error"]["code"], "CONFIRMATION_REQUIRED", "unconfirmed")
