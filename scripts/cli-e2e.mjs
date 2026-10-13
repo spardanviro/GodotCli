@@ -334,8 +334,13 @@ async function buildSceneFromTheCommandLine() {
     hostPid = started.envelope?.data?.pid;
     check(started.status === 0 && started.envelope?.data?.started === true && started.envelope?.data?.headless === true, "host start", started.envelope);
 
-    const script = gd(["command", "fs_write_text", "--args", JSON.stringify({ path: "res://scripts/enemy.gd", text: ENEMY_SCRIPT })]);
-    check(script.status === 0 && script.envelope?.data?.created === true, "write a script", script.envelope);
+    // The way the plugin's skills send a script: from a file outside the project.
+    const draft = join(root, "enemy_draft.gd");
+    writeFileSync(draft, ENEMY_SCRIPT);
+    const script = gd(["command", "fs_write_text", "--path", "res://scripts/enemy.gd", "--text-file", draft]);
+    check(script.status === 0 && script.envelope?.data?.created === true, "write a script from a file", script.envelope);
+    const written = gd(["command", "fs_read_text", "--path", "res://scripts/enemy.gd"]);
+    check(written.envelope?.data?.text === ENEMY_SCRIPT, "with the text of that file", written.envelope);
 
     const scene = gd(["command", "scene_new", "--path", "res://levels/level.tscn", "--root-type", "Node2D"]);
     check(scene.status === 0 && scene.envelope?.data?.scene === "res://levels/level.tscn", "create a scene", scene.envelope);

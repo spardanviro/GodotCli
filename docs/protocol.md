@@ -423,7 +423,7 @@ HTTP 状态码与类别对应（`200` 成功、`400` 参数、`401` 认证、`40
 - 修改类命令的处理函数除参数外还会收到请求选项（`dry_run`、`confirm`、当前访问模式），只读命令只收到参数。
 - 产生撤销步骤的命令在 `meta.undo` 里给出步骤名。
 
-命令行把 `--键 值` 按结构转换成 `args`（数字、布尔按 `type` 转换）。复杂参数用 `--args '<JSON>'`，或 `--args-file <文件>`，`-` 表示标准输入。
+命令行把 `--键 值` 按结构转换成 `args`（数字、布尔按 `type` 转换）。复杂参数用 `--args '<JSON>'`，或 `--args-file <文件>`。`--<参数名>-file <文件>` 从文件读取单个参数的值（字符串参数原样读入，其余按类型解析），用来传脚本正文，不必为 shell 转义。两处的文件名写成 `-` 都表示标准输入。
 
 ### 6.2 节点与场景的寻址
 
@@ -463,13 +463,15 @@ JSON 能直接表示的类型原样传。其余类型：
 | `Packed*Array` | 数组，每个元素按元素类型转换，如 `PackedVector2Array` 写 `[[0,0],[16,0]]`；最多 65536 个元素 |
 | `NodePath`、`StringName` | 字符串 |
 | 上面各数学类型和 `Color` | 也接受脚本里的写法 `"Vector2(100, 50)"`：类型名必须与目标类型一致，括号里只能是数字。这是桥接自己读的，不嵌套、不构造对象 |
-| 枚举 | 整数或成员名 |
+| 枚举 | 整数；脚本里的常量名（`"MOUSE_FILTER_IGNORE"`，前面可带类名）；检查器里显示的标签（`"Ignore"`）。常量按属性所在对象的类及其父类查找，且它的值必须是这个枚举的成员之一 |
 | 资源 | `{"$res":"res://…"}` 加载已有资源；`{"$new":"RectangleShape2D","properties":{…}}` 新建子资源 |
 | 节点引用 | `{"$node":"相对场景根的路径"}` |
 
 规则：
 
-- 转换失败返回 `TYPE_MISMATCH`，`details` 里给出属性的期望类型和收到的值。
+- 转换失败返回 `TYPE_MISMATCH`，`details` 里给出属性的期望类型和收到的值。出错的属性在 `$new` 里面时，`details.property` 是完整路径（`mesh.size`）。
+- 可以设置的属性是检查器显示的或文件里保存的那些，另加一小组"换一种写法"的派生属性：`rotation_degrees`、`global_position`、`global_rotation`、`global_rotation_degrees`、`global_scale`、`global_skew`、`global_transform`、`global_basis`、`transform`、`basis`、`quaternion`。它们本身不存盘，但设置后改变的是存盘的属性。其他不存盘的属性（`owner`、`scene_file_path` 等）仍然不能设。
+- `$new` 里的属性**按书写顺序逐个设置**，后面的属性按对象当时的样子检查。因此"先有甲才有乙"的属性可以写在一起：着色器材质先写 `shader` 再写 `shader_parameter/…`。
 - **不使用 `str_to_var`**。它能按文本构造任意对象，等于给了一条绕过 `exec` 分级的代码执行路径。
 - 为了不让 `$new` 和 `$res` 变成同样的旁路：
   - `$new` 只能构造引擎原生的 `Resource` 子类。`Script` 及其子类、`PackedScene`、`GDExtension` 不能用 `$new` 构造，也就是说**不能凭空造出一段代码**，代码只能来自项目里的文件。反过来说，`$res` 加载的资源如果引用了带 `@tool` 的脚本，那段脚本会在加载时运行（见 4.1）。
@@ -514,7 +516,8 @@ JSON 能直接表示的类型原样传。其余类型：
 
 **几条容易出错、所以由命令替调用方处理的规则**（来自用真实模型反复跑评测得到的经验）：
 
-- `node_create` 先把节点加进场景树，再按给定的顺序设属性，整个过程是一步撤销。Control 的锚点和布局是相对父节点算的，没入树时设了不生效。
+- `node_create` 先把节点加进场景树，再按给定的顺序设属性，整个过程是一步撤销。Control 的锚点和布局是相对父节点算的，没入树时设了不生效。属性的检查同样按顺序进行，所以 `mesh` 后面可以直接跟 `surface_material_override/0`。`node_set` 则是先按节点当前的样子检查全部属性再动手，这类属性要分两次设。
+- `node_get` 不带 `properties` 时返回检查器显示的属性；按名字可以读任何属性，包括检查器不显示的（`global_position`、被锚点预设隐藏的 `offset_left`）。
 - 给 Control 设 `anchors_preset` 时，`node_create` 和 `node_set` 会先把 `layout_mode` 切到锚点模式（检查器也是这么做的）；调用方自己给了 `layout_mode`、或父节点是容器时不动。
 - `node_move` 换父节点时默认保持节点在屏幕上的位置（`keep_global_transform`，默认真；撤销时恢复原来的本地值）。移到容器下面的 Control 由容器摆放，这个选项对它不起作用。
 - `fs_write_text` 写完 `.gd` 后立刻编译检查，结果放在 `data.check`（`{compiles, errors?}`，报错文本需要 4.5 及以上）。**不通过也照样写入**，因为它可能引用下一步才创建的东西；此时带一条警告。有三类脚本不做这项检查，`data.check` 里是 `{skipped: 原因}`，需要时用 `gd check`：带工具注解的；用了 `preload` 或 `extends "路径"` 的（编译会去加载别的文件）；引用了自己的 `class_name` 的（文本是单独编译的，那时类名还不存在）。在编辑器里编译一个非工具脚本不会运行其中任何代码（包括静态初始化），这一点实测确认过。

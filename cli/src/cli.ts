@@ -45,6 +45,8 @@ Running editor (needs the bridge addon, see "gd bridge install"):
   status                     Editors gd can reach
   list                       Commands the editor exposes, with their arguments
   command <name> [--arg v]   Run one of them, e.g. gd command node_create --type Sprite2D
+                             --args <json> | --args-file <f> give all arguments; --<arg>-file <f>
+                             reads one argument from a file ("-" is standard input)
   eval <code> | --file <f>   Run GDScript in the editor (off unless enabled there)
   host start | host stop     Run a headless editor as the host when none is open
 

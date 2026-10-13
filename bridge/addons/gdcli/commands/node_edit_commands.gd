@@ -156,7 +156,9 @@ func _create(args: Dictionary, options: Dictionary) -> Dictionary:
 		return bad
 
 	var node: Node = ClassDB.instantiate(type)
-	var decoded: Dictionary = ValueDecoder.new(_root()).decode_properties(node, args.get("properties", {}))
+	# Set on the new node one by one, so that a property which another one
+	# brings into being can be given too; they are set again in the tree.
+	var decoded: Dictionary = ValueDecoder.new(_root()).set_in_order(node, args.get("properties", {}))
 	if not decoded["ok"] or options["dry_run"]:
 		node.free()
 		return decoded if not decoded["ok"] else Edit.planned({"create": type, "under": args["parent"], "name": name})

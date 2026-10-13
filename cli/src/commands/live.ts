@@ -91,6 +91,20 @@ export const listCommand: CommandHandler = async (context, globals) => {
   return { envelope, human: `${sanitize(lines.join("\n"))}\n` };
 };
 
+const FILE_SUFFIX = "_file";
+/** In place of a file name: read standard input. */
+const STDIN = "-";
+
+/** The text of a file named on the command line, or of standard input for "-". */
+function readInput(context: Context, file: string): string {
+  return file === STDIN ? context.io.readStdin() : readFileSync(resolve(context.cwd, file), "utf8");
+}
+
+/** Standard input can be read once: a second "-" would silently be empty. */
+function namesStdinTwice(tokens: readonly string[]): boolean {
+  return tokens.filter((token, index) => token === STDIN && (tokens[index - 1] ?? "").endsWith("-file")).length + tokens.filter((token) => token.endsWith(`-file=${STDIN}`)).length > 1;
+}
+
 function coerce(raw: string, type: string | undefined): unknown {
   switch (type) {
     case "integer":
@@ -134,12 +148,17 @@ function readJsonObject(source: string, label: string): Record<string, unknown> 
 /**
  * Turns "--key value", "--key=value" and bare "--flag" into arguments, typed
  * by the command's schema. --args and --args-file supply a JSON object;
- * individual flags override its keys.
+ * individual flags override its keys. --<name>-file reads the value of the
+ * parameter <name> from a file: a script goes to the editor without having to
+ * be quoted for the shell. A file named "-" is standard input.
  */
 export function buildArgs(tokens: readonly string[], descriptor: Descriptor, context: Context): Record<string, unknown> | string {
   const types = descriptor.params?.properties ?? {};
   let base: Record<string, unknown> = {};
   const flags: Record<string, unknown> = {};
+  if (namesStdinTwice(tokens)) {
+    return "Standard input (-) can be given to one argument only.";
+  }
 
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index] ?? "";
@@ -163,7 +182,7 @@ export function buildArgs(tokens: readonly string[], descriptor: Descriptor, con
       let source = raw;
       if (name === "args_file") {
         try {
-          source = readFileSync(resolve(context.cwd, raw), "utf8");
+          source = readInput(context, raw);
         } catch {
           return "Cannot read the file given to --args-file.";
         }
@@ -173,6 +192,18 @@ export function buildArgs(tokens: readonly string[], descriptor: Descriptor, con
         return parsed;
       }
       base = { ...base, ...parsed };
+      continue;
+    }
+    const fromFile = name.endsWith(FILE_SUFFIX) && types[name] === undefined ? name.slice(0, -FILE_SUFFIX.length) : "";
+    if (Object.hasOwn(types, fromFile)) {
+      if (raw === undefined) {
+        return `--${fromFile.replaceAll("_", "-")}-file needs a value.`;
+      }
+      try {
+        flags[fromFile] = coerce(readInput(context, raw), types[fromFile]?.type);
+      } catch {
+        return `Cannot read the file given to --${fromFile.replaceAll("_", "-")}-file.`;
+      }
       continue;
     }
     flags[name] = raw === undefined ? true : coerce(raw, types[name]?.type);

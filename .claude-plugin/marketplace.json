@@ -1,0 +1,14 @@
+{
+  "name": "gdcli",
+  "owner": {
+    "name": "spardanviro"
+  },
+  "description": "The Claude plugin of gdcli: skills for building Godot games through the gd command line.",
+  "plugins": [
+    {
+      "name": "godot",
+      "source": "./plugin",
+      "description": "Skills for building Godot 4 games with coding agents: drive the editor through the gd command line, plus curated Godot knowledge. Keeps scripts and project files going through the editor, where a person can approve them."
+    }
+  ]
+}

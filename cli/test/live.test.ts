@@ -337,6 +337,30 @@ describe("buildArgs", () => {
     expect(buildArgs(["--args-file", "missing.json"], descriptor, { ...context, cwd: directory })).toContain("Cannot read the file");
   });
 
+  test("reads the value of a parameter from a file given as --<name>-file", () => {
+    const directory = tempDir();
+    const script = `extends Node\n\nvar title := "it's"\n`;
+    writeFile(join(directory, "player.gd"), script);
+    writeFile(join(directory, "names.json"), '["A", "B"]');
+    const here = { ...context, cwd: directory };
+
+    expect(buildArgs(["--path-file", "player.gd"], descriptor, here)).toEqual({ path: script });
+    expect(buildArgs(["--names-file=names.json"], descriptor, here)).toEqual({ names: ["A", "B"] });
+    expect(buildArgs(["--path-file", "missing.gd"], descriptor, here)).toContain("Cannot read the file given to --path-file");
+    expect(buildArgs(["--path-file"], descriptor, here)).toContain("needs a value");
+    expect(buildArgs(["--unknown-file", "player.gd"], descriptor, here)).toEqual({ unknown_file: "player.gd" });
+  });
+
+  test("reads standard input for a file named -", () => {
+    const script = "extends Node\n";
+    const piped = harness({ stdin: script }).context;
+    const pipedArgs = harness({ stdin: '{"path":"FromStdin"}' }).context;
+
+    expect(buildArgs(["--path-file", "-"], descriptor, piped)).toEqual({ path: script });
+    expect(buildArgs(["--args-file", "-", "--max-depth", "2"], descriptor, pipedArgs)).toEqual({ path: "FromStdin", max_depth: 2 });
+    expect(buildArgs(["--args-file", "-", "--path-file=-"], descriptor, pipedArgs)).toContain("one argument only");
+  });
+
   test("leaves values it cannot convert for the bridge to reject", () => {
     expect(buildArgs(["--max-depth", "deep", "--deep", "maybe", "--names", "[oops"], descriptor, context)).toEqual({
       max_depth: "deep",

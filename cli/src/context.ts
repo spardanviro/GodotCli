@@ -4,6 +4,8 @@ export interface Io {
   readonly stdout: (text: string) => void;
   readonly stderr: (text: string) => void;
   readonly env: Readonly<Record<string, string | undefined>>;
+  /** Everything on standard input, read to its end. */
+  readonly readStdin: () => string;
 }
 
 export interface ProcessResult {

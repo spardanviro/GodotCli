@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 
@@ -21,6 +22,7 @@ process.exitCode = await run(process.argv.slice(2), {
     stdout: (text) => process.stdout.write(text),
     stderr: (text) => process.stderr.write(text),
     env: process.env,
+    readStdin: () => readFileSync(0, "utf8"),
   },
   cwd: process.cwd(),
   platform: process.platform,

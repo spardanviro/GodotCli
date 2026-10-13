@@ -7,13 +7,15 @@
 // On Windows pass the *_console.exe binary; the GUI one does not write to pipes.
 import { spawn, spawnSync } from "node:child_process";
 import { createHmac, randomBytes } from "node:crypto";
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+
+import { COMMANDS_FILE, renderCommands } from "./plugin-commands.mjs";
 
 const STEP_TIMEOUT_MS = 180_000;
 const STARTUP_TIMEOUT_MS = 120_000;
@@ -300,6 +302,24 @@ async function waitForScene(instance) {
   throw new Error("the fixture scene did not open in the editor");
 }
 
+/**
+ * The plugin's command reference is what the bridge reports, rendered.
+ * @param {Record<string, any>[]} descriptors
+ */
+function checkPluginReference(descriptors) {
+  const rendered = renderCommands(descriptors);
+  if (process.env.GDCLI_UPDATE_PLUGIN === "1") {
+    writeFileSync(COMMANDS_FILE, rendered);
+    process.stdout.write(`wrote ${COMMANDS_FILE}\n`);
+  }
+  const committed = existsSync(COMMANDS_FILE) ? readFileSync(COMMANDS_FILE, "utf8").replaceAll("\r\n", "\n") : "";
+  check(
+    committed === rendered,
+    "the plugin's command reference matches the bridge",
+    "run the bridge tests once with GDCLI_UPDATE_PLUGIN=1 and commit plugin/skills/godot-cli/references/commands.md",
+  );
+}
+
 /** @param {Record<string, any>} instance */
 async function checkCommands(instance) {
   const listing = await request(instance.port, {
@@ -326,6 +346,8 @@ async function checkCommands(instance) {
   check(Object.values(byName).every((entry) => entry.params?.type === "object"), "every command has a params schema");
   // A project command that calls itself read-only is still treated as a write.
   check(byName.project_echo?.risk === "write" && byName.project_echo?.custom === true, "custom command tier", byName.project_echo);
+
+  checkPluginReference(listing.body?.data?.commands ?? []);
 
   const status = await waitForScene(instance);
   check(status.body.success === true && status.body.meta.scene === FIXTURE_SCENE, "editor_status envelope", status.body.meta);
@@ -631,6 +653,34 @@ async function checkLayoutMoveAndAnimation(instance) {
   check(anchors.body?.data?.properties?.anchors_preset === 15, "and the preset takes effect", anchors.body?.data);
   const hud = await command(instance, "node_get", { path: "Hud", properties: ["size"] });
   check(JSON.stringify(hud.body?.data?.properties?.size?.value) === "[300,200]", "a value written as in a script is accepted", hud.body);
+
+  // What a model writes without being told otherwise: the constant's name for
+  // an enumeration, degrees for a rotation, a property that only exists once
+  // another one of the same call is set.
+  const overlay = await command(instance, "node_create", {
+    type: "ColorRect",
+    parent: "Hud",
+    name: "Overlay",
+    properties: { anchors_preset: "PRESET_FULL_RECT", mouse_filter: "MOUSE_FILTER_IGNORE" },
+  });
+  const overlayValues = await command(instance, "node_get", { path: "Hud/Overlay", properties: ["mouse_filter", "anchor_right", "offset_left"] });
+  check(overlay.status === 200 && overlayValues.body?.data?.properties?.mouse_filter === 2, "an enumeration takes the name of its constant", overlay.body);
+  check(overlayValues.body?.data?.properties?.anchor_right === 1, "for the anchors preset too", overlayValues.body);
+  check(overlayValues.body?.data?.properties?.offset_left === 0, "node_get reads a property the inspector hides, by name", overlayValues.body);
+  const crate = await command(instance, "node_create", {
+    type: "MeshInstance3D",
+    name: "Crate",
+    properties: {
+      mesh: { $new: "BoxMesh" },
+      "surface_material_override/0": { $new: "StandardMaterial3D", properties: { albedo_color: "#b5651d", transparency: "TRANSPARENCY_ALPHA" } },
+      rotation_degrees: [0, 90, 0],
+    },
+  });
+  const crateValues = await command(instance, "node_get", { path: "Crate", properties: ["surface_material_override/0", "rotation"] });
+  check(crate.status === 200 && crateValues.body?.data?.properties?.["surface_material_override/0"]?.class === "StandardMaterial3D", "node_create reaches a property that an earlier one brings into being", crate.body);
+  check(Math.abs((crateValues.body?.data?.properties?.rotation?.value?.[1] ?? 0) - Math.PI / 2) < 1e-4, "and takes a rotation in degrees", crateValues.body);
+  const badEnum = await command(instance, "node_set", { path: "Hud/Overlay", properties: { mouse_filter: "PRESET_FULL_RECT" } });
+  check(badEnum.status === 422 && badEnum.body?.errors?.[0]?.code === "TYPE_MISMATCH", "a constant of another enumeration is refused", badEnum.body);
 
   await command(instance, "node_create", { type: "Node2D", name: "Carrier", properties: { position: [100, 0] } });
   await command(instance, "node_create", { type: "Node2D", parent: "Carrier", name: "Cargo", properties: { position: [10, 5] } });

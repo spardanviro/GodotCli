@@ -2,7 +2,7 @@
 
 从命令行和编码智能体里控制 Godot：一个编辑器桥接插件，一个 `gd` 命令行，一个 Claude 插件。
 
-**状态：第 3 阶段完成，尚未发布。** `gd` 能读写运行中编辑器里的场景（每一步都进编辑器的撤销栈），能查看和操作编辑器启动的游戏，也能不开编辑器运行场景、检查脚本、导入、导出、查接口。Claude 插件在第 4 阶段。
+**状态：第 4 阶段完成，尚未发布。** `gd` 能读写运行中编辑器里的场景（每一步都进编辑器的撤销栈），能查看和操作编辑器启动的游戏，也能不开编辑器运行场景、检查脚本、导入、导出、查接口。Claude 插件有六个技能和一个写入拦截钩子，见 [plugin/README.md](plugin/README.md)。
 
 ## 用法
 
@@ -16,6 +16,7 @@ gd list                    # 编辑器提供哪些命令
 gd command scene_tree      # 读场景树
 gd command node_create --type CharacterBody2D --name Player   # 建节点，可在编辑器里 Ctrl+Z
 gd command node_set --path Player --properties '{"position":[100,50]}'
+gd command fs_write_text --path res://scripts/player.gd --text-file /tmp/player.gd   # 脚本正文从文件读
 gd command edit_undo       # 撤销上一步
 gd command scene_save
 gd command editor_play     # 在编辑器里运行项目
@@ -49,8 +50,8 @@ gd doctor                  # 哪里不对
 |---|---|
 | `bridge/` | 开发测试用的 Godot 项目；`bridge/addons/gdcli/` 是桥接插件（GDScript，Godot 4.3 起） |
 | `cli/` | `gd` 命令行（TypeScript，Node 22 起） |
-| `plugin/` | Claude 插件 |
-| `scripts/` | 仓库级检查脚本 |
+| `plugin/` | Claude 插件：技能、参考资料、写入拦截钩子 |
+| `scripts/` | 仓库级检查脚本，以及生成插件参考资料的脚本 |
 
 ## 开发
 
@@ -62,7 +63,7 @@ npm install
 npm run verify
 ```
 
-`verify` 依次做版本一致性检查、类型检查、代码检查、测试（含覆盖率门槛）和构建。
+`verify` 依次做版本一致性检查、插件检查（技能格式、命令名和参数名）、钩子测试、类型检查、代码检查、测试（含覆盖率门槛）和构建。
 
 桥接的测试（单元测试加端到端）需要一个 Godot 编辑器可执行文件：
 

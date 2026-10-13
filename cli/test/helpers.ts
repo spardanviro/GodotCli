@@ -101,6 +101,8 @@ export interface HarnessOptions {
   readonly addonDir?: string;
   readonly platform?: NodeJS.Platform;
   readonly readVersion?: () => string;
+  /** What gd reads when a file argument is "-". */
+  readonly stdin?: string;
 }
 
 export function harness(options: HarnessOptions = {}): Harness {
@@ -112,6 +114,7 @@ export function harness(options: HarnessOptions = {}): Harness {
       stdout: (chunk) => void out.push(chunk),
       stderr: (chunk) => void err.push(chunk),
       env: { GDCLI_HOME: join(home, ".gdcli"), ...options.env },
+      readStdin: () => options.stdin ?? "",
     },
     cwd: options.cwd ?? home,
     platform: options.platform ?? process.platform,

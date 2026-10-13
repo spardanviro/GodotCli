@@ -76,7 +76,7 @@ Claude Code ──(技能)──> gd 命令行 ──┬─(本机 HTTP + 令牌
 
 不复用代码，复用内容：
 
-- 445 条易错点（`ai_gotchas_index.cpp`）、接口速查（`ai_api_doc_loader.cpp`）、领域提示词（`ai_domain_prompts.cpp`）、基础提示词（`ai_system_prompt.cpp`）：按主题拆成 `plugin/skills/*/references/`。
+- 易错点（现为 `knowledge/gotchas.md`，394 条）和接口速查（`knowledge/api_docs.md`）：由 `scripts/import-knowledge.mjs` 按主题拆进 `plugin/skills/*/references/`。领域提示词和基础提示词是按"模型写一段编辑器脚本"的工作方式写的，没有照搬，而是改写成以 `gd` 命令为主的技能正文。
 - "运行场景、收集报错"的闭环：变成 `gd run`。
 - 检查点：改用编辑器自带的撤销栈。
 

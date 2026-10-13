@@ -60,6 +60,18 @@ const _SCRIPT_PROPERTY := "script"
 const SAVED_USAGE := PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_STORAGE
 const ANY_USAGE := -1
 const _STRUCTURAL_USAGE := PROPERTY_USAGE_CATEGORY | PROPERTY_USAGE_GROUP | PROPERTY_USAGE_SUBGROUP
+# Not stored and not in the inspector, because each is another way of writing
+# a property that is: setting one of them changes what is saved.
+const _DERIVED: Array[String] = [
+	"rotation_degrees", "global_position", "global_rotation", "global_rotation_degrees", "global_scale", "global_skew",
+	"global_transform", "global_basis", "transform", "basis", "quaternion",
+]
+# Key added to a property description: the class whose constants name the
+# members of an enumeration.
+const _OWNER_CLASS := "owner_class"
+const _GLOBAL_PREFIX := "global_"
+const _SETTER_PREFIX := "set_"
+const _SETTER_LOOKUP := "class_get_property_setter"
 
 var _scene_root: Node
 var _call_regex: RegEx
@@ -76,8 +88,11 @@ func _init(scene_root: Node = null) -> void:
 ## ANY_USAGE to reach properties such as velocity and script variables.
 func decode_properties(object: Object, properties: Dictionary, depth: int = 0, usage: int = SAVED_USAGE) -> Dictionary:
 	var known := {}
+	var owner_class := object.get_class()
 	for property in object.get_property_list():
-		if property["usage"] & usage and not property["usage"] & _STRUCTURAL_USAGE:
+		var reachable: bool = property["usage"] & usage or (object is Node and property["name"] in _DERIVED)
+		if reachable and not property["usage"] & _STRUCTURAL_USAGE:
+			property[_OWNER_CLASS] = owner_class
 			known[property["name"]] = property
 	var values := {}
 	for name in properties:
@@ -92,10 +107,31 @@ func decode_properties(object: Object, properties: Dictionary, depth: int = 0, u
 		var decoded := decode(properties[name], known[name]["type"], known[name], depth)
 		if not decoded["ok"]:
 			var details: Dictionary = decoded["error"].get("details", {})
-			details["property"] = str(name)
+			# A failure inside a new resource arrives with the inner name.
+			details["property"] = "%s.%s" % [name, details["property"]] if details.get("property", "") != "" else str(name)
 			decoded["error"]["details"] = details
 			return decoded
 		values[name] = decoded["value"]
+	return {"ok": true, "values": values}
+
+
+## Like decode_properties, but sets each value on `object` before looking at
+## the next: a property that exists only once another is set (the surface
+## materials of a mesh instance after its mesh, the parameters of a shader
+## material after its shader) can be given in the same call. For an object
+## nobody else holds yet. Returns {ok = true, values} in the order given, or
+## a failed reply; on failure the earlier properties stay set.
+func set_in_order(object: Object, properties: Dictionary, depth: int = 0) -> Dictionary:
+	var values := {}
+	for name in properties:
+		var decoded := decode_properties(object, {name: properties[name]}, depth)
+		if not decoded["ok"]:
+			return decoded
+		# Where a node is in the world is a question only a node in the tree
+		# can answer; asked of any other, the engine prints an error.
+		if not (object is Node and not object.is_inside_tree() and str(name).begins_with(_GLOBAL_PREFIX)):
+			object.set(name, decoded["values"][name])
+		values[name] = decoded["values"][name]
 	return {"ok": true, "values": values}
 
 
@@ -213,24 +249,63 @@ func _decode_int(value: Variant, info: Dictionary) -> Dictionary:
 	if value is float and value == floorf(value) and absf(value) <= MAX_SAFE_INTEGER:
 		return _ok(int(value))
 	if value is String and info.get("hint", PROPERTY_HINT_NONE) == PROPERTY_HINT_ENUM:
-		var member := _enum_value(value, info.get("hint_string", ""))
+		var hint_string: String = info.get("hint_string", "")
+		var member := _enum_value(value, hint_string)
 		if member["found"]:
 			return _ok(member["value"])
-		return _mismatch("Not a member of this enumeration.", "", info.get("hint_string", ""))
+		var constant := _enum_constant(value, hint_string, info.get(_OWNER_CLASS, ""), info.get("name", ""))
+		if constant["found"]:
+			return _ok(constant["value"])
+		return _mismatch("Not a member of this enumeration.", "", hint_string)
 	return _mismatch_type(TYPE_INT)
 
 
 # "Idle,Walk:4,Run" numbers members from 0, with explicit values after a colon.
 func _enum_value(name: String, hint_string: String) -> Dictionary:
+	var members := _enum_members(hint_string)
+	for label in members:
+		if label.to_lower() == name.to_lower():
+			return {"found": true, "value": members[label]}
+	return {"found": false}
+
+
+func _enum_members(hint_string: String) -> Dictionary:
+	var members := {}
 	var next := 0
 	for entry in hint_string.split(","):
-		var label := entry.get_slice(":", 0).strip_edges()
 		if entry.contains(":"):
 			next = entry.get_slice(":", 1).to_int()
-		if label.to_lower() == name.to_lower():
-			return {"found": true, "value": next}
+		members[entry.get_slice(":", 0).strip_edges()] = next
 		next += 1
-	return {"found": false}
+	return members
+
+
+# The name as scripts write it: MOUSE_FILTER_IGNORE, or Control.MOUSE_FILTER_IGNORE.
+# It has to be a constant of the enumeration the property is declared with
+# (which the setter's argument tells), and its value one the property takes.
+# Where the engine does not say which enumeration that is, the value decides.
+func _enum_constant(name: String, hint_string: String, owner_class: String, property: String) -> Dictionary:
+	var constant := name.get_slice(".", name.count("."))
+	if owner_class == "" or not ClassDB.class_has_integer_constant(owner_class, constant):
+		return {"found": false}
+	var wanted := _enum_of_property(owner_class, property)
+	if wanted != "" and str(ClassDB.class_get_integer_constant_enum(owner_class, constant)) != wanted:
+		return {"found": false}
+	var value := ClassDB.class_get_integer_constant(owner_class, constant)
+	return {"found": value in _enum_members(hint_string).values(), "value": value}
+
+
+# "MouseFilter" for mouse_filter of a Control, or "" when it cannot be told.
+func _enum_of_property(owner_class: String, property: String) -> String:
+	var setter := _SETTER_PREFIX + property
+	# Not every setter is named after its property; newer engines can say.
+	if ClassDB.has_method(_SETTER_LOOKUP):
+		setter = str(ClassDB.call(_SETTER_LOOKUP, owner_class, property))
+	for method in ClassDB.class_get_method_list(owner_class):
+		if method["name"] == setter and method["args"].size() == 1:
+			var declared := str(method["args"][0].get("class_name", ""))
+			return declared.get_slice(".", declared.count("."))
+	return ""
 
 
 func _decode_color(value: Variant) -> Dictionary:
@@ -396,11 +471,9 @@ func _new_resource(value: Dictionary, depth: int) -> Dictionary:
 	var properties: Variant = value.get("properties", {})
 	if not properties is Dictionary:
 		return _mismatch("properties must be an object.", "", "an object")
-	var decoded := decode_properties(resource, properties, depth + 1)
+	var decoded := set_in_order(resource, properties, depth + 1)
 	if not decoded["ok"]:
 		return decoded
-	for name in decoded["values"]:
-		resource.set(name, decoded["values"][name])
 	return _ok(resource)
 
 

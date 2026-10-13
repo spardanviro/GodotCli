@@ -222,3 +222,79 @@ func test_value_decoder_accepts_values_written_as_in_a_script() -> void:
 	check(_fails("Vector2(1,,2)", TYPE_VECTOR2), "an empty place")
 	check(_fails("Vector2(1, 2, 3)", TYPE_VECTOR2), "too many numbers")
 	equal(_value("Vector2(1, 2)", TYPE_STRING), "Vector2(1, 2)", "a string property keeps the text")
+
+
+func test_value_decoder_enums_accept_the_constant_names_of_the_class() -> void:
+	var control := Control.new()
+	var body := CharacterBody2D.new()
+	_nodes.append_array([control, body])
+	var decoder := ValueDecoder.new()
+
+	var by_constant := decoder.decode_properties(control, {"mouse_filter": "MOUSE_FILTER_IGNORE", "process_mode": "PROCESS_MODE_ALWAYS"})
+	var qualified := decoder.decode_properties(body, {"motion_mode": "CharacterBody2D.MOTION_MODE_FLOATING"})
+	var by_label := decoder.decode_properties(control, {"mouse_filter": "Ignore"})
+	var of_another_enum := decoder.decode_properties(control, {"mouse_filter": "PRESET_FULL_RECT"})
+	var same_value_elsewhere := decoder.decode_properties(control, {"mouse_filter": "SIZE_FILL"})
+	var unknown := decoder.decode_properties(control, {"mouse_filter": "MOUSE_FILTER_NEVER"})
+	var nested := decoder.decode({"$new": "Environment", "properties": {"background_mode": "BG_SKY"}}, TYPE_OBJECT)
+
+	equal(by_constant["values"], {"mouse_filter": Control.MOUSE_FILTER_IGNORE, "process_mode": Node.PROCESS_MODE_ALWAYS}, "constants of the class and of its ancestors")
+	equal(qualified["values"], {"motion_mode": CharacterBody2D.MOTION_MODE_FLOATING}, "with the class name in front")
+	equal(by_label["values"], {"mouse_filter": Control.MOUSE_FILTER_IGNORE}, "the inspector's label still works")
+	equal(of_another_enum["ok"], false, "a constant whose value this enumeration does not have")
+	equal(same_value_elsewhere["ok"], false, "a constant of another enumeration that happens to have a fitting value")
+	equal(unknown["ok"], false, "a name that is no constant")
+	equal(nested["value"].background_mode, Environment.BG_SKY, "inside a new resource")
+
+
+func test_value_decoder_derived_properties_of_a_node_can_be_set() -> void:
+	var spatial := Node3D.new()
+	var flat := Node2D.new()
+	_nodes.append_array([spatial, flat])
+	var decoder := ValueDecoder.new()
+
+	var degrees := decoder.decode_properties(spatial, {"rotation_degrees": [-45, 30, 0]})
+	var flat_degrees := decoder.decode_properties(flat, {"rotation_degrees": 90, "global_position": [5, 6]})
+	var bookkeeping := decoder.decode_properties(spatial, {"owner": {"$node": "."}})
+
+	equal(degrees["values"], {"rotation_degrees": Vector3(-45, 30, 0)}, "rotation in degrees, which is not stored but sets rotation")
+	equal(flat_degrees["values"], {"rotation_degrees": 90.0, "global_position": Vector2(5, 6)}, "on a 2D node")
+	equal(bookkeeping["ok"], false, "other properties that are not stored stay out of reach")
+
+
+func test_value_decoder_set_in_order_reaches_properties_that_appear_on_the_way() -> void:
+	var decoder := ValueDecoder.new()
+	var instance := MeshInstance3D.new()
+	var untouched := MeshInstance3D.new()
+	_nodes.append_array([instance, untouched])
+
+	var at_once := decoder.decode_properties(untouched, {"mesh": {"$new": "BoxMesh"}, "surface_material_override/0": {"$new": "StandardMaterial3D"}})
+	var in_order := decoder.set_in_order(instance, {"mesh": {"$new": "BoxMesh"}, "surface_material_override/0": {"$new": "StandardMaterial3D"}})
+	var randomizer: Variant = _value({"$new": "AudioStreamRandomizer", "properties": {"streams_count": 2, "stream_1/weight": 3.0}}, TYPE_OBJECT)
+	var failed := decoder.set_in_order(instance, {"visible": false, "no_such": 1})
+
+	equal(at_once["ok"], false, "checked against the object as it is, the second property does not exist yet")
+	equal(in_order["ok"], true, "set one after the other, it does")
+	check(instance.get_surface_override_material(0) is StandardMaterial3D, "and the object has the values")
+	equal(in_order["values"].keys(), ["mesh", "surface_material_override/0"], "the converted values, in the order given")
+	check(randomizer is AudioStreamRandomizer and randomizer.get_stream_probability_weight(1) == 3.0, "a new resource is filled the same way")
+	equal(failed["error"]["details"]["property"], "no_such", "a failure names the property")
+
+
+func test_value_decoder_set_in_order_leaves_world_positions_of_a_detached_node_for_later() -> void:
+	var spatial := Node3D.new()
+	_nodes.append(spatial)
+
+	var decoded := ValueDecoder.new().set_in_order(spatial, {"global_position": [1, 2, 3], "position": [4, 5, 6]})
+
+	equal(decoded["values"], {"global_position": Vector3(1, 2, 3), "position": Vector3(4, 5, 6)}, "both are converted and handed back")
+	equal(spatial.position, Vector3(4, 5, 6), "only the local one is set on a node that is not in the tree")
+
+
+func test_value_decoder_nested_failures_name_the_whole_path() -> void:
+	var instance := MeshInstance3D.new()
+	_nodes.append(instance)
+
+	var wrong := ValueDecoder.new().decode_properties(instance, {"mesh": {"$new": "BoxMesh", "properties": {"size": "big"}}})
+
+	equal(wrong["error"]["details"]["property"], "mesh.size", "outer and inner property")

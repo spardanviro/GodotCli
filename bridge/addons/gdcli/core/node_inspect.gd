@@ -22,11 +22,12 @@ static func tree(root: Node, start: Node, max_depth: int) -> Dictionary:
 
 
 ## One node: {path, type, script?, groups, properties}. `wanted` is the list of
-## property names, or null for the default set. With `any_property`, names that
-## the inspector does not show (velocity, global_position, script variables)
-## can be asked for, and script variables are part of the default set.
+## property names, or null for the default set: what the inspector shows, and
+## with `script_variables` the variables of the node's script too. A property
+## the inspector does not show (velocity, global_position, the offsets of a
+## control laid out by a preset) can always be asked for by name.
 ## Returns a reply (see reply.gd).
-static func node(root: Node, target: Node, wanted: Variant, any_property: bool) -> Dictionary:
+static func node(root: Node, target: Node, wanted: Variant, script_variables: bool) -> Dictionary:
 	var listed := {}
 	var defaults := []
 	for property in target.get_property_list():
@@ -35,9 +36,8 @@ static func node(root: Node, target: Node, wanted: Variant, any_property: bool) 
 		if usage & _STRUCTURAL_USAGE or name == _SCRIPT_PROPERTY:
 			continue
 		var shown := usage & PROPERTY_USAGE_EDITOR != 0
-		if shown or any_property:
-			listed[name] = true
-		if shown or (any_property and usage & PROPERTY_USAGE_SCRIPT_VARIABLE != 0):
+		listed[name] = true
+		if shown or (script_variables and usage & PROPERTY_USAGE_SCRIPT_VARIABLE != 0):
 			defaults.append(name)
 
 	var names: Array = defaults if wanted == null else wanted
