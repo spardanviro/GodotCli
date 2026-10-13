@@ -830,7 +830,15 @@ const TICKER_SCRIPT = "res://tests/fixtures/ticker.gd";
 const TICK_LINE = 14;
 // Errors the tests cause on purpose: a method that fails in the running game,
 // and scripts with a type error given to the compile check.
-const DELIBERATE_ERRORS = [/SCRIPT ERROR: Cannot call method 'queue_free' on a null value\./g, /SCRIPT ERROR: Parse Error: Cannot assign a value of type[^\n]*/g];
+// Also what the editor says about the scratch scripts the tests write, break
+// and move around: on some versions (seen on 4.4) its own rescan compiles one
+// of them at a moment when the file it preloads has just been moved. The
+// check is for errors in the bridge's own scripts.
+const DELIBERATE_ERRORS = [
+  /SCRIPT ERROR: Cannot call method 'queue_free' on a null value\./g,
+  /SCRIPT ERROR: Parse Error: Cannot assign a value of type[^\n]*/g,
+  /SCRIPT ERROR: [^\n]*\n\s+at: [^\n]*res:\/\/tests\/tmp\/[^\n]*/g,
+];
 
 /** @param {string} output */
 function withoutDeliberateErrors(output) {
