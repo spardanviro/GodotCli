@@ -100,8 +100,27 @@ gd command animation_state_machine_create --args '{"tree": "Player/Tree", "playe
   `"expression": "velocity.length() > 10.0"`. A tree with an expression is left **inactive** by the command (the
   answer says `"active": false`): an active tree also runs inside the editor. Turn it on from the script, with
   `tree.active = true` in `_ready()`. Prefer a `condition` when a boolean will do.
-- For three or four animations, the `play()` calls above are simpler and easier to debug. Blend spaces and nested
-  state machines are built in the animation tree editor; there is no command for them.
+- For three or four animations, the `play()` calls above are simpler and easier to debug. Nested state machines
+  are built in the animation tree editor; there is no command for them.
+
+## Blending by a value
+
+A top-down character with a walk animation per direction, or idle that turns into run as speed grows, is a blend
+space: animations placed at positions, mixed by one position that code sets.
+
+```bash
+gd command animation_blend_space_create --args '{"tree": "Player/Tree", "player": "Player/Anim",
+  "points": [{"animation": "walk_up", "position": [0, -1]}, {"animation": "walk_down", "position": [0, 1]},
+             {"animation": "walk_left", "position": [-1, 0]}, {"animation": "walk_right", "position": [1, 0]}]}'
+gd command animation_blend_space_create --args '{"tree": "Player/Tree", "player": "Player/Anim",
+  "points": [{"animation": "idle", "position": 0}, {"animation": "run", "position": 1}]}'
+```
+
+Positions are all numbers (one axis) or all `[x, y]` (a plane). The tree's root becomes the blend space, replacing
+what it had. From the script: `tree["parameters/blend_position"] = input_direction` (a `Vector2`, or a float for
+one axis). Blending suits animations that move bones or properties smoothly. Frame-by-frame sprite animations
+cannot be mixed halfway; for a sprite that only has to face four ways, choosing the animation in code from the
+input direction is simpler.
 
 ## Pixel art
 

@@ -1,6 +1,6 @@
 # Commands of the editor bridge
 
-The 61 commands a running editor answers, each run as `gd command <name> --<argument> <value>`. `gd list --json` prints the same
+The 64 commands a running editor answers, each run as `gd command <name> --<argument> <value>`. `gd list --json` prints the same
 for the editor you are talking to, including commands the project adds itself. Search this file for the command you need; do not read it whole.
 
 After the summary, in brackets: the risk tier (`read`, `write`, `destructive`, `exec`) and whether the change is one step on the editor's undo stack.
@@ -242,14 +242,26 @@ Returns: {path, set}. Not undoable.
 
 ## animation
 
+### animation_blend_space_create
+
+Give an AnimationTree a blend space: animations placed along one axis or on a plane, mixed by a position set from code. [write, one undo step] Needs a scene open in the editor.
+
+- `points` (array, required) Each: {animation: name in the player, position: a number for a blend along one axis, or [x, y] for a blend on a plane}. All points of one kind. E.g. idle at 0 and run at 1; or walking up, down, left, right at [0, -1], [0, 1], [-1, 0], [1, 0].
+- `tree` (string, required) Path of the AnimationTree node.
+- `max` (any JSON value) Highest position. Default: the highest among the points, and at least 1.
+- `min` (any JSON value) Lowest position, a number or [x, y]. Default: the lowest among the points, and at most -1 or 0.
+- `player` (string) Path of the AnimationPlayer whose animations are blended. Default: the one the tree already points to.
+
+Returns: {tree, kind: 1d|2d, points, min, max, parameters: [parameters/blend_position]}; meta.undo names the undo step. Replaces the tree's root and makes the tree active.
+
 ### animation_create
 
-Create an animation on an AnimationPlayer from property keyframes and method calls. [write, one undo step] Needs a scene open in the editor.
+Create an animation on an AnimationPlayer from property keyframes, method calls and sounds. [write, one undo step] Needs a scene open in the editor.
 
 - `length` (number, required, 0.001..3600) Seconds.
 - `name` (string, required)
 - `player` (string, required) Path of the AnimationPlayer node.
-- `tracks` (array, required) Each: {node: path in the scene, property: name, keys: [{time: seconds, value}], interpolation?: nearest|linear|cubic, update?: continuous|discrete}; values are converted to the property's type. Or, to call a method at given times: {node, method: name, keys: [{time, args?: [values]}]}.
+- `tracks` (array, required) Each: {node: path in the scene, property: name, keys: [{time: seconds, value}], interpolation?: nearest|linear|cubic, update?: continuous|discrete}; values are converted to the property's type. Or, to call a method at given times: {node, method: name, keys: [{time, args?: [values]}]}. Or, to play sounds on an AudioStreamPlayer: {node, audio: true, keys: [{time, stream: res:// sound file, start_offset?: seconds, end_offset?: seconds}]}.
 - `autoplay` (boolean, default false) Play this animation when the scene starts.
 - `library` (string, default "") Animation library; the default one has an empty name.
 - `loop` (string, default "none", one of none, linear, pingpong)
@@ -313,6 +325,7 @@ Paint or erase cells of a TileMapLayer. [write, one undo step] Needs a scene ope
 - `erase` (boolean, default false) Clear the cells instead of painting them.
 - `rect` (array) [x, y, width, height] in cells: every cell of the rectangle, in addition to `cells`.
 - `source` (integer, default 0) Id of the tile set source, as tileset_add_atlas returned it.
+- `terrain` (string) Paint with this terrain instead of one tile: the engine picks, for each cell, the tile that fits its neighbours. Set terrains up with tileset_set_terrain.
 
 Returns: {layer, cells: number changed, used_rect: [x, y, width, height]}; meta.undo names the undo step.
 
@@ -328,6 +341,32 @@ Cut an image into tiles and add them to the tile set of a TileMapLayer, creating
 - `tile_size` (array) [width, height] of one tile in pixels. Default: the tile set's tile size, or 16 by 16 for a new one.
 
 Returns: {layer, source: id to paint with, columns, rows, tiles, tile_size}; meta.undo names the undo step. A tile is addressed by its column and row in the image: [0, 0] is the top left one.
+
+### tileset_set_collision
+
+Give tiles of a TileMapLayer's tile set a collision shape: full, a slope, half a tile, a polygon of your own, or none; optionally one-way. [write, one undo step] Needs a scene open in the editor.
+
+- `layer` (string, required) Path of the TileMapLayer node.
+- `one_way` (boolean, default false) Solid only from above: a platform that can be jumped through from below.
+- `polygon` (array) Instead of shape (it wins when both are given): corner points [[x, y], ...] of a convex outline, with (0, 0) the top left of the tile and (1, 1) its bottom right.
+- `shape` (string, default "full", one of full, none, half_bottom, half_top, half_left, half_right, slope_right, slope_left) slope_right rises towards the right (its high side is on the right), slope_left towards the left.
+- `source` (integer, default 0) Id of the tile set source.
+- `tiles` (array) Tiles as [column, row] in the atlas. Default: every tile of the source.
+
+Returns: {layer, source, tiles: number changed, shape}; meta.undo names the undo step. Replaces the collision shapes these tiles had.
+
+### tileset_set_terrain
+
+Make tiles part of a terrain, so that painting with the terrain picks the tile that fits its neighbours (autotiling). [write, one undo step] Needs a scene open in the editor.
+
+- `layer` (string, required) Path of the TileMapLayer node.
+- `terrain` (string, required) Name of the terrain, e.g. grass. Created when the tile set has none of this name.
+- `block` (array) [column, row] of the top left tile of a 3 by 3 block drawn as one piece of ground: corners, edges and a centre. Its nine tiles get the matching neighbours.
+- `mode` (string, one of sides, corners, corners_and_sides) What neighbours are compared: sides, corners, or both. Applies when the terrain set is created (default sides); an existing one keeps its mode.
+- `source` (integer, default 0) Id of the tile set source.
+- `tiles` (array) Single tiles: {atlas: [column, row], connects: [directions the same terrain continues in: right, bottom, left, top, and with corners bottom_right, bottom_left, top_left, top_right]}.
+
+Returns: {layer, terrain, mode, tiles: number set}; meta.undo names the undo step. Paint with tilemap_set_cells and terrain.
 
 ## navigation
 

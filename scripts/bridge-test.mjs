@@ -780,6 +780,46 @@ async function checkContentCommands(instance) {
   const baked3d = await command(instance, "navigation_bake", { region: "Walkable3D" });
   check(baked3d.status === 200 && baked3d.body?.data?.kind === "3d", "and a 3D region, which gets a mesh when it has none", baked3d.body);
 
+  // Shapes and terrains of tiles, on a layer whose atlas is cut small enough to hold a 3 by 3 block.
+  const slope = await command(instance, "tileset_set_collision", { layer: "Tiles", tiles: [[1, 0]], shape: "slope_right" });
+  check(slope.status === 200 && slope.body?.data?.tiles === 1 && slope.body?.meta?.undo === "gdcli: tileset_set_collision Tiles", "tileset_set_collision shapes a slope", slope.body);
+  const platform = await command(instance, "tileset_set_collision", { layer: "Tiles", tiles: [[2, 0]], polygon: [[0, 0], [1, 0], [1, 0.25], [0, 0.25]], one_way: true });
+  check(platform.status === 200 && platform.body?.data?.shape === "polygon", "and a one-way platform from a polygon", platform.body);
+  await command(instance, "node_create", { type: "TileMapLayer", name: "Grass" });
+  await command(instance, "tileset_add_atlas", { layer: "Grass", texture: ATLAS, tile_size: [8, 8] });
+  const terrain = await command(instance, "tileset_set_terrain", { layer: "Grass", terrain: "grass", block: [0, 0] });
+  check(terrain.status === 200 && terrain.body?.data?.tiles === 9 && terrain.body?.data?.mode === "sides", "tileset_set_terrain turns a 3 by 3 block into a terrain", terrain.body);
+  const lawn = await command(instance, "tilemap_set_cells", { layer: "Grass", rect: [0, 0, 5, 4], terrain: "grass" });
+  const lawnCells = await command(instance, "tilemap_get", { layer: "Grass" });
+  const tileAt = (x, y) => JSON.stringify(lawnCells.body?.data?.cells?.find((cell) => cell.x === x && cell.y === y)?.atlas);
+  check(lawn.status === 200 && lawn.body?.data?.cells === 20, "tilemap_set_cells paints with a terrain", lawn.body);
+  check(tileAt(0, 0) === "[0,0]" && tileAt(4, 3) === "[2,2]" && tileAt(2, 1) === "[1,1]", "and the engine picks corners, edges and centre", lawnCells.body?.data?.cells?.slice(0, 6));
+  await command(instance, "edit_undo");
+  const mown = await command(instance, "tilemap_get", { layer: "Grass" });
+  check(mown.body?.data?.cell_count === 0, "undo takes the terrain painting away", mown.body);
+
+  const blend = await command(instance, "animation_blend_space_create", {
+    tree: "Brain",
+    player: "Moves",
+    points: [{ animation: "still", position: 0 }, { animation: "leave", position: 1 }],
+  });
+  check(blend.status === 200 && blend.body?.data?.kind === "1d" && blend.body?.data?.parameters?.[0] === "parameters/blend_position", "animation_blend_space_create", blend.body);
+  await command(instance, "node_create", { type: "AudioStreamPlayer", name: "Sfx" });
+  const sound = await command(instance, "animation_create", {
+    player: "Moves",
+    name: "beep",
+    length: 1,
+    tracks: [{ node: "Sfx", audio: true, keys: [{ time: 0.25, stream: "res://tests/fixtures/beep.wav" }] }],
+  });
+  check(sound.status === 200 && sound.body?.data?.tracks?.[0] === "Sfx (audio)", "animation_create adds an audio track", sound.body);
+  const notSound = await command(instance, "animation_create", {
+    player: "Moves",
+    name: "silent",
+    length: 1,
+    tracks: [{ node: "Sfx", audio: true, keys: [{ time: 0, stream: FIXTURE_SCENE }] }],
+  });
+  check(notSound.status === 400 && notSound.body?.errors?.[0]?.code === "INVALID_ARGS", "a resource file is not accepted as a sound", notSound.body);
+
   // C#: code the editor runs after a build is for a person to allow.
   const tool = await command(instance, "fs_write_text", { path: `${TMP_DIR}/Hud.cs`, text: "[Tool]\npublic partial class Hud : Godot.Control {}\n" });
   check(tool.status === 409 && tool.body?.errors?.[0]?.code === "NOT_APPROVED", "a C# tool class needs a person, and a headless editor has none", tool.body);

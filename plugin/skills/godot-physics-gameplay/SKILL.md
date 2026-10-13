@@ -150,8 +150,8 @@ gd command tileset_add_atlas --layer Ground --texture res://art/tiles.png --tile
 gd command tilemap_set_cells --layer Ground --rect '[0, 10, 40, 2]' --atlas '[1, 0]'
 ```
 
-With `--collision true` every tile of the image is solid, on collision layer 1. Terrains (autotiling), slopes and
-one-way tiles are set per tile in the tile set editor, by the user.
+With `--collision true` every tile of the image is solid, on collision layer 1. Slopes and one-way platforms
+(`tileset_set_collision`) and terrains that pick their own tiles (`tileset_set_terrain`) are in that skill too.
 
 ## Navigation
 

@@ -6,10 +6,28 @@
 
 前提：装好 `gd`（Node 22 起），项目里装好桥接（`gd bridge install`）。
 
+直接从 GitHub 安装，不需要手动打包。在 Claude Code 里：
+
 ```
 /plugin marketplace add spardanviro/GodotCli
 /plugin install godot@gdcli
 ```
+
+或者在终端里：
+
+```bash
+claude plugin marketplace add spardanviro/GodotCli
+claude plugin install godot@gdcli
+```
+
+仓库更新后拉取新版本：
+
+```bash
+claude plugin marketplace update gdcli
+claude plugin update godot@gdcli
+```
+
+Claude Code 按 `plugin.json` 里的版本号判断有没有新版本，所以每次改动插件都要提升版本号（`npm run check:versions` 保证它与命令行、桥接的版本一致）。这条安装路径在 WSL 的 Claude Code 2.1 上实测过：装上后显示 8 个技能和钩子。
 
 从本地源码试用：
 

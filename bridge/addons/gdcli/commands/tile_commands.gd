@@ -6,7 +6,7 @@ extends RefCounted
 const AccessPolicy = preload("../core/access_policy.gd")
 const Edit = preload("../core/edit.gd")
 const NodeRef = preload("../core/node_ref.gd")
-const ImageFile = preload("../core/image_file.gd")
+const AssetFile = preload("../core/asset_file.gd")
 const Reply = preload("../core/reply.gd")
 const TextSanitizer = preload("../core/text_sanitizer.gd")
 
@@ -20,6 +20,7 @@ const _MAX_COORDINATE := 1.0e9
 const _NO_TILE := Vector2i(-1, -1)
 const _PHYSICS_LAYER := 0
 const _GROUP := "tilemap"
+const _TERRAIN_SET := 0
 const _OTHER_TILE_SIZE := "The tiles are cut at a size other than the tile set's tile size: they will not line up with the cells."
 
 var _context: RefCounted
@@ -71,6 +72,10 @@ func register(registry: RefCounted) -> void:
 				"atlas": {"type": "array", "description": "[column, row] of the tile in the atlas. Default [0, 0]."},
 				"alternative": {"type": "integer", "default": 0, "minimum": 0},
 				"erase": {"type": "boolean", "default": false, "description": "Clear the cells instead of painting them."},
+				"terrain": {
+					"type": "string",
+					"description": "Paint with this terrain instead of one tile: the engine picks, for each cell, the tile that fits its neighbours. Set terrains up with tileset_set_terrain.",
+				},
 			},
 			"required": ["layer"],
 		},
@@ -145,7 +150,7 @@ func _add_atlas(args: Dictionary, options: Dictionary) -> Dictionary:
 	var layer: Variant = _layer(args["layer"])
 	if layer is Dictionary:
 		return layer
-	var texture: Variant = ImageFile.load_texture(args["texture"])
+	var texture: Variant = AssetFile.load_texture(args["texture"])
 	if texture is Dictionary:
 		return texture
 
@@ -263,6 +268,8 @@ func _set_cells(args: Dictionary, options: Dictionary) -> Dictionary:
 	var cells: Variant = _cells_of(args)
 	if cells is Dictionary:
 		return cells
+	if args.has("terrain"):
+		return _paint_terrain(layer, cells, args, options)
 	var source_id: int = _NO_SOURCE if args["erase"] else args["source"]
 	var atlas := _NO_TILE
 	if not args["erase"]:
@@ -276,20 +283,62 @@ func _set_cells(args: Dictionary, options: Dictionary) -> Dictionary:
 	if options["dry_run"]:
 		return Edit.planned({"cells": cells.size(), "on": args["layer"], "erase": args["erase"]})
 
-	var before := []
-	for cell in cells:
-		before.append([cell, layer.get_cell_source_id(cell), layer.get_cell_atlas_coords(cell), layer.get_cell_alternative_tile(cell)])
 	var action := Edit.undo_name("tilemap_set_cells", str(layer.name))
 	var undo: Object = _context.undo_redo()
 	undo.create_action(action, UndoRedo.MERGE_DISABLE, _root())
 	undo.add_do_method(self, "_paint", layer, cells, source_id, atlas, args["alternative"])
-	undo.add_undo_method(self, "_restore", layer, before)
+	undo.add_undo_method(self, "_restore", layer, _state_of(layer, cells))
 	undo.commit_action()
+	return _painted(layer, cells.size(), action)
+
+
+func _painted(layer: TileMapLayer, count: int, action: String) -> Dictionary:
 	var used: Rect2i = layer.get_used_rect()
 	return Edit.done({
 		"layer": TextSanitizer.clean_line(NodeRef.path_of(_root(), layer)),
-		"cells": cells.size(), "used_rect": [used.position.x, used.position.y, used.size.x, used.size.y],
+		"cells": count, "used_rect": [used.position.x, used.position.y, used.size.x, used.size.y],
 	}, action)
+
+
+# What the cells hold now, for undo.
+func _state_of(layer: TileMapLayer, cells: Array) -> Array:
+	var state := []
+	for cell in cells:
+		state.append([cell, layer.get_cell_source_id(cell), layer.get_cell_atlas_coords(cell), layer.get_cell_alternative_tile(cell)])
+	return state
+
+
+func _paint_terrain(layer: TileMapLayer, cells: Array[Vector2i], args: Dictionary, options: Dictionary) -> Dictionary:
+	var tile_set: TileSet = layer.tile_set
+	var terrain := -1
+	if tile_set != null and tile_set.get_terrain_sets_count() > _TERRAIN_SET:
+		for index in tile_set.get_terrains_count(_TERRAIN_SET):
+			if terrain == -1 and tile_set.get_terrain_name(_TERRAIN_SET, index) == args["terrain"]:
+				terrain = index
+	if terrain == -1:
+		return Reply.fail(
+			"INVALID_ARGS", "The layer's tile set has no terrain of this name.", "Set one up with tileset_set_terrain.",
+			{"terrain": TextSanitizer.clean_line(args["terrain"])},
+		)
+	if args["erase"]:
+		return Reply.fail("INVALID_ARGS", "Give either terrain or erase.")
+	if options["dry_run"]:
+		return Edit.planned({"cells": cells.size(), "on": args["layer"], "terrain": args["terrain"]})
+
+	# Painting a terrain may change the tiles next to the painted cells as
+	# well, so those are part of what undo puts back.
+	var touched := {}
+	for cell in cells:
+		for y in range(-1, 2):
+			for x in range(-1, 2):
+				touched[cell + Vector2i(x, y)] = true
+	var action := Edit.undo_name("tilemap_set_cells", str(layer.name))
+	var undo: Object = _context.undo_redo()
+	undo.create_action(action, UndoRedo.MERGE_DISABLE, _root())
+	undo.add_do_method(layer, "set_cells_terrain_connect", cells, _TERRAIN_SET, terrain, false)
+	undo.add_undo_method(self, "_restore", layer, _state_of(layer, touched.keys()))
+	undo.commit_action()
+	return _painted(layer, cells.size(), action)
 
 
 # A failed reply when the tile to paint with does not exist; {} when it does.

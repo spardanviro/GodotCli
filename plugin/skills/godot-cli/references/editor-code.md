@@ -1,8 +1,8 @@
 # Code that runs in the editor
 
-For what no command does: terrain rules of a tile set, a blend space in an `AnimationTree`, changing many nodes at
-once, anything that needs a loop over the scene. Look in `commands.md` first: tile maps, sprite frames, animation
-state machines and navigation baking have commands. There are three ways, in the order to consider them.
+For what no command does: animated tiles, a blend tree in an `AnimationTree`, changing many nodes at once,
+anything that needs a loop over the scene. Look in `commands.md` first: tile maps with their shapes and terrains,
+sprite frames, animation state machines and blend spaces, and navigation baking have commands. There are three ways, in the order to consider them.
 
 ## 1. Do it in the game instead
 

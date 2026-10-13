@@ -6,12 +6,14 @@ const AnimationTreeCommands = preload("res://addons/gdcli/commands/animation_tre
 const NavigationCommands = preload("res://addons/gdcli/commands/navigation_commands.gd")
 const SpriteCommands = preload("res://addons/gdcli/commands/sprite_commands.gd")
 const TileCommands = preload("res://addons/gdcli/commands/tile_commands.gd")
+const TilesetCommands = preload("res://addons/gdcli/commands/tileset_commands.gd")
 const Registry = preload("res://addons/gdcli/core/registry.gd")
 const Schema = preload("res://addons/gdcli/core/schema.gd")
 const FakeContext = preload("res://tests/fake_context.gd")
 
 # 64 by 32 pixels: four columns and two rows of 16 pixel tiles.
 const ATLAS := "res://tests/fixtures/tiles.png"
+const BEEP := "res://tests/fixtures/beep.wav"
 
 var _root: Node2D
 var _context: RefCounted
@@ -34,10 +36,10 @@ func cleanup() -> void:
 func _scene() -> void:
 	_root = Node2D.new()
 	_root.name = "Level"
-	for node in [TileMapLayer.new(), AnimatedSprite2D.new(), AnimationPlayer.new(), AnimationTree.new(), NavigationRegion2D.new()]:
+	for node in [TileMapLayer.new(), AnimatedSprite2D.new(), AnimationPlayer.new(), AnimationTree.new(), NavigationRegion2D.new(), AudioStreamPlayer.new()]:
 		_root.add_child(node)
 	for index in _root.get_child_count():
-		_root.get_child(index).name = ["Ground", "Hero", "Anim", "Tree", "Nav"][index]
+		_root.get_child(index).name = ["Ground", "Hero", "Anim", "Tree", "Nav", "Sfx"][index]
 	var library := AnimationLibrary.new()
 	library.add_animation("idle", Animation.new())
 	library.add_animation("run", Animation.new())
@@ -46,7 +48,7 @@ func _scene() -> void:
 	_context.root = _root
 	_registry = Registry.new()
 	_command_sets = [
-		TileCommands.new(_context), SpriteCommands.new(_context), AnimationTreeCommands.new(_context),
+		TileCommands.new(_context), TilesetCommands.new(_context), SpriteCommands.new(_context), AnimationTreeCommands.new(_context),
 		NavigationCommands.new(_context), AnimationCommands.new(_context),
 	]
 	for command_set in _command_sets:
@@ -358,3 +360,156 @@ func test_navigation_bake_leaves_a_navigation_file_alone_and_bakes_into_a_copy()
 	equal(nav.navigation_polygon.get_outline(0).size(), 4, "which has the outline")
 	_context.undo.undo()
 	check(nav.navigation_polygon == own, "and undo puts the earlier one back")
+
+
+func _points(coords: Vector2i) -> PackedVector2Array:
+	var data: TileData = _root.get_node("Ground").tile_set.get_source(0).get_tile_data(coords, 0)
+	return data.get_collision_polygon_points(0, 0) if data.get_collision_polygons_count(0) > 0 else PackedVector2Array()
+
+
+func test_tileset_set_collision_shapes_slopes_and_one_way_tiles() -> void:
+	_scene()
+	_run("tileset_add_atlas", {"layer": "Ground", "texture": ATLAS, "collision": true})
+	var tile_set: TileSet = _root.get_node("Ground").tile_set
+	var platform: TileData = tile_set.get_source(0).get_tile_data(Vector2i(2, 0), 0)
+
+	var slope := _run("tileset_set_collision", {"layer": "Ground", "tiles": [[1, 0]], "shape": "slope_right"})
+	var thin := _run("tileset_set_collision", {"layer": "Ground", "tiles": [[2, 0]], "polygon": [[0, 0], [1, 0], [1, 0.25], [0, 0.25]], "one_way": true})
+	var hollow := _run("tileset_set_collision", {"layer": "Ground", "tiles": [[3, 1]], "shape": "none"})
+
+	equal([slope["data"]["tiles"], slope["undo"]], [1, "gdcli: tileset_set_collision Ground"], "one tile, one undo step")
+	equal(_points(Vector2i(1, 0)), PackedVector2Array([Vector2(-8, 8), Vector2(8, -8), Vector2(8, 8)]), "a slope that rises to the right, around the tile's centre")
+	equal(_points(Vector2i(2, 0)), PackedVector2Array([Vector2(-8, -8), Vector2(8, -8), Vector2(8, -4), Vector2(-8, -4)]), "a polygon given in tile units")
+	equal([thin["data"]["shape"], platform.is_collision_polygon_one_way(0, 0)], ["polygon", true], "solid from above only")
+	equal([hollow["ok"], _points(Vector2i(3, 1)).size(), _points(Vector2i(0, 0)).size()], [true, 0, 4], "none takes the shape away; other tiles keep theirs")
+
+	_context.undo.undo()
+	_context.undo.undo()
+	equal([_points(Vector2i(3, 1)).size(), platform.is_collision_polygon_one_way(0, 0), _points(Vector2i(2, 0))[2]], [4, false, Vector2(8, 8)], "undo brings the full squares back")
+	_context.undo.redo()
+	equal(platform.is_collision_polygon_one_way(0, 0), true, "and redo the platform")
+
+
+func test_tileset_set_collision_covers_the_whole_source_and_adds_the_physics_layer() -> void:
+	_scene()
+	_run("tileset_add_atlas", {"layer": "Ground", "texture": ATLAS})
+	var tile_set: TileSet = _root.get_node("Ground").tile_set
+
+	var all := _run("tileset_set_collision", {"layer": "Ground", "shape": "half_bottom"})
+
+	equal([all["data"]["tiles"], tile_set.get_physics_layers_count()], [8, 1], "every tile, on a physics layer made for them")
+	equal(_points(Vector2i(3, 1))[0], Vector2(-8, 0), "the lower half")
+	_context.undo.undo()
+	equal(tile_set.get_physics_layers_count(), 0, "undo takes the layer away again")
+
+	equal(_code("tileset_set_collision", {"layer": "Ground", "tiles": [[9, 9]]}), "INVALID_ARGS", "a tile the source lacks")
+	equal(_code("tileset_set_collision", {"layer": "Ground", "polygon": [[0, 0], [2, 0], [1, 1]]}), "INVALID_ARGS", "a point outside the tile")
+	equal(_code("tileset_set_collision", {"layer": "Ground", "polygon": [[0, 0], [1, 0]]}), "INVALID_ARGS", "two points are no shape")
+	equal(_code("tileset_set_collision", {"layer": "Ground", "source": 4}), "INVALID_ARGS", "a source the tile set lacks")
+	equal(_code("tileset_set_collision", {"layer": "Hero"}), "TYPE_MISMATCH", "a node that is no tile map layer")
+
+
+func test_tileset_set_terrain_makes_a_block_autotile() -> void:
+	_scene()
+	var ground: TileMapLayer = _root.get_node("Ground")
+	_run("tileset_add_atlas", {"layer": "Ground", "texture": ATLAS, "tile_size": [8, 8]})
+	var tile_set := ground.tile_set
+	var source: TileSetAtlasSource = tile_set.get_source(0)
+
+	var reply := _run("tileset_set_terrain", {"layer": "Ground", "terrain": "grass", "block": [0, 0]})
+	var corner: TileData = source.get_tile_data(Vector2i(0, 0), 0)
+	var centre: TileData = source.get_tile_data(Vector2i(1, 1), 0)
+	var painted := _run("tilemap_set_cells", {"layer": "Ground", "rect": [0, 0, 4, 3], "terrain": "grass"})
+
+	equal([reply["data"]["tiles"], reply["data"]["mode"], tile_set.get_terrain_name(0, 0)], [9, "sides", "grass"], "nine tiles of a new terrain that compares sides")
+	equal([corner.get_terrain_peering_bit(TileSet.CELL_NEIGHBOR_RIGHT_SIDE), corner.get_terrain_peering_bit(TileSet.CELL_NEIGHBOR_TOP_SIDE)], [0, -1], "the top left tile continues to the right, not upward")
+	equal(centre.get_terrain_peering_bit(TileSet.CELL_NEIGHBOR_LEFT_SIDE), 0, "the centre continues on every side")
+	equal(painted["data"]["cells"], 12, "painting with the terrain")
+	equal([ground.get_cell_atlas_coords(Vector2i(0, 0)), ground.get_cell_atlas_coords(Vector2i(3, 2)), ground.get_cell_atlas_coords(Vector2i(1, 1))], [Vector2i(0, 0), Vector2i(2, 2), Vector2i(1, 1)], "picks corners for the corners and the centre for the middle")
+
+	var joined := _run("tilemap_set_cells", {"layer": "Ground", "rect": [4, 0, 2, 3], "terrain": "grass"})
+	var edge_when_joined := ground.get_cell_atlas_coords(Vector2i(3, 1))
+	_context.undo.undo()
+	equal([joined["ok"], edge_when_joined], [true, Vector2i(1, 1)], "painting next to it turns the old edge into middle")
+	equal([ground.get_cell_atlas_coords(Vector2i(3, 1)), ground.get_used_cells().size()], [Vector2i(2, 1), 12], "and undo gives the neighbours their edge tiles back")
+
+	_context.undo.undo()
+	equal(ground.get_used_cells().size(), 0, "undo of the painting")
+	_context.undo.undo()
+	equal([tile_set.get_terrain_sets_count(), corner.terrain_set], [0, -1], "undo of the terrain")
+	_context.undo.redo()
+	equal([tile_set.get_terrain_name(0, 0), centre.terrain], ["grass", 0], "and redo")
+
+
+func test_tileset_set_terrain_takes_single_tiles_and_keeps_other_terrains() -> void:
+	_scene()
+	_run("tileset_add_atlas", {"layer": "Ground", "texture": ATLAS, "tile_size": [8, 8]})
+	var tile_set: TileSet = _root.get_node("Ground").tile_set
+	_run("tileset_set_terrain", {"layer": "Ground", "terrain": "grass", "mode": "corners_and_sides", "block": [0, 0]})
+
+	var stone := _run("tileset_set_terrain", {"layer": "Ground", "terrain": "stone", "tiles": [{"atlas": [4, 0], "connects": ["right", "bottom", "bottom_right"]}]})
+	var tile: TileData = tile_set.get_source(0).get_tile_data(Vector2i(4, 0), 0)
+	var grass_centre: TileData = tile_set.get_source(0).get_tile_data(Vector2i(1, 1), 0)
+
+	equal([stone["data"]["mode"], tile_set.get_terrains_count(0), tile.terrain], ["corners_and_sides", 2, 1], "a second terrain in the same set, which keeps its mode")
+	equal([tile.get_terrain_peering_bit(TileSet.CELL_NEIGHBOR_BOTTOM_RIGHT_CORNER), tile.get_terrain_peering_bit(TileSet.CELL_NEIGHBOR_TOP_LEFT_CORNER)], [1, -1], "connected where it was told to be")
+	equal(grass_centre.get_terrain_peering_bit(TileSet.CELL_NEIGHBOR_TOP_LEFT_CORNER), 0, "in a block, corners between connected sides are connected")
+	_context.undo.undo()
+	equal([tile_set.get_terrains_count(0), tile.terrain_set, grass_centre.terrain], [1, -1, 0], "undo removes the second terrain only")
+
+	equal(_code("tileset_set_terrain", {"layer": "Ground", "terrain": "grass", "mode": "sides", "block": [0, 0]}), "INVALID_ARGS", "another mode than the set has")
+	equal(_code("tileset_set_terrain", {"layer": "Ground", "terrain": "grass", "block": [6, 2]}), "INVALID_ARGS", "a block that does not fit")
+	equal(_code("tileset_set_terrain", {"layer": "Ground", "terrain": "grass"}), "INVALID_ARGS", "neither block nor tiles")
+	equal(_code("tileset_set_terrain", {"layer": "Ground", "terrain": "grass", "tiles": [{"atlas": [0, 0], "connects": ["north"]}]}), "INVALID_ARGS", "a direction that is none")
+	equal(_code("tilemap_set_cells", {"layer": "Ground", "cells": [[0, 0]], "terrain": "lava"}), "INVALID_ARGS", "painting with a terrain the tile set lacks")
+
+
+func test_animation_blend_space_create_places_animations_on_a_line_or_a_plane() -> void:
+	_scene()
+	var tree: AnimationTree = _root.get_node("Tree")
+
+	var line := _run("animation_blend_space_create", {"tree": "Tree", "player": "Anim", "points": [{"animation": "idle", "position": 0}, {"animation": "run", "position": 1}]})
+	var along: AnimationNodeBlendSpace1D = tree.tree_root
+	var plane := _run("animation_blend_space_create", {
+		"tree": "Tree", "max": [2, 2],
+		"points": [{"animation": "idle", "position": [0, 0]}, {"animation": "run", "position": [1, 0]}, {"animation": "run", "position": [-1.5, 0]}],
+	})
+	var across: AnimationNodeBlendSpace2D = tree.tree_root
+
+	equal([line["data"]["kind"], line["data"]["min"], line["data"]["max"], line["data"]["parameters"]], ["1d", 0.0, 1.0, ["parameters/blend_position"]], "a blend along one axis")
+	equal([along.get_blend_point_count(), along.get_blend_point_position(1), str(along.get_blend_point_node(1).animation)], [2, 1.0, "run"], "with its points")
+	equal([plane["data"]["kind"], across.min_space, across.max_space], ["2d", Vector2(-1.5, -1), Vector2(2, 2)], "a blend on a plane, with bounds that hold every point")
+	equal([tree.active, tree.anim_player], [true, NodePath("../Anim")], "the tree is active and keeps its player")
+	_context.undo.undo()
+	check(tree.tree_root == along, "undo returns to the earlier root")
+
+	var bad := func(extra: Dictionary) -> String:
+		return _code("animation_blend_space_create", {"tree": "Tree", "points": [{"animation": "idle", "position": 0}]}.merged(extra, true))
+	equal(bad.call({"points": [{"animation": "idle", "position": 0}, {"animation": "run", "position": [1, 0]}]}), "INVALID_ARGS", "points of two kinds")
+	equal(bad.call({"points": [{"animation": "fly", "position": 0}]}), "INVALID_ARGS", "an animation the player lacks")
+	equal(bad.call({"max": 0.5, "points": [{"animation": "idle", "position": 1}]}), "INVALID_ARGS", "a point beyond max")
+	equal(bad.call({"min": 1, "max": 1, "points": [{"animation": "idle", "position": 1}]}), "INVALID_ARGS", "a space without extent")
+	equal(bad.call({"points": []}), "INVALID_ARGS", "no points")
+	equal(bad.call({"tree": "Anim"}), "TYPE_MISMATCH", "a node that is no animation tree")
+
+
+func test_animation_create_adds_audio_tracks() -> void:
+	_scene()
+	var player: AnimationPlayer = _root.get_node("Anim")
+
+	var reply := _run("animation_create", {
+		"player": "Anim", "name": "steps", "length": 1.0,
+		"tracks": [{"node": "Sfx", "audio": true, "keys": [{"time": 0.2, "stream": BEEP}, {"time": 0.7, "stream": BEEP, "start_offset": 0.05}]}],
+	})
+	var animation: Animation = player.get_animation("steps")
+	var bad := func(track: Dictionary) -> String:
+		return _code("animation_create", {"player": "Anim", "name": "x", "length": 1.0, "tracks": [track]})
+
+	equal(reply["data"]["tracks"], ["Sfx (audio)"], "an audio track")
+	equal([animation.track_get_type(0), animation.track_get_key_count(0)], [Animation.TYPE_AUDIO, 2], "with its keys")
+	check(animation.audio_track_get_key_stream(0, 0) is AudioStream and is_equal_approx(animation.audio_track_get_key_start_offset(0, 1), 0.05), "each a sound, with its offset")
+	equal(bad.call({"node": "Hero", "audio": true, "keys": [{"time": 0, "stream": BEEP}]}), "TYPE_MISMATCH", "a node that plays no sound")
+	equal(bad.call({"node": "Sfx", "audio": true, "keys": [{"time": 0, "stream": ATLAS}]}), "INVALID_ARGS", "a file that is no sound")
+	equal(bad.call({"node": "Sfx", "audio": true, "keys": [{"time": 0, "stream": "res://tests/fixtures/none.wav"}]}), "RESOURCE_NOT_FOUND", "a sound that does not exist")
+	equal(bad.call({"node": "Sfx", "audio": true, "keys": [{"time": 0}]}), "INVALID_ARGS", "a key without a stream")
+	equal(bad.call({"node": "Sfx", "audio": true, "method": "play", "keys": [{"time": 0}]}), "INVALID_ARGS", "two kinds of track at once")

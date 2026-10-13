@@ -11,6 +11,10 @@ const TextSanitizer = preload("../core/text_sanitizer.gd")
 const MAX_STATES := 64
 const MAX_TRANSITIONS := 512
 const MAX_EXPRESSION_LENGTH := 500
+const MAX_BLEND_POINTS := 64
+const MAX_BLEND_POSITION := 1.0e6
+# add_blend_point(node, position, at_index) before points had names.
+const _UNNAMED_POINT_ARGUMENTS := 3
 const _START := "Start"
 const _INACTIVE := "The tree was left inactive because a transition has an expression: set active = true in _ready() of the game's script."
 const _END := "End"
@@ -59,11 +63,38 @@ func register(registry: RefCounted) -> void:
 	}, _create)
 
 
+	registry.register({
+		"name": "animation_blend_space_create",
+		"group": "animation",
+		"summary": "Give an AnimationTree a blend space: animations placed along one axis or on a plane, mixed by a position set from code.",
+		"risk": AccessPolicy.RISK_WRITE,
+		"undoable": true,
+		"requires": ["scene_open"],
+		"params": {
+			"type": "object",
+			"properties": {
+				"tree": {"type": "string", "description": "Path of the AnimationTree node."},
+				"player": {"type": "string", "description": "Path of the AnimationPlayer whose animations are blended. Default: the one the tree already points to."},
+				"points": {
+					"type": "array",
+					"items": {"type": "object"},
+					"description": "Each: {animation: name in the player, position: a number for a blend along one axis, or [x, y] for a blend on a plane}. All points of one kind. E.g. idle at 0 and run at 1; or walking up, down, left, right at [0, -1], [0, 1], [-1, 0], [1, 0].",
+				},
+				"min": {"description": "Lowest position, a number or [x, y]. Default: the lowest among the points, and at most -1 or 0."},
+				"max": {"description": "Highest position. Default: the highest among the points, and at least 1."},
+			},
+			"required": ["tree", "points"],
+		},
+		"returns": "{tree, kind: 1d|2d, points, min, max, parameters: [parameters/blend_position]}; meta.undo names the undo step. Replaces the tree's root and makes the tree active.",
+	}, _create_blend_space)
+
+
 func _root() -> Node:
 	return _context.scene_root()
 
 
-func _create(args: Dictionary, options: Dictionary) -> Dictionary:
+# The tree and the player it plays, as [tree, player], or a failed reply.
+func _tree_and_player(args: Dictionary) -> Variant:
 	var tree := NodeRef.resolve(_root(), args["tree"])
 	if tree == null:
 		return Reply.fail("NODE_NOT_FOUND", "The node does not exist.", "Use scene_tree to see the node paths.", {"path": TextSanitizer.clean_line(args["tree"])})
@@ -74,7 +105,117 @@ func _create(args: Dictionary, options: Dictionary) -> Dictionary:
 		)
 	var player: Node = NodeRef.resolve(_root(), args["player"]) if args.has("player") else tree.get_node_or_null(tree.anim_player)
 	if not player is AnimationPlayer:
-		return Reply.fail("INVALID_ARGS", "player does not name an AnimationPlayer.", "Pass the path of the AnimationPlayer whose animations the states play.")
+		return Reply.fail("INVALID_ARGS", "player does not name an AnimationPlayer.", "Pass the path of the AnimationPlayer whose animations are played.")
+	return [tree, player]
+
+
+func _create_blend_space(args: Dictionary, options: Dictionary) -> Dictionary:
+	var found: Variant = _tree_and_player(args)
+	if found is Dictionary:
+		return found
+	var tree: AnimationTree = found[0]
+	var player: AnimationPlayer = found[1]
+	var points: Array = args["points"]
+	if points.is_empty() or points.size() > MAX_BLEND_POINTS:
+		return Reply.fail("INVALID_ARGS", "Give between 1 and %d points." % MAX_BLEND_POINTS)
+	var flat: bool = points[0] is Dictionary and points[0].get("position") is Array
+	var positions := []
+	for index in points.size():
+		var point: Variant = points[index]
+		var position: Variant = _position(point.get("position") if point is Dictionary else null, flat)
+		if position == null or not point.get("animation") is String:
+			return Reply.fail("INVALID_ARGS", "A point needs animation and position; positions are all numbers or all [x, y].", "", {"point": index})
+		if not player.has_animation(point["animation"]):
+			return Reply.fail(
+				"INVALID_ARGS", "The player has no such animation.", "animation_list shows the animations of a player.",
+				{"point": index, "animation": TextSanitizer.clean_line(point["animation"])},
+			)
+		positions.append(position)
+	var low: Variant = _bound(args.get("min"), positions, flat, true)
+	var high: Variant = _bound(args.get("max"), positions, flat, false)
+	if low != null and high != null and not (low.x < high.x and low.y < high.y if flat else low < high):
+		low = null
+	if low == null or high == null:
+		return Reply.fail("INVALID_ARGS", "min and max are positions like those of the points, with min below max and every point between them.")
+
+	var space: AnimationRootNode = AnimationNodeBlendSpace2D.new() if flat else AnimationNodeBlendSpace1D.new()
+	# The bounds first: a point outside them is refused by the engine.
+	space.min_space = low
+	space.max_space = high
+	var names_points := _argument_count(space.get_class(), "add_blend_point") > _UNNAMED_POINT_ARGUMENTS
+	for index in points.size():
+		var node := AnimationNodeAnimation.new()
+		node.animation = StringName(points[index]["animation"])
+		# Newer engines want each point named, older ones take no name.
+		if names_points:
+			space.callv("add_blend_point", [node, positions[index], -1, "%s_%d" % [points[index]["animation"], index]])
+		else:
+			space.add_blend_point(node, positions[index])
+	if options["dry_run"]:
+		return Edit.planned({"blend_space_on": args["tree"], "kind": "2d" if flat else "1d", "points": points.size()})
+
+	var action := Edit.undo_name("animation_blend_space_create", str(tree.name))
+	var undo: Object = _context.undo_redo()
+	undo.create_action(action, UndoRedo.MERGE_DISABLE, _root())
+	for change in [["anim_player", tree.get_path_to(player)], ["tree_root", space], ["active", true]]:
+		undo.add_do_property(tree, change[0], change[1])
+		undo.add_undo_property(tree, change[0], tree.get(change[0]))
+	undo.commit_action()
+	return Edit.done({
+		"tree": TextSanitizer.clean_line(NodeRef.path_of(_root(), tree)), "kind": "2d" if flat else "1d", "points": points.size(),
+		"min": [low.x, low.y] if flat else low, "max": [high.x, high.y] if flat else high, "parameters": ["parameters/blend_position"],
+	}, action)
+
+
+# How many arguments a method of an engine class takes.
+static func _argument_count(owner_class: String, method: String) -> int:
+	for described in ClassDB.class_get_method_list(owner_class, true):
+		if described["name"] == method:
+			return described["args"].size()
+	return 0
+
+
+# A position from JSON: a float, or a Vector2 when `flat`. Null when it is neither.
+static func _position(value: Variant, flat: bool) -> Variant:
+	if flat:
+		var is_pair: bool = value is Array and value.size() == 2 and _is_number(value[0]) and _is_number(value[1])
+		return Vector2(value[0], value[1]) if is_pair else null
+	return float(value) if _is_number(value) else null
+
+
+static func _is_number(value: Variant) -> bool:
+	return (value is float or value is int) and absf(value) <= MAX_BLEND_POSITION
+
+
+# The lower or upper bound of the space: the one given, or one that holds
+# every point and the usual range of -1 (or 0) to 1. Null when it does not fit.
+static func _bound(given: Variant, positions: Array, flat: bool, lower: bool) -> Variant:
+	var bound: Variant = Vector2(-1, -1) if flat else 0.0
+	if not lower:
+		bound = Vector2.ONE if flat else 1.0
+	for position in positions:
+		if flat:
+			bound = bound.min(position) if lower else bound.max(position)
+		else:
+			bound = minf(bound, position) if lower else maxf(bound, position)
+	if given == null:
+		return bound
+	var wanted: Variant = _position(given, flat)
+	if wanted == null:
+		return null
+	# Every point has to lie inside what was asked for.
+	if flat:
+		var inside: bool = (wanted.x <= bound.x and wanted.y <= bound.y) if lower else (wanted.x >= bound.x and wanted.y >= bound.y)
+		return wanted if inside else null
+	return wanted if (wanted <= bound if lower else wanted >= bound) else null
+
+
+func _create(args: Dictionary, options: Dictionary) -> Dictionary:
+	var found: Variant = _tree_and_player(args)
+	if found is Dictionary:
+		return found
+	var tree: AnimationTree = found[0]
+	var player: AnimationPlayer = found[1]
 
 	var machine := AnimationNodeStateMachine.new()
 	var names: Variant = _add_states(machine, player, args["states"])

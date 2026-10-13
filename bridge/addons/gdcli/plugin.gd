@@ -27,10 +27,11 @@ const SceneCommands = preload("commands/scene_commands.gd")
 const SceneEditCommands = preload("commands/scene_edit_commands.gd")
 const SpriteCommands = preload("commands/sprite_commands.gd")
 const TileCommands = preload("commands/tile_commands.gd")
+const TilesetCommands = preload("commands/tileset_commands.gd")
 
 # Kept in step with plugin.cfg, cli/package.json and cli/src/protocol.ts
 # by scripts/check-versions.mjs.
-const BRIDGE_VERSION := "0.0.1"
+const BRIDGE_VERSION := "0.1.0"
 const PROTOCOL := 1
 
 const INSTANCE_ID_BYTES := 8
@@ -81,6 +82,7 @@ func _enter_tree() -> void:
 		AnimationCommands.new(context),
 		AnimationTreeCommands.new(context),
 		TileCommands.new(context),
+		TilesetCommands.new(context),
 		SpriteCommands.new(context),
 		NavigationCommands.new(context),
 		GameCommands.new(context),

@@ -59,8 +59,8 @@ arguments. Search that file for the command you need.
 | Build the node tree | `node_create`, `node_set`, `node_rename`, `node_move`, `node_duplicate`, `node_delete`, `node_instantiate_scene`, `node_add_to_group` |
 | Add behaviour | `fs_write_text` (the script), `node_attach_script`, `node_connect_signal` |
 | Make resources | inline in a property (`{"$new": ...}`), or as files with `resource_create`, `resource_set` |
-| Animate | `animation_create`, `animation_list`, `sprite_frames_create`, `animation_state_machine_create` |
-| Build a tile level | `tileset_add_atlas`, `tilemap_set_cells`, `tilemap_get` |
+| Animate | `animation_create`, `animation_list`, `sprite_frames_create`, `animation_state_machine_create`, `animation_blend_space_create` |
+| Build a tile level | `tileset_add_atlas`, `tileset_set_collision`, `tileset_set_terrain`, `tilemap_set_cells`, `tilemap_get` |
 | Bake navigation | `navigation_bake` |
 | Change the project | `project_settings_set`, `project_input_map_set`, `fs_move`, `fs_delete`, `fs_scan` |
 | Take a step back | `edit_undo`, `edit_redo` |

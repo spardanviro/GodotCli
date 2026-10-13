@@ -2,3 +2,4 @@
 *.png binary
 *.jpg binary
 *.svg text eol=lf
+*.wav binary

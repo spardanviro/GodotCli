@@ -5,7 +5,7 @@ extends RefCounted
 const AccessPolicy = preload("../core/access_policy.gd")
 const Edit = preload("../core/edit.gd")
 const NodeRef = preload("../core/node_ref.gd")
-const ImageFile = preload("../core/image_file.gd")
+const AssetFile = preload("../core/asset_file.gd")
 const Reply = preload("../core/reply.gd")
 const TextSanitizer = preload("../core/text_sanitizer.gd")
 
@@ -155,7 +155,7 @@ func _total_frames(frames: SpriteFrames) -> int:
 
 # The frames of a sheet as AtlasTextures, or a failed reply.
 func _cut_sheet(spec: Dictionary) -> Variant:
-	var sheet: Variant = ImageFile.load_texture(spec["sheet"])
+	var sheet: Variant = AssetFile.load_texture(spec["sheet"])
 	if sheet is Dictionary:
 		return sheet
 	var columns: Variant = spec.get("hframes", 1)
@@ -183,7 +183,7 @@ func _load_files(files: Array) -> Variant:
 		return Reply.fail("INVALID_ARGS", "files is a list of image paths.")
 	var textures := []
 	for path in files:
-		var texture: Variant = ImageFile.load_texture(path)
+		var texture: Variant = AssetFile.load_texture(path)
 		if texture is Dictionary:
 			return texture
 		textures.append(texture)

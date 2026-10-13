@@ -508,10 +508,10 @@ JSON 能直接表示的类型原样传。其余类型：
 | exec | `eval` | exec | 3 |
 | host | `host_quit`（只对 `gd host start` 拉起的无头宿主有效） | write | 3 |
 | animation | `animation_list` | read | 3 |
-| animation | `animation_create`、`animation_state_machine_create`（可撤销） | write | 3 / 4.5 |
+| animation | `animation_create`、`animation_state_machine_create`、`animation_blend_space_create`（可撤销） | write | 3 / 4.5 |
 | sprite | `sprite_frames_create`（可撤销） | write | 4.5 |
 | tilemap | `tilemap_get` | read | 4.5 |
-| tilemap | `tileset_add_atlas`、`tilemap_set_cells`（可撤销） | write | 4.5 |
+| tilemap | `tileset_add_atlas`、`tileset_set_collision`、`tileset_set_terrain`、`tilemap_set_cells`（可撤销） | write | 4.5 |
 | navigation | `navigation_bake`（可撤销） | write | 4.5 |
 | game | `game_tree`、`game_node_get`、`game_errors`、`game_output`、`game_debug`、`game_locals`（第 6.7 节） | read | 3 |
 | game | `game_node_set`、`game_call`、`game_input`、`game_screenshot`、`game_breakpoint`、`game_pause`、`game_step`、`game_continue`（第 6.7 节） | write | 3 |
@@ -532,7 +532,11 @@ JSON 能直接表示的类型原样传。其余类型：
 - `animation_create` 的轨道写 `method` 而不是 `property` 时是方法调用轨道：`{node, method, keys: [{time, args?}]}`。`call`、`set`、`set_script`、`connect` 这类"间接做别的事"的方法不接受。方法不必已经存在（脚本可能随后才挂上）。
 - `animation_state_machine_create` 给 AnimationTree 建一个状态机：每个状态播放 AnimationPlayer 里的一个动画；转移可以带条件名（代码里设的布尔量）、表达式（在树的父节点上求值）、或"播完自动转移"。它替换树的根节点。**启用的动画树在编辑器里也会运行**，表达式也会在那里被求值，而表达式是调用方给的文本；所以只要有转移带表达式，命令就把树设为不启用并在警告里说明，由游戏脚本在 `_ready()` 里启用；没有表达式时设为启用。混合树、混合空间、嵌套状态机不在范围内。
 - `sprite_frames_create` 给 AnimatedSprite2D/3D 建帧动画：每个动画要么从一张图集按行列切出若干格（`sheet`、`hframes`、`vframes`、`frames`），要么由若干单张图片组成（`files`）。节点原有的 SpriteFrames 不被修改，而是复制一份改好后换上去，所以撤销能回到原样。
-- `tileset_add_atlas` 把一张图按网格切成瓦片，加进 TileMapLayer 的瓦片集（没有就新建）；`collision` 为真时每个瓦片得到一个占满整格的碰撞形状。`tilemap_set_cells` 用 `cells`（坐标列表）和 `rect`（矩形）指定格子，一次调用画一种瓦片或擦除，上限 2 万格。**独立成文件的瓦片集不改**（它被多个场景共用，保存场景也不会保存它），返回 `PRECONDITION_FAILED`。地形（自动拼接）、动画瓦片、替代瓦片、瓦片上的导航和自定义数据不在范围内。
+- `tileset_add_atlas` 把一张图按网格切成瓦片，加进 TileMapLayer 的瓦片集（没有就新建）；`collision` 为真时每个瓦片得到一个占满整格的碰撞形状。`tilemap_set_cells` 用 `cells`（坐标列表）和 `rect`（矩形）指定格子，一次调用画一种瓦片或擦除，上限 2 万格。**独立成文件的瓦片集不改**（它被多个场景共用，保存场景也不会保存它），返回 `PRECONDITION_FAILED`。动画瓦片、替代瓦片、瓦片上的导航和自定义数据不在范围内。
+- `tileset_set_collision` 替换瓦片的碰撞形状：预设（整格、半格、左右斜坡、无）或自定义多边形，坐标以瓦片左上为 `[0, 0]`、右下为 `[1, 1]`；`one_way` 让形状只从上方挡住。不指定瓦片时作用于整个图集源。
+- `tileset_set_terrain` 把瓦片归入一个地形（自动拼接）：`block` 指一个 3×3 整块的左上角瓦片，九个瓦片自动得到对应的相邻关系；`tiles` 逐个指定瓦片朝哪些方向延续。只用第 0 个地形集，它的比较方式（边、角、边加角）在建第一个地形时定下。之后 `tilemap_set_cells` 带 `terrain` 时由引擎为每个格子挑瓦片；被画格子周围一圈的瓦片也可能跟着变，所以撤销时一并恢复。
+- `animation_blend_space_create` 给 AnimationTree 建一个混合空间：点的位置全是数字就是一维，全是 `[x, y]` 就是二维；范围默认取能装下所有点的最小范围（至少 0 或 -1 到 1）。它替换树的根节点并启用动画树（没有表达式）。
+- `animation_create` 的轨道带 `audio: true` 时是音频轨道，目标节点必须是音频播放节点，每个关键帧给一个声音文件（只接受 wav、ogg、mp3 文件本身，不接受资源文件）。
 - `navigation_bake` 在调用所在的线程上烘焙完再返回，是一步撤销：烘焙进原有网格或多边形的**副本**（没有就新建），再把副本换到区域上，原来的资源不被改动。独立成文件的导航数据不改。2D 区域需要一个轮廓（`outline`，或导航多边形里已有的）。结果里多边形数为 0 时带一条警告。无窗口的编辑器里网格没有几何数据，要用静态碰撞体作为烘焙来源。
 - 这些命令只加载图片文件（按扩展名：png、jpg、webp、svg 等）。资源文件（`.tres`、`.tscn`）即使类型是纹理也不接受，因为资源文件可以带脚本，加载它就会在编辑器里运行那段脚本。
 - 方法调用轨道在编辑器里不执行（引擎只在游戏里调用）；它和脚本一样属于游戏代码。

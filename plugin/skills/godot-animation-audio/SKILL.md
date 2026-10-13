@@ -41,8 +41,11 @@ gd command animation_list --player Anim
   an `AnimationPlayer` that is itself the scene root needs `root_node` set to `"."`.
 - A track with `method` instead of `property` calls that method of the node at its keys:
   `{"node": "Enemy", "method": "queue_free", "keys": [{"time": 1.0}]}`; arguments go in `"args": [...]`.
-- Audio and bezier tracks, and editing single keys of an existing animation, are jobs for the animation editor
-  (ask the user). To change an animation, create it again with `overwrite: true`.
+- A track with `"audio": true` plays sound files on an audio player node at its keys:
+  `{"node": "Sfx", "audio": true, "keys": [{"time": 0.2, "stream": "res://audio/step.wav"}]}`. `start_offset` and
+  `end_offset` (seconds) trim a sound. The node is an `AudioStreamPlayer`, `AudioStreamPlayer2D` or `3D`.
+- Bezier tracks and editing single keys of an existing animation are jobs for the animation editor (ask the
+  user). To change an animation, create it again with `overwrite: true`.
 
 Sprite-sheet walk cycle: a `Sprite2D` with `hframes`/`vframes` set, and a track on `frame`:
 
@@ -106,8 +109,14 @@ For a character with many animations: a state machine (idle, run, jump, fall) or
                     {"from": "Run", "to": "Idle", "expression": "velocity.length() < 1.0"}]}'
   ```
   With an expression the tree is left inactive (it would run in the editor too): the script sets
-  `active = true` in `_ready()`. Blend trees, blend spaces and nested machines are built in the animation tree
-  editor: ask the user.
+  `active = true` in `_ready()`.
+- A blend space mixes animations by a position set from code (walk direction, speed):
+  ```bash
+  gd command animation_blend_space_create --args '{"tree": "Player/Tree", "player": "Player/Anim",
+    "points": [{"animation": "idle", "position": 0}, {"animation": "run", "position": 1}]}'
+  ```
+  Positions are numbers for one axis or `[x, y]` for a plane; code sets `tree["parameters/blend_position"]`.
+- Blend trees, and a machine or blend space nested in another, are built in the animation tree editor: ask the user.
 - Drive it from the script: `var playback: AnimationNodeStateMachinePlayback = $AnimationTree["parameters/playback"]`,
   then `playback.travel("run")`; blend positions are `$AnimationTree["parameters/Move/blend_position"] = direction`.
 - For a handful of animations a few `play()` calls in the script are simpler and easier to debug. Reach for the

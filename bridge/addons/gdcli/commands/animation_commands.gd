@@ -4,6 +4,7 @@ extends RefCounted
 ## running code in the editor.
 
 const AccessPolicy = preload("../core/access_policy.gd")
+const AssetFile = preload("../core/asset_file.gd")
 const Edit = preload("../core/edit.gd")
 const NodeRef = preload("../core/node_ref.gd")
 const Reply = preload("../core/reply.gd")
@@ -50,7 +51,7 @@ func register(registry: RefCounted) -> void:
 	}, _list)
 	registry.register({
 		"name": "animation_create",
-		"summary": "Create an animation on an AnimationPlayer from property keyframes and method calls.",
+		"summary": "Create an animation on an AnimationPlayer from property keyframes, method calls and sounds.",
 		"risk": AccessPolicy.RISK_WRITE,
 		"undoable": true,
 		"requires": ["scene_open"],
@@ -64,7 +65,7 @@ func register(registry: RefCounted) -> void:
 				"loop": {"type": "string", "enum": _LOOP_MODES.keys(), "default": "none"},
 				"tracks": {
 					"type": "array",
-					"description": "Each: {node: path in the scene, property: name, keys: [{time: seconds, value}], interpolation?: nearest|linear|cubic, update?: continuous|discrete}; values are converted to the property's type. Or, to call a method at given times: {node, method: name, keys: [{time, args?: [values]}]}.",
+					"description": "Each: {node: path in the scene, property: name, keys: [{time: seconds, value}], interpolation?: nearest|linear|cubic, update?: continuous|discrete}; values are converted to the property's type. Or, to call a method at given times: {node, method: name, keys: [{time, args?: [values]}]}. Or, to play sounds on an AudioStreamPlayer: {node, audio: true, keys: [{time, stream: res:// sound file, start_offset?: seconds, end_offset?: seconds}]}.",
 					"items": {"type": "object"},
 				},
 				"overwrite": {"type": "boolean", "default": false},
@@ -181,14 +182,18 @@ func _commit(action: String, player: AnimationPlayer, library: AnimationLibrary,
 
 # Adds one track. Returns {ok, path} or a failed reply.
 func _add_track(animation: Animation, player: AnimationPlayer, track: Variant) -> Dictionary:
-	var names_one: bool = track is Dictionary and (track.get("property") is String) != (track.get("method") is String)
-	if not (names_one and track.get("node") is String and track.get("keys") is Array):
-		return Reply.fail("INVALID_ARGS", "A track needs node, keys, and either property or method.")
+	var kinds := 0
+	if track is Dictionary:
+		kinds = int(track.get("property") is String) + int(track.get("method") is String) + int(track.get("audio") == true)
+	if not (kinds == 1 and track.get("node") is String and track.get("keys") is Array):
+		return Reply.fail("INVALID_ARGS", "A track needs node, keys, and one of property, method or audio: true.")
 	var target := NodeRef.resolve(_root(), track["node"])
 	if target == null:
 		return Reply.fail("NODE_NOT_FOUND", "The animated node does not exist.", "", {"path": TextSanitizer.clean_line(track["node"])})
 	if track.get("method") is String:
 		return _add_method_track(animation, player, target, track)
+	if track.get("audio") == true:
+		return _add_audio_track(animation, player, target, track)
 	var info := _property_info(target, track["property"])
 	if info.is_empty():
 		return Reply.fail(
@@ -267,6 +272,42 @@ func _add_method_track(animation: Animation, player: AnimationPlayer, target: No
 			return decoded
 		animation.track_insert_key(index, key["time"], {"method": StringName(method), "args": decoded["value"]})
 	return {"ok": true, "path": TextSanitizer.clean_line("%s:%s()" % [path, method])}
+
+
+# A track that plays sounds on `target`, an audio player.
+func _add_audio_track(animation: Animation, player: AnimationPlayer, target: Node, track: Dictionary) -> Dictionary:
+	if not (target is AudioStreamPlayer or target is AudioStreamPlayer2D or target is AudioStreamPlayer3D):
+		return Reply.fail(
+			"TYPE_MISMATCH", "An audio track plays on an AudioStreamPlayer, AudioStreamPlayer2D or AudioStreamPlayer3D.", "Create one with node_create.",
+			{"path": TextSanitizer.clean_line(track["node"]), "class": target.get_class()},
+		)
+	var keys: Array = track["keys"]
+	if keys.is_empty() or keys.size() > MAX_KEYS:
+		return Reply.fail("INVALID_ARGS", "A track needs between 1 and %d keys." % MAX_KEYS)
+	var base := _base_of(player)
+	if base == null:
+		return Reply.fail(
+			"PRECONDITION_FAILED", "The player's root_node does not point to a node of this scene.",
+			"An AnimationPlayer that is the scene root needs root_node set to \".\" (node_set).",
+		)
+	var path := str(base.get_path_to(target))
+	var index := animation.add_track(Animation.TYPE_AUDIO)
+	animation.track_set_path(index, NodePath(path))
+	for key in keys:
+		var offsets_ok: bool = key is Dictionary and _is_offset(key.get("start_offset", 0.0)) and _is_offset(key.get("end_offset", 0.0))
+		if not (offsets_ok and (key.get("time") is float or key.get("time") is int)):
+			return Reply.fail("INVALID_ARGS", "A key of an audio track needs time and stream; start_offset and end_offset are seconds, 0 or more.")
+		if key["time"] < 0.0 or key["time"] > animation.length:
+			return Reply.fail("INVALID_ARGS", "A key lies outside the length of the animation.", "", {"time": key["time"]})
+		var stream: Variant = AssetFile.load_sound(key.get("stream"))
+		if stream is Dictionary:
+			return stream
+		animation.audio_track_insert_key(index, key["time"], stream, key.get("start_offset", 0.0), key.get("end_offset", 0.0))
+	return {"ok": true, "path": TextSanitizer.clean_line("%s (audio)" % path)}
+
+
+static func _is_offset(value: Variant) -> bool:
+	return (value is float or value is int) and value >= 0.0
 
 
 func _property_info(target: Node, property: String) -> Dictionary:
