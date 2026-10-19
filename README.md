@@ -42,6 +42,17 @@ gd doctor                  # 哪里不对
 
 任何命令加 `--json`，标准输出就是一个信封：`{success, command, data, errors, warnings, meta}`，失败时也是。
 
+### 给其他智能体用（MCP）
+
+Codex、Cursor、VS Code、Gemini CLI 等支持 Model Context Protocol 的客户端，通过 `gd mcp` 使用同一套命令：编辑器的每条命令是一个同名工具，另有 `gd_run`、`gd_check`、`gd_api_*`、`gd_docs_*`、`gd_host_start` 等不需要编辑器的工具。
+
+```bash
+gd mcp configure codex          # 显示要加进 ~/.codex/config.toml 的条目
+gd mcp configure codex --yes    # 写进去；claude、cursor、vscode、gemini 写进项目里对应的文件
+```
+
+桥接的规则对这些客户端同样生效：会让代码进入编辑器的改动由人在编辑器里批准，无头编辑器里一律拒绝。但写普通脚本再运行游戏不需要批准，游戏里的代码以用户权限运行；要限制它，在客户端里不要自动放行写文件和运行类工具。详见 [docs/protocol.md](docs/protocol.md) 第 4.3 节和第 6.8 节。
+
 ## 文档
 
 - [docs/protocol.md](docs/protocol.md)：两条通道、线上协议、返回信封、错误码和退出码

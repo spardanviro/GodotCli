@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
-import { COMMANDS_FILE, renderCommands } from "./plugin-commands.mjs";
+import { COMMANDS_FILE, MCP_SNAPSHOT_FILE, renderCommands, renderMcpSnapshot } from "./plugin-commands.mjs";
 
 const STEP_TIMEOUT_MS = 180_000;
 const STARTUP_TIMEOUT_MS = 120_000;
@@ -307,17 +307,17 @@ async function waitForScene(instance) {
  * @param {Record<string, any>[]} descriptors
  */
 function checkPluginReference(descriptors) {
-  const rendered = renderCommands(descriptors);
-  if (process.env.GDCLI_UPDATE_PLUGIN === "1") {
-    writeFileSync(COMMANDS_FILE, rendered);
-    process.stdout.write(`wrote ${COMMANDS_FILE}\n`);
+  for (const [file, rendered, what] of [
+    [COMMANDS_FILE, renderCommands(descriptors), "the plugin's command reference"],
+    [MCP_SNAPSHOT_FILE, renderMcpSnapshot(descriptors), "the command list of gd mcp"],
+  ]) {
+    if (process.env.GDCLI_UPDATE_PLUGIN === "1") {
+      writeFileSync(file, rendered);
+      process.stdout.write(`wrote ${file}\n`);
+    }
+    const committed = existsSync(file) ? readFileSync(file, "utf8").replaceAll("\r\n", "\n") : "";
+    check(committed === rendered, `${what} matches the bridge`, `run the bridge tests once with GDCLI_UPDATE_PLUGIN=1 and commit ${file}`);
   }
-  const committed = existsSync(COMMANDS_FILE) ? readFileSync(COMMANDS_FILE, "utf8").replaceAll("\r\n", "\n") : "";
-  check(
-    committed === rendered,
-    "the plugin's command reference matches the bridge",
-    "run the bridge tests once with GDCLI_UPDATE_PLUGIN=1 and commit plugin/skills/godot-cli/references/commands.md",
-  );
 }
 
 /** @param {Record<string, any>} instance */

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 
 import { readCliVersion, run } from "./cli.js";
@@ -23,6 +24,7 @@ process.exitCode = await run(process.argv.slice(2), {
     stderr: (text) => process.stderr.write(text),
     env: process.env,
     readStdin: () => readFileSync(0, "utf8"),
+    readLines: () => createInterface({ input: process.stdin, crlfDelay: Infinity }),
   },
   cwd: process.cwd(),
   platform: process.platform,
@@ -32,4 +34,5 @@ process.exitCode = await run(process.argv.slice(2), {
   addonDir: fileURLToPath(new URL("../addon/", import.meta.url)),
   processes,
   readVersion: readCliVersion,
+  launcher: [process.execPath, fileURLToPath(import.meta.url)],
 });

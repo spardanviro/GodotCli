@@ -1,10 +1,12 @@
 import { readFileSync } from "node:fs";
 
+import { sanitizeEnvelope } from "./clean-envelope.js";
 import { apiCommand } from "./commands/api.js";
 import { bridgeCommand } from "./commands/bridge.js";
 import { docsCommand } from "./commands/docs.js";
 import { doctorCommand } from "./commands/doctor.js";
 import { hostCommand } from "./commands/host.js";
+import { mcpCommand } from "./commands/mcp.js";
 import { commandCommand, evalCommand, listCommand, statusCommand } from "./commands/live.js";
 import { newCommand } from "./commands/new.js";
 import { checkCommand, execCommand, exportCommand, importCommand, openCommand, runCommand } from "./commands/offline.js";
@@ -21,7 +23,6 @@ const FORMAT_ENV_VAR = "GDCLI_FORMAT";
 const JSON_INDENT = 2;
 const MS_PER_SECOND = 1000;
 const MAX_TIMEOUT_SECONDS = 3600;
-const VERBATIM_TEXT_COMMAND = "fs_read_text";
 
 const COMMANDS: Readonly<Record<string, CommandHandler>> = {
   status: statusCommand,
@@ -41,6 +42,7 @@ const COMMANDS: Readonly<Record<string, CommandHandler>> = {
   bridge: bridgeCommand,
   new: newCommand,
   docs: docsCommand,
+  mcp: mcpCommand,
 };
 
 const USAGE = `Usage: gd <command> [options]
@@ -68,6 +70,12 @@ The manual (a copy of the Godot documentation on this machine):
   docs page <page> [--section <heading>]
   docs install [4.5]         Download the manual for your Godot version (text only; needs git)
   docs use <folder> | docs where
+
+For other agents (Model Context Protocol):
+  mcp                        Serve the editor's commands and gd's own as MCP tools on stdin/stdout
+  mcp configure <client> [--dir <folder>] [--command gd]
+                             Add that server to claude, codex, cursor, vscode or gemini
+                             (shows the change; writes it with --yes)
 
 Setup:
   new <folder> [--name N] [--renderer forward_plus|mobile|gl_compatibility] [--no-bridge]
@@ -200,6 +208,9 @@ function emit(result: CommandResult, format: OutputFormat, io: Io): ExitCode {
   // Computed before anything is written: if the envelope is malformed this
   // throws, and the caller then prints the only envelope of this run.
   const exitCode = exitCodeOf(envelope);
+  if (result.printed === true) {
+    return exitCode;
+  }
   if (format === "json") {
     io.stdout(`${JSON.stringify(sanitizeEnvelope(envelope), null, JSON_INDENT)}\n`);
     return exitCode;
@@ -222,33 +233,6 @@ function emit(result: CommandResult, format: OutputFormat, io: Io): ExitCode {
     }
   }
   return exitCodeOf(envelope);
-}
-
-function sanitizeValue(value: unknown): unknown {
-  if (typeof value === "string") {
-    return sanitize(value);
-  }
-  if (Array.isArray(value)) {
-    return value.map(sanitizeValue);
-  }
-  if (typeof value === "object" && value !== null) {
-    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [sanitize(key), sanitizeValue(entry)]));
-  }
-  return value;
-}
-
-/**
- * JSON escapes control characters but not the invisible or reordering ones,
- * so machine output is cleaned like terminal output. The one exception is the
- * text of a file the caller asked to read, which must arrive unchanged.
- */
-function sanitizeEnvelope(envelope: Envelope): unknown {
-  const cleaned = sanitizeValue(envelope) as Record<string, unknown>;
-  const data = envelope.data as { text?: unknown } | null;
-  if (envelope.command === VERBATIM_TEXT_COMMAND && envelope.success && typeof data?.text === "string") {
-    return { ...cleaned, data: { ...(cleaned["data"] as Record<string, unknown>), text: data.text } };
-  }
-  return cleaned;
 }
 
 function usageFailure(command: string, message: string): CommandResult {

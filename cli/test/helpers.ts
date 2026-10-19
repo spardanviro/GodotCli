@@ -103,6 +103,16 @@ export interface HarnessOptions {
   readonly readVersion?: () => string;
   /** What gd reads when a file argument is "-". */
   readonly stdin?: string;
+  /** What gd mcp reads, one message per line. */
+  readonly stdinLines?: readonly string[];
+  readonly launcher?: readonly string[];
+}
+
+async function* linesOf(lines: readonly string[]): AsyncIterable<string> {
+  for (const line of lines) {
+    await Promise.resolve();
+    yield line;
+  }
 }
 
 export function harness(options: HarnessOptions = {}): Harness {
@@ -115,6 +125,7 @@ export function harness(options: HarnessOptions = {}): Harness {
       stderr: (chunk) => void err.push(chunk),
       env: { GDCLI_HOME: join(home, ".gdcli"), ...options.env },
       readStdin: () => options.stdin ?? "",
+      readLines: () => linesOf(options.stdinLines ?? []),
     },
     cwd: options.cwd ?? home,
     platform: options.platform ?? process.platform,
@@ -123,6 +134,7 @@ export function harness(options: HarnessOptions = {}): Harness {
     addonDir: options.addonDir ?? join(home, "no-addon"),
     processes: options.processes ?? fakeProcesses(),
     readVersion: options.readVersion ?? (() => "9.9.9"),
+    ...(options.launcher === undefined ? {} : { launcher: options.launcher }),
   };
   const reset = (): void => {
     out.length = 0;

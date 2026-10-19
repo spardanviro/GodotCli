@@ -28,6 +28,17 @@ const UNSAFE_PATTERN = new RegExp(
 // swallow the error lines that follow it.
 const ANSI_PATTERN = /\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b\r\n]*(?:\u0007|\u001b\\)?/gu;
 
+const CARRIAGE_RETURN = String.fromCodePoint(0x0d);
+
+/**
+ * Shows each hiding or reordering character as its code point (<U+200B>), so
+ * a reader sees that it is there instead of being steered by it.
+ */
+export function visibleCodePoints(text: string): string {
+  // A carriage return is only a line ending in a file read whole.
+  return text.replace(UNSAFE_PATTERN, (character) => character === CARRIAGE_RETURN ? character : `<U+${(character.codePointAt(0) ?? 0).toString(16).toUpperCase().padStart(4, "0")}>`);
+}
+
 /** Makes text from a project or a child process safe to print. */
 export function sanitize(text: string): string {
   return text.replace(ANSI_PATTERN, "").replace(UNSAFE_PATTERN, "");

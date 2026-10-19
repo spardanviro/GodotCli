@@ -6,6 +6,8 @@ export interface Io {
   readonly env: Readonly<Record<string, string | undefined>>;
   /** Everything on standard input, read to its end. */
   readonly readStdin: () => string;
+  /** Standard input line by line as it arrives (gd mcp); absent where it cannot be read so. */
+  readonly readLines?: () => AsyncIterable<string>;
 }
 
 export interface ProcessResult {
@@ -45,6 +47,8 @@ export interface Context {
   readonly addonDir: string;
   readonly processes: ProcessRunner;
   readonly readVersion: () => string;
+  /** The program and arguments that start this gd (node and its script), for configuration files that start it again. */
+  readonly launcher?: readonly string[];
 }
 
 export type OutputFormat = "human" | "json";
@@ -64,6 +68,8 @@ export interface CommandResult {
   readonly envelope: Envelope;
   /** Text for people; used only when the envelope reports success. */
   readonly human: string;
+  /** The command wrote its own output (gd mcp's protocol stream): nothing more is printed. */
+  readonly printed?: boolean;
 }
 
 export type CommandHandler = (
