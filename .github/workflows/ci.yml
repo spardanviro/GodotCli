@@ -37,7 +37,7 @@ jobs:
   bridge:
     name: bridge (godot ${{ matrix.godot }})
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
@@ -64,3 +64,9 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: node scripts/cli-e2e.mjs
+      # The eval set without a model: every reference answer passes its checks,
+      # and doing nothing fails them. Oldest and newest Godot only, for time.
+      - if: matrix.godot == '4.3-stable' || matrix.godot == '4.7-stable'
+        run: node evals/run.mjs --jobs 3
+      - if: matrix.godot == '4.3-stable' || matrix.godot == '4.7-stable'
+        run: node evals/run.mjs --agent idle --jobs 3

@@ -7,6 +7,7 @@ import { docsCommand } from "./commands/docs.js";
 import { doctorCommand } from "./commands/doctor.js";
 import { hostCommand } from "./commands/host.js";
 import { mcpCommand } from "./commands/mcp.js";
+import { skillsCommand } from "./commands/skills.js";
 import { commandCommand, evalCommand, listCommand, statusCommand } from "./commands/live.js";
 import { newCommand } from "./commands/new.js";
 import { checkCommand, execCommand, exportCommand, importCommand, openCommand, runCommand } from "./commands/offline.js";
@@ -43,6 +44,7 @@ const COMMANDS: Readonly<Record<string, CommandHandler>> = {
   new: newCommand,
   docs: docsCommand,
   mcp: mcpCommand,
+  skills: skillsCommand,
 };
 
 const USAGE = `Usage: gd <command> [options]
@@ -76,6 +78,9 @@ For other agents (Model Context Protocol):
   mcp configure <client> [--dir <folder>] [--command gd]
                              Add that server to claude, codex, cursor, vscode or gemini
                              (shows the change; writes it with --yes)
+  skills list                The skills gd ships (the Claude plugin's), for other agents
+  skills install codex | --dir <folder>
+                             Copy them where the agent reads skills (with --yes)
 
 Setup:
   new <folder> [--name N] [--renderer forward_plus|mobile|gl_compatibility] [--no-bridge]

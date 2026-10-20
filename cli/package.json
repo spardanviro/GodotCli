@@ -13,7 +13,8 @@
   },
   "files": [
     "dist",
-    "addon"
+    "addon",
+    "skills"
   ],
   "engines": {
     "node": ">=22"

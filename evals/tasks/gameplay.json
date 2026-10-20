@@ -1,0 +1,185 @@
+[
+  {
+    "id": "gameplay.coin_pickup",
+    "prompt": "Add a coin pickup to the main scene: an Area2D named \"Coin\" with a circular collision shape of radius 16, and a script res://coin.gd on it that removes the coin when a body enters it.",
+    "checks": [
+      {
+        "type": "node",
+        "path": "Coin",
+        "class": "Area2D",
+        "script": true
+      },
+      {
+        "type": "expression",
+        "code": "helper.find(root, \"CollisionShape2D\").size() == 1 and helper.find(root, \"CollisionShape2D\")[0].shape.is_class(\"CircleShape2D\") and is_equal_approx(helper.find(root, \"CollisionShape2D\")[0].shape.radius, 16.0)"
+      },
+      {
+        "type": "script_compiles",
+        "file": "res://coin.gd"
+      },
+      {
+        "type": "file_contains",
+        "file": "res://coin.gd",
+        "text": "body_entered"
+      },
+      {
+        "type": "file_contains",
+        "file": "res://coin.gd",
+        "any": [
+          "queue_free",
+          "free()"
+        ]
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"Area2D\", \"name\": \"Coin\", \"parent\": \".\"}"
+      ],
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"CollisionShape2D\", \"name\": \"Shape\", \"parent\": \"Coin\", \"properties\": {\"shape\": {\"$new\": \"CircleShape2D\", \"properties\": {\"radius\": 16}}}}"
+      ],
+      [
+        "command",
+        "fs_write_text",
+        "--args",
+        "{\"path\": \"res://coin.gd\", \"text\": \"extends Area2D\\n\\n\\nfunc _ready() -> void:\\n\\tbody_entered.connect(_on_body_entered)\\n\\n\\nfunc _on_body_entered(_body: Node2D) -> void:\\n\\tqueue_free()\\n\", \"overwrite\": true}",
+        "--yes"
+      ],
+      [
+        "command",
+        "node_attach_script",
+        "--args",
+        "{\"path\": \"Coin\", \"script\": \"res://coin.gd\"}"
+      ],
+      [
+        "command",
+        "scene_save"
+      ]
+    ]
+  },
+  {
+    "id": "gameplay.collision_layers",
+    "setup": {
+      "commands": [
+        [
+          "command",
+          "node_create",
+          "--args",
+          "{\"type\": \"CharacterBody2D\", \"name\": \"Player\", \"parent\": \".\"}"
+        ]
+      ]
+    },
+    "prompt": "Put Player on collision layer 2 only, and make it collide with layers 1 and 3.",
+    "checks": [
+      {
+        "type": "node",
+        "path": "Player",
+        "properties": {
+          "collision_layer": 2,
+          "collision_mask": 5
+        }
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "node_set",
+        "--args",
+        "{\"path\": \"Player\", \"properties\": {\"collision_layer\": 2, \"collision_mask\": 5}}"
+      ],
+      [
+        "command",
+        "scene_save"
+      ]
+    ]
+  },
+  {
+    "id": "gameplay.input_action",
+    "prompt": "Add an input action named \"jump\" bound to the Space key.",
+    "checks": [
+      {
+        "type": "input_action",
+        "name": "jump",
+        "keycodes": [
+          32
+        ]
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "project_input_map_set",
+        "--args",
+        "{\"action\": \"jump\", \"events\": [{\"key\": \"Space\"}]}",
+        "--yes"
+      ]
+    ]
+  },
+  {
+    "id": "zh.jump_character",
+    "prompt": "给主场景加一个名为 Player 的 CharacterBody2D，带碰撞形状，并写脚本让它能左右移动、按空格跳跃，并且受重力影响。",
+    "checks": [
+      {
+        "type": "node",
+        "path": "Player",
+        "class": "CharacterBody2D",
+        "script": true
+      },
+      {
+        "type": "expression",
+        "code": "helper.find(root.get_node(\"Player\"), \"CollisionShape2D\").size() > 0 and helper.find(root.get_node(\"Player\"), \"CollisionShape2D\")[0].shape != null"
+      },
+      {
+        "type": "expression",
+        "code": "root.get_node(\"Player\").get_script().source_code.contains(\"move_and_slide\") and root.get_node(\"Player\").get_script().source_code.contains(\"is_on_floor\")"
+      },
+      {
+        "type": "runs_clean"
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "project_input_map_set",
+        "--args",
+        "{\"action\": \"jump\", \"events\": [{\"key\": \"Space\"}]}",
+        "--yes"
+      ],
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"CharacterBody2D\", \"name\": \"Player\", \"parent\": \".\"}"
+      ],
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"CollisionShape2D\", \"name\": \"Shape\", \"parent\": \"Player\", \"properties\": {\"shape\": {\"$new\": \"RectangleShape2D\", \"properties\": {\"size\": [24, 40]}}}}"
+      ],
+      [
+        "command",
+        "fs_write_text",
+        "--args",
+        "{\"path\": \"res://player.gd\", \"text\": \"extends CharacterBody2D\\n\\n@export var speed := 220.0\\n@export var jump_velocity := -420.0\\n\\nvar gravity: float = ProjectSettings.get_setting(\\\"physics/2d/default_gravity\\\")\\n\\n\\nfunc _physics_process(delta: float) -> void:\\n\\tif not is_on_floor():\\n\\t\\tvelocity.y += gravity * delta\\n\\tif Input.is_action_just_pressed(\\\"jump\\\") and is_on_floor():\\n\\t\\tvelocity.y = jump_velocity\\n\\tvelocity.x = Input.get_axis(\\\"ui_left\\\", \\\"ui_right\\\") * speed\\n\\tmove_and_slide()\\n\", \"overwrite\": true}",
+        "--yes"
+      ],
+      [
+        "command",
+        "node_attach_script",
+        "--args",
+        "{\"path\": \"Player\", \"script\": \"res://player.gd\"}"
+      ],
+      [
+        "command",
+        "scene_save"
+      ]
+    ]
+  }
+]

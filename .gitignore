@@ -2,6 +2,7 @@ node_modules/
 dist/
 coverage/
 cli/addon/
+cli/skills/
 *.tsbuildinfo
 *.log
 

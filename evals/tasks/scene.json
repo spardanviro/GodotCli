@@ -1,0 +1,266 @@
+[
+  {
+    "id": "scene.add_sprite",
+    "prompt": "Add a Sprite2D named \"Logo\" to the main scene at position (100, 50).",
+    "checks": [
+      {
+        "type": "node",
+        "path": "Logo",
+        "class": "Sprite2D",
+        "properties": {
+          "position": "Vector2(100, 50)"
+        }
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"Sprite2D\", \"name\": \"Logo\", \"parent\": \".\", \"properties\": {\"position\": [100, 50]}}"
+      ],
+      [
+        "command",
+        "scene_save"
+      ]
+    ]
+  },
+  {
+    "id": "scene.enemy_group",
+    "prompt": "Add three Node2D enemies named Enemy1, Enemy2 and Enemy3 to the main scene, all in the group \"enemies\".",
+    "checks": [
+      {
+        "type": "node",
+        "path": "Enemy1",
+        "class": "Node2D",
+        "group": "enemies"
+      },
+      {
+        "type": "node",
+        "path": "Enemy2",
+        "class": "Node2D",
+        "group": "enemies"
+      },
+      {
+        "type": "node",
+        "path": "Enemy3",
+        "class": "Node2D",
+        "group": "enemies"
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"Node2D\", \"name\": \"Enemy1\", \"parent\": \".\"}"
+      ],
+      [
+        "command",
+        "node_add_to_group",
+        "--args",
+        "{\"path\": \"Enemy1\", \"group\": \"enemies\"}"
+      ],
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"Node2D\", \"name\": \"Enemy2\", \"parent\": \".\"}"
+      ],
+      [
+        "command",
+        "node_add_to_group",
+        "--args",
+        "{\"path\": \"Enemy2\", \"group\": \"enemies\"}"
+      ],
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"Node2D\", \"name\": \"Enemy3\", \"parent\": \".\"}"
+      ],
+      [
+        "command",
+        "node_add_to_group",
+        "--args",
+        "{\"path\": \"Enemy3\", \"group\": \"enemies\"}"
+      ],
+      [
+        "command",
+        "scene_save"
+      ]
+    ]
+  },
+  {
+    "id": "scene.timer",
+    "prompt": "Add a Timer named SpawnTimer to the main scene that fires every 2 seconds and starts by itself when the scene starts.",
+    "checks": [
+      {
+        "type": "node",
+        "path": "SpawnTimer",
+        "class": "Timer",
+        "properties": {
+          "wait_time": 2.0,
+          "autostart": true,
+          "one_shot": false
+        }
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"Timer\", \"name\": \"SpawnTimer\", \"parent\": \".\", \"properties\": {\"wait_time\": 2, \"autostart\": true}}"
+      ],
+      [
+        "command",
+        "scene_save"
+      ]
+    ]
+  },
+  {
+    "id": "scene.rename_reparent",
+    "setup": {
+      "commands": [
+        [
+          "command",
+          "node_create",
+          "--args",
+          "{\"type\": \"Node2D\", \"name\": \"World\", \"parent\": \".\", \"properties\": {\"position\": [100, 0]}}"
+        ],
+        [
+          "command",
+          "node_create",
+          "--args",
+          "{\"type\": \"Sprite2D\", \"name\": \"Hero\", \"parent\": \".\", \"properties\": {\"position\": [40, 30]}}"
+        ]
+      ]
+    },
+    "prompt": "In the main scene, rename Hero to Player and move it under World, keeping it where it is on screen.",
+    "checks": [
+      {
+        "type": "node",
+        "path": "World/Player",
+        "class": "Sprite2D",
+        "properties": {
+          "position": "Vector2(-60, 30)"
+        }
+      },
+      {
+        "type": "node_missing",
+        "path": "Hero"
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "node_rename",
+        "--args",
+        "{\"path\": \"Hero\", \"name\": \"Player\"}"
+      ],
+      [
+        "command",
+        "node_move",
+        "--args",
+        "{\"path\": \"Player\", \"parent\": \"World\"}"
+      ],
+      [
+        "command",
+        "scene_save"
+      ]
+    ]
+  },
+  {
+    "id": "scene.delete_nodes",
+    "setup": {
+      "commands": [
+        [
+          "command",
+          "node_create",
+          "--args",
+          "{\"type\": \"Node2D\", \"name\": \"Old1\", \"parent\": \".\"}"
+        ],
+        [
+          "command",
+          "node_create",
+          "--args",
+          "{\"type\": \"Sprite2D\", \"name\": \"Old2\", \"parent\": \".\"}"
+        ],
+        [
+          "command",
+          "node_create",
+          "--args",
+          "{\"type\": \"Node2D\", \"name\": \"Keep\", \"parent\": \".\"}"
+        ]
+      ]
+    },
+    "prompt": "Remove the nodes Old1 and Old2 from the main scene.",
+    "checks": [
+      {
+        "type": "node_missing",
+        "path": "Old1"
+      },
+      {
+        "type": "node_missing",
+        "path": "Old2"
+      },
+      {
+        "type": "node",
+        "path": "Keep"
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "node_delete",
+        "--args",
+        "{\"path\": \"Old1\"}",
+        "--yes"
+      ],
+      [
+        "command",
+        "node_delete",
+        "--args",
+        "{\"path\": \"Old2\"}",
+        "--yes"
+      ],
+      [
+        "command",
+        "scene_save"
+      ]
+    ]
+  },
+  {
+    "id": "scene.new_scene_file",
+    "setup": {
+      "empty": true
+    },
+    "prompt": "Create a new scene res://levels/level1.tscn whose root is a Node2D named \"Level1\".",
+    "checks": [
+      {
+        "type": "node",
+        "scene": "res://levels/level1.tscn",
+        "path": ".",
+        "class": "Node2D"
+      },
+      {
+        "type": "expression",
+        "scene": "res://levels/level1.tscn",
+        "code": "root.name == \"Level1\""
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "scene_new",
+        "--args",
+        "{\"path\": \"res://levels/level1.tscn\", \"root_type\": \"Node2D\", \"root_name\": \"Level1\"}"
+      ],
+      [
+        "command",
+        "scene_save"
+      ]
+    ]
+  }
+]

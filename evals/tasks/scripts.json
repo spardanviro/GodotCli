@@ -1,0 +1,250 @@
+[
+  {
+    "id": "script.create_attach",
+    "prompt": "Give the root node of the main scene a script res://main.gd that prints \"Hello\" when the scene starts.",
+    "checks": [
+      {
+        "type": "node",
+        "path": ".",
+        "script": true
+      },
+      {
+        "type": "file_contains",
+        "file": "res://main.gd",
+        "text": "Hello"
+      },
+      {
+        "type": "script_compiles",
+        "file": "res://main.gd"
+      },
+      {
+        "type": "runs_clean"
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "fs_write_text",
+        "--args",
+        "{\"path\": \"res://main.gd\", \"text\": \"extends Node2D\\n\\n\\nfunc _ready() -> void:\\n\\tprint(\\\"Hello\\\")\\n\", \"overwrite\": true}",
+        "--yes"
+      ],
+      [
+        "command",
+        "node_attach_script",
+        "--args",
+        "{\"path\": \".\", \"script\": \"res://main.gd\"}"
+      ],
+      [
+        "command",
+        "scene_save"
+      ]
+    ]
+  },
+  {
+    "id": "script.topdown_movement",
+    "prompt": "Add a CharacterBody2D named Player to the main scene with a script that moves it in eight directions with the arrow keys at 200 pixels per second.",
+    "checks": [
+      {
+        "type": "node",
+        "path": "Player",
+        "class": "CharacterBody2D",
+        "script": true
+      },
+      {
+        "type": "expression",
+        "code": "root.get_node(\"Player\").get_script().source_code.contains(\"move_and_slide\")"
+      },
+      {
+        "type": "runs_clean"
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"CharacterBody2D\", \"name\": \"Player\", \"parent\": \".\"}"
+      ],
+      [
+        "command",
+        "fs_write_text",
+        "--args",
+        "{\"path\": \"res://player.gd\", \"text\": \"extends CharacterBody2D\\n\\n@export var speed := 200.0\\n\\n\\nfunc _physics_process(_delta: float) -> void:\\n\\tvelocity = Input.get_vector(\\\"ui_left\\\", \\\"ui_right\\\", \\\"ui_up\\\", \\\"ui_down\\\") * speed\\n\\tmove_and_slide()\\n\", \"overwrite\": true}",
+        "--yes"
+      ],
+      [
+        "command",
+        "node_attach_script",
+        "--args",
+        "{\"path\": \"Player\", \"script\": \"res://player.gd\"}"
+      ],
+      [
+        "command",
+        "scene_save"
+      ]
+    ]
+  },
+  {
+    "id": "script.signal_button",
+    "prompt": "Add a Button with the text \"Start\" to the main scene. When it is pressed, a script on the scene's root should print \"started\".",
+    "checks": [
+      {
+        "type": "node_count",
+        "class": "Button",
+        "min": 1
+      },
+      {
+        "type": "expression",
+        "code": "helper.find(root, \"Button\")[0].text == \"Start\""
+      },
+      {
+        "type": "expression",
+        "code": "helper.find(root, \"Button\")[0].pressed.get_connections().size() > 0 or root.get_script().source_code.contains(\"pressed.connect\")"
+      },
+      {
+        "type": "expression",
+        "code": "root.get_script() != null and root.get_script().source_code.contains(\"started\")"
+      },
+      {
+        "type": "runs_clean"
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"Button\", \"name\": \"StartButton\", \"parent\": \".\", \"properties\": {\"text\": \"Start\"}}"
+      ],
+      [
+        "command",
+        "fs_write_text",
+        "--args",
+        "{\"path\": \"res://main.gd\", \"text\": \"extends Node2D\\n\\n\\nfunc _on_start_pressed() -> void:\\n\\tprint(\\\"started\\\")\\n\", \"overwrite\": true}",
+        "--yes"
+      ],
+      [
+        "command",
+        "node_attach_script",
+        "--args",
+        "{\"path\": \".\", \"script\": \"res://main.gd\"}"
+      ],
+      [
+        "command",
+        "node_connect_signal",
+        "--args",
+        "{\"path\": \"StartButton\", \"signal\": \"pressed\", \"target\": \".\", \"method\": \"_on_start_pressed\"}"
+      ],
+      [
+        "command",
+        "scene_save"
+      ]
+    ]
+  },
+  {
+    "id": "script.godot3_to_4",
+    "setup": {
+      "files": {
+        "res://legacy.gd": [
+          "extends KinematicBody2D",
+          "",
+          "export var speed = 200",
+          "onready var sprite = $Sprite",
+          "var velocity = Vector2()",
+          "",
+          "func _physics_process(delta):",
+          "\tvelocity.x = Input.get_action_strength(\"ui_right\") - Input.get_action_strength(\"ui_left\")",
+          "\tvelocity = move_and_slide(velocity * speed, Vector2.UP)",
+          "",
+          "func flash():",
+          "\tsprite.modulate = Color.red",
+          "\tyield(get_tree().create_timer(0.2), \"timeout\")",
+          "\tsprite.modulate = Color.white"
+        ]
+      }
+    },
+    "prompt": "res://legacy.gd was written for Godot 3 and does not compile any more. Port it to Godot 4, keeping what it does.",
+    "checks": [
+      {
+        "type": "script_compiles",
+        "file": "res://legacy.gd"
+      },
+      {
+        "type": "file_contains",
+        "file": "res://legacy.gd",
+        "any": [
+          "@onready"
+        ]
+      },
+      {
+        "type": "file_contains",
+        "file": "res://legacy.gd",
+        "any": [
+          "await"
+        ]
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "fs_write_text",
+        "--args",
+        "{\"path\": \"res://legacy.gd\", \"text\": \"extends CharacterBody2D\\n\\n@export var speed := 200.0\\n@onready var sprite: Sprite2D = $Sprite\\n\\n\\nfunc _physics_process(_delta: float) -> void:\\n\\tvelocity.x = (Input.get_action_strength(\\\"ui_right\\\") - Input.get_action_strength(\\\"ui_left\\\")) * speed\\n\\tup_direction = Vector2.UP\\n\\tmove_and_slide()\\n\\n\\nfunc flash() -> void:\\n\\tsprite.modulate = Color.RED\\n\\tawait get_tree().create_timer(0.2).timeout\\n\\tsprite.modulate = Color.WHITE\\n\", \"overwrite\": true}",
+        "--yes"
+      ]
+    ]
+  },
+  {
+    "id": "debug.fix_runtime_error",
+    "setup": {
+      "files": {
+        "res://main.gd": [
+          "extends Node2D",
+          "",
+          "@onready var score_label: Label = $ScoreLabel",
+          "",
+          "",
+          "func _ready() -> void:",
+          "\tscore_label.text = \"Score: 0\""
+        ]
+      },
+      "commands": [
+        [
+          "command",
+          "node_attach_script",
+          "--args",
+          "{\"path\": \".\", \"script\": \"res://main.gd\"}"
+        ],
+        [
+          "command",
+          "node_create",
+          "--args",
+          "{\"type\": \"Label\", \"name\": \"Score\", \"parent\": \".\"}"
+        ]
+      ]
+    },
+    "prompt": "The game prints an error as soon as it starts. Find out why and fix it.",
+    "checks": [
+      {
+        "type": "runs_clean"
+      },
+      {
+        "type": "script_compiles",
+        "file": "res://main.gd"
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "node_rename",
+        "--args",
+        "{\"path\": \"Score\", \"name\": \"ScoreLabel\"}"
+      ],
+      [
+        "command",
+        "scene_save"
+      ]
+    ]
+  }
+]

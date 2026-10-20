@@ -1,0 +1,201 @@
+[
+  {
+    "id": "3d.basic_scene",
+    "setup": {
+      "root": "Node3D"
+    },
+    "prompt": "Set up the main scene as a basic 3D scene: a camera looking at a cube, a directional light, and a sky.",
+    "checks": [
+      {
+        "type": "node_count",
+        "class": "Camera3D",
+        "min": 1
+      },
+      {
+        "type": "node_count",
+        "class": "DirectionalLight3D",
+        "min": 1
+      },
+      {
+        "type": "node_count",
+        "class": "WorldEnvironment",
+        "min": 1
+      },
+      {
+        "type": "expression",
+        "code": "helper.find(root, \"MeshInstance3D\").size() > 0 and helper.find(root, \"MeshInstance3D\")[0].mesh.is_class(\"BoxMesh\")"
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"MeshInstance3D\", \"name\": \"Cube\", \"parent\": \".\", \"properties\": {\"mesh\": {\"$new\": \"BoxMesh\"}}}"
+      ],
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"Camera3D\", \"name\": \"Camera\", \"parent\": \".\", \"properties\": {\"position\": [0, 1.5, 4], \"rotation_degrees\": [-15, 0, 0]}}"
+      ],
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"DirectionalLight3D\", \"name\": \"Sun\", \"parent\": \".\", \"properties\": {\"rotation_degrees\": [-50, 30, 0]}}"
+      ],
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"WorldEnvironment\", \"name\": \"Environment\", \"parent\": \".\", \"properties\": {\"environment\": {\"$new\": \"Environment\", \"properties\": {\"background_mode\": 2, \"sky\": {\"$new\": \"Sky\", \"properties\": {\"sky_material\": {\"$new\": \"ProceduralSkyMaterial\"}}}}}}}"
+      ],
+      [
+        "command",
+        "scene_save"
+      ]
+    ]
+  },
+  {
+    "id": "animation.bounce",
+    "setup": {
+      "commands": [
+        [
+          "command",
+          "node_create",
+          "--args",
+          "{\"type\": \"Sprite2D\", \"name\": \"Ball\", \"parent\": \".\", \"properties\": {\"position\": [200, 200]}}"
+        ]
+      ]
+    },
+    "prompt": "Make Ball bounce: an AnimationPlayer with a looping animation \"bounce\" that moves Ball up by 50 pixels and back down over one second, playing as soon as the scene starts.",
+    "checks": [
+      {
+        "type": "node_count",
+        "class": "AnimationPlayer",
+        "min": 1
+      },
+      {
+        "type": "expression",
+        "code": "helper.find(root, \"AnimationPlayer\")[0].has_animation(\"bounce\") and helper.find(root, \"AnimationPlayer\")[0].get_animation(\"bounce\").loop_mode != 0"
+      },
+      {
+        "type": "expression",
+        "code": "is_equal_approx(helper.find(root, \"AnimationPlayer\")[0].get_animation(\"bounce\").length, 1.0) and helper.find(root, \"AnimationPlayer\")[0].autoplay == \"bounce\""
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"AnimationPlayer\", \"name\": \"Anim\", \"parent\": \".\"}"
+      ],
+      [
+        "command",
+        "animation_create",
+        "--args",
+        "{\"player\": \"Anim\", \"name\": \"bounce\", \"length\": 1.0, \"loop\": \"linear\", \"autoplay\": true, \"tracks\": [{\"node\": \"Ball\", \"property\": \"position\", \"keys\": [{\"time\": 0, \"value\": [200, 200]}, {\"time\": 0.5, \"value\": [200, 150]}, {\"time\": 1.0, \"value\": [200, 200]}]}]}"
+      ],
+      [
+        "command",
+        "scene_save"
+      ]
+    ]
+  },
+  {
+    "id": "tilemap.floor",
+    "setup": {
+      "files": {
+        "res://art/tiles.png": {
+          "fixture": "tiles.png"
+        }
+      }
+    },
+    "prompt": "Build a floor in the main scene from the tile sheet res://art/tiles.png (32x32 tiles): a TileMapLayer with a row of 20 tiles along the bottom of the screen that a character can stand on.",
+    "checks": [
+      {
+        "type": "node_count",
+        "class": "TileMapLayer",
+        "min": 1
+      },
+      {
+        "type": "expression",
+        "code": "helper.find(root, \"TileMapLayer\")[0].get_used_cells().size() >= 20"
+      },
+      {
+        "type": "expression",
+        "code": "helper.find(root, \"TileMapLayer\")[0].tile_set != null and helper.find(root, \"TileMapLayer\")[0].tile_set.get_physics_layers_count() > 0"
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"TileMapLayer\", \"name\": \"Floor\", \"parent\": \".\"}"
+      ],
+      [
+        "command",
+        "tileset_add_atlas",
+        "--args",
+        "{\"layer\": \"Floor\", \"texture\": \"res://art/tiles.png\", \"tile_size\": [32, 32], \"collision\": true}"
+      ],
+      [
+        "command",
+        "tilemap_set_cells",
+        "--args",
+        "{\"layer\": \"Floor\", \"rect\": [0, 18, 20, 1], \"atlas\": [0, 0]}"
+      ],
+      [
+        "command",
+        "scene_save"
+      ]
+    ]
+  },
+  {
+    "id": "sprite.walk_frames",
+    "setup": {
+      "files": {
+        "res://art/hero_walk.png": {
+          "fixture": "tiles.png"
+        }
+      }
+    },
+    "prompt": "Add an AnimatedSprite2D named Hero to the main scene that plays a \"walk\" animation from the two 32x32 frames in res://art/hero_walk.png at 8 frames per second, starting with the scene.",
+    "checks": [
+      {
+        "type": "node",
+        "path": "Hero",
+        "class": "AnimatedSprite2D"
+      },
+      {
+        "type": "expression",
+        "code": "root.get_node(\"Hero\").sprite_frames != null and root.get_node(\"Hero\").sprite_frames.has_animation(\"walk\") and root.get_node(\"Hero\").sprite_frames.get_frame_count(\"walk\") == 2"
+      },
+      {
+        "type": "expression",
+        "code": "is_equal_approx(root.get_node(\"Hero\").sprite_frames.get_animation_speed(\"walk\"), 8.0) and root.get_node(\"Hero\").autoplay == \"walk\""
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"AnimatedSprite2D\", \"name\": \"Hero\", \"parent\": \".\"}"
+      ],
+      [
+        "command",
+        "sprite_frames_create",
+        "--args",
+        "{\"node\": \"Hero\", \"autoplay\": \"walk\", \"animations\": [{\"name\": \"walk\", \"sheet\": \"res://art/hero_walk.png\", \"hframes\": 2, \"fps\": 8, \"loop\": true}]}"
+      ],
+      [
+        "command",
+        "scene_save"
+      ]
+    ]
+  }
+]

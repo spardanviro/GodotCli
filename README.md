@@ -49,7 +49,11 @@ Codex、Cursor、VS Code、Gemini CLI 等支持 Model Context Protocol 的客户
 ```bash
 gd mcp configure codex          # 显示要加进 ~/.codex/config.toml 的条目
 gd mcp configure codex --yes    # 写进去；claude、cursor、vscode、gemini 写进项目里对应的文件
+gd skills install codex --yes   # 把 Claude 插件的十个技能装进 ~/.codex/skills（同一种 SKILL.md 格式）
+gd skills install --dir <目录> --yes   # 其他读 SKILL.md 文件夹的智能体
 ```
+
+工具让智能体能做事，技能告诉它怎么做才对（命令怎么组合、值怎么写、常见的坑）。Claude Code 装插件就同时有了两样；其他智能体用 `gd mcp` 或自己的 shell 拿到工具，用 `gd skills install` 拿到技能。
 
 桥接的规则对这些客户端同样生效：会让代码进入编辑器的改动由人在编辑器里批准，无头编辑器里一律拒绝。但写普通脚本再运行游戏不需要批准，游戏里的代码以用户权限运行；要限制它，在客户端里不要自动放行写文件和运行类工具。详见 [docs/protocol.md](docs/protocol.md) 第 4.3 节和第 6.8 节。
 

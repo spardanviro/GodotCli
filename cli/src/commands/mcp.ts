@@ -96,7 +96,7 @@ function entryFor(context: Context, project: string, bareName: boolean): ServerE
 }
 
 /** The first symbolic link on the way to the file (its folders included), if any. */
-function linkOnTheWay(file: string, stopAt: string): string | undefined {
+export function linkOnTheWay(file: string, stopAt: string): string | undefined {
   for (let path = file; path.length > stopAt.length && path !== dirname(path); path = dirname(path)) {
     try {
       if (lstatSync(path).isSymbolicLink()) {

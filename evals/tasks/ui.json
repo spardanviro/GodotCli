@@ -1,0 +1,105 @@
+[
+  {
+    "id": "ui.main_menu",
+    "setup": {
+      "root": "Control"
+    },
+    "prompt": "Make the main scene a main menu: a title \"My Game\" and the buttons Play, Options and Quit, stacked vertically in the middle of the screen.",
+    "checks": [
+      {
+        "type": "node_count",
+        "class": "Button",
+        "min": 3,
+        "max": 3
+      },
+      {
+        "type": "node_count",
+        "class": "BoxContainer",
+        "min": 1
+      },
+      {
+        "type": "expression",
+        "code": "helper.find(root, \"Label\").size() > 0 and helper.find(root, \"Label\")[0].text.contains(\"My Game\")"
+      },
+      {
+        "type": "expression",
+        "code": "helper.find(helper.find(root, \"BoxContainer\")[0], \"Button\").size() == 3"
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"CenterContainer\", \"name\": \"Center\", \"parent\": \".\", \"properties\": {\"anchors_preset\": 15}}"
+      ],
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"VBoxContainer\", \"name\": \"Menu\", \"parent\": \"Center\"}"
+      ],
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"Label\", \"name\": \"Title\", \"parent\": \"Center/Menu\", \"properties\": {\"text\": \"My Game\"}}"
+      ],
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"Button\", \"name\": \"Play\", \"parent\": \"Center/Menu\", \"properties\": {\"text\": \"Play\"}}"
+      ],
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"Button\", \"name\": \"Options\", \"parent\": \"Center/Menu\", \"properties\": {\"text\": \"Options\"}}"
+      ],
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"Button\", \"name\": \"Quit\", \"parent\": \"Center/Menu\", \"properties\": {\"text\": \"Quit\"}}"
+      ],
+      [
+        "command",
+        "scene_save"
+      ]
+    ]
+  },
+  {
+    "id": "ui.hud_score",
+    "prompt": "Add a HUD to the main scene that shows \"Score: 0\" in the top-left corner and stays in place when the camera moves.",
+    "checks": [
+      {
+        "type": "node_count",
+        "class": "CanvasLayer",
+        "min": 1
+      },
+      {
+        "type": "expression",
+        "code": "helper.find(helper.find(root, \"CanvasLayer\")[0], \"Label\").size() > 0 and helper.find(helper.find(root, \"CanvasLayer\")[0], \"Label\")[0].text.contains(\"Score: 0\")"
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"CanvasLayer\", \"name\": \"HUD\", \"parent\": \".\"}"
+      ],
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"Label\", \"name\": \"Score\", \"parent\": \"HUD\", \"properties\": {\"text\": \"Score: 0\", \"position\": [16, 16]}}"
+      ],
+      [
+        "command",
+        "scene_save"
+      ]
+    ]
+  }
+]
