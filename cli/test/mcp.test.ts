@@ -362,13 +362,13 @@ describe("gd mcp: serving", () => {
   });
 });
 
-function configured(client: string, extra: readonly string[] = [], files: Record<string, string> = {}, platform?: NodeJS.Platform) {
+function configured(client: string, extra: readonly string[] = [], files: Record<string, string> = {}, platform?: NodeJS.Platform, env: Record<string, string> = {}) {
   const home = tempDir();
   const project = makeProject(home);
   for (const [name, content] of Object.entries(files)) {
     writeFile(join(project, name), content);
   }
-  const h = harness({ homeDir: home, cwd: project, launcher: ["/usr/bin/node", "/opt/gdcli/dist/main.js"], ...(platform === undefined ? {} : { platform }) });
+  const h = harness({ homeDir: home, cwd: project, env, launcher: ["/usr/bin/node", "/opt/gdcli/dist/main.js"], ...(platform === undefined ? {} : { platform }) });
   return { home, project, run: (...argv: string[]) => h.json("mcp", "configure", client, ...extra, ...argv) };
 }
 
@@ -436,6 +436,40 @@ describe("gd mcp configure", () => {
 
     expect(onUnix.envelope.data).toMatchObject({ server: { command: "gd", args: ["mcp", "--project", unix.project] } });
     expect(onWindows.exitCode).toBe(ExitCode.Usage);
+  });
+
+  test("names the Godot chosen with GODOT_BIN, since a client need not pass the variable on", async () => {
+    const godot = join(tempDir(), "godot-editor");
+    writeFile(godot, "");
+    const { project, run } = configured("cursor", [], {}, "linux", { GODOT_BIN: godot });
+
+    const result = await run();
+
+    expect(result.envelope.data).toMatchObject({ server: { args: ["/opt/gdcli/dist/main.js", "mcp", "--project", project, "--godot", godot] } });
+    expect(result.envelope.warnings).toEqual(["Nothing was written: add --yes."]);
+  });
+
+  test("names the Godot chosen with --godot too, but no machine path in a shared file (--command gd)", async () => {
+    const godot = join(tempDir(), "godot-editor");
+    writeFile(godot, "");
+    const own = configured("cursor", ["--godot", godot], {}, "linux");
+    const shared = configured("cursor", ["--godot", godot, "--command", "gd"], {}, "linux");
+
+    const ownResult = await own.run();
+    const sharedResult = await shared.run();
+
+    expect(ownResult.envelope.data).toMatchObject({ server: { args: ["/opt/gdcli/dist/main.js", "mcp", "--project", own.project, "--godot", godot] } });
+    expect(sharedResult.envelope.data).toMatchObject({ server: { command: "gd", args: ["mcp", "--project", shared.project] } });
+    expect(sharedResult.envelope.warnings).toEqual(["Nothing was written: add --yes."]);
+  });
+
+  test("without a Godot it still writes the entry, and says gd_host_start will fail", async () => {
+    const { project, run } = configured("cursor", [], {}, "linux", { GODOT_BIN: join(tempDir(), "missing") });
+
+    const result = await run();
+
+    expect(result.envelope.data).toMatchObject({ server: { args: ["/opt/gdcli/dist/main.js", "mcp", "--project", project] } });
+    expect(result.envelope.warnings.join(" ")).toContain("gd_host_start will fail");
   });
 
   test("the preview shows gd's own entry only, not what else the file holds", async () => {

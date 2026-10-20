@@ -3,6 +3,7 @@ import { dirname, join, resolve } from "node:path";
 
 import type { CommandHandler, CommandResult, Context, GlobalOptions } from "../context.js";
 import { errorOf, isEnvelopeError, success } from "../envelope.js";
+import { GODOT_ENV, locateGodot } from "../godot.js";
 import { serveMcp } from "../mcp/server.js";
 import { findProject, nonEmpty } from "../project.js";
 import { mergeToml } from "./mcp-toml.js";
@@ -86,13 +87,28 @@ export const MCP_CLIENTS = Object.keys(CLIENTS);
  * and script), so it works whether or not gd is on the PATH the client sees;
  * --command gd writes the bare name instead, for a file shared with others.
  */
-function entryFor(context: Context, project: string, bareName: boolean): ServerEntry {
-  const own = ["mcp", "--project", project];
+function entryFor(context: Context, project: string, bareName: boolean, godot: string | undefined): ServerEntry {
+  const own = ["mcp", "--project", project, ...(godot === undefined ? [] : ["--godot", godot])];
   if (bareName || context.launcher === undefined || context.launcher.length === 0) {
     return { command: "gd", args: own };
   }
   const [command, ...rest] = context.launcher;
   return { command: command ?? "gd", args: [...rest, ...own] };
+}
+
+/**
+ * The Godot binary to name in the entry. Clients start servers with an
+ * environment of their own (Codex passes on only a few variables), so one
+ * chosen with --godot or GODOT_BIN is written out; one from the user config
+ * or PATH the server finds by itself.
+ */
+function godotFor(context: Context, globals: GlobalOptions): { godot?: string; warning?: string } {
+  const chosen = globals.godot ?? nonEmpty(context.io.env[GODOT_ENV]);
+  const located = locateGodot(context, globals);
+  if (isEnvelopeError(located)) {
+    return { warning: `${located.message} The server starts without one: set it with --godot when configuring, or gd_host_start will fail.` };
+  }
+  return chosen === undefined ? {} : { godot: located };
 }
 
 /** The first symbolic link on the way to the file (its folders included), if any. */
@@ -166,7 +182,10 @@ async function configure(context: Context, globals: GlobalOptions, args: readonl
   if (link !== undefined) {
     return fail("mcp", errorOf("PRECONDITION_FAILED", "The configuration file, or a folder on the way to it, is a symbolic link; gd does not write through links.", undefined, { link }));
   }
-  const entry = entryFor(context, project, bare === "gd");
+  // A shared file (--command gd) names no path of this machine.
+  const { godot, warning } = bare === "gd" ? {} : godotFor(context, globals);
+  const warnings = warning === undefined ? [] : [warning];
+  const entry = entryFor(context, project, bare === "gd", godot);
   let old = "";
   let mode = format.userScope ? OWNER_ONLY : NEW_FILE;
   if (existsSync(file)) {
@@ -186,14 +205,14 @@ async function configure(context: Context, globals: GlobalOptions, args: readonl
   const data = { client, file, scope: format.userScope ? "user" : "project", server: { name: SERVER_NAME, ...entry }, entry: shown, written: false, note: format.note };
   if (!globals.yes) {
     const preview = `Would add to ${file}:\n\n${shown}\n\nRun again with --yes to write it. ${format.note}\n`;
-    return { envelope: success("mcp", data, {}, ["Nothing was written: add --yes."]), human: preview };
+    return { envelope: success("mcp", data, {}, ["Nothing was written: add --yes.", ...warnings]), human: preview };
   }
   try {
     writeAtomically(file, text, mode);
   } catch {
     return fail("mcp", errorOf("COMMAND_FAILED", "The client's configuration file could not be written.", undefined, { file }));
   }
-  return { envelope: success("mcp", { ...data, written: true }), human: `Wrote ${file}. ${format.note}\n` };
+  return { envelope: success("mcp", { ...data, written: true }, {}, warnings), human: `Wrote ${file}. ${format.note}\n` };
 }
 
 /**

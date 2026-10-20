@@ -646,7 +646,7 @@ gd ──HTTP──▶ 桥接（编辑器进程）──调试器消息 gdcli:re
 - **结果**：`content` 里是信封的 JSON 文本，`structuredContent` 里是同一个信封，`isError` 等于 `!success`。
 - **顺序与并发**：修改类调用按到达顺序依次送到编辑器；只读调用和 `ping` 立刻处理。启动 Godot 进程的 `gd_*` 工具同时最多两个，再多返回 `EDITOR_BUSY`。客户端取消的请求不再应答（已经开始的改动照常完成）。
 - **生命周期**：标准输入关闭即结束；本次会话用 `gd_host_start` 启动的无头编辑器随之停止。单行超过 32 MB 的消息不读。
-- **配置**：`gd mcp configure <claude|codex|cursor|vscode|gemini>` 把这个服务器加进对应客户端的配置文件（Claude Code 的 `.mcp.json`、Codex 的 `~/.codex/config.toml`、`.cursor/mcp.json`、`.vscode/mcp.json`、`.gemini/settings.json`）。默认只显示要加的条目，带 `--yes` 才写；只改 `gdcli` 这一项，其余内容不动；不经符号链接写入；Codex 的文件里若已有写法认不出的 `gdcli` 条目（点号键、内联表），拒绝而不是写出第二份定义。条目里默认是这个 `gd` 的绝对路径（不依赖客户端看到的 PATH），`--command gd` 改写成裸命令名，Windows 上不提供（`cmd` 会先在项目目录里找 `gd`）。
+- **配置**：`gd mcp configure <claude|codex|cursor|vscode|gemini>` 把这个服务器加进对应客户端的配置文件（Claude Code 的 `.mcp.json`、Codex 的 `~/.codex/config.toml`、`.cursor/mcp.json`、`.vscode/mcp.json`、`.gemini/settings.json`）。默认只显示要加的条目，带 `--yes` 才写；只改 `gdcli` 这一项，其余内容不动；不经符号链接写入；Codex 的文件里若已有写法认不出的 `gdcli` 条目（点号键、内联表），拒绝而不是写出第二份定义。条目里默认是这个 `gd` 的绝对路径（不依赖客户端看到的 PATH），`--command gd` 改写成裸命令名，Windows 上不提供（`cmd` 会先在项目目录里找 `gd`）。用 `--godot` 或 `GODOT_BIN` 指定了 Godot 时，条目里同时写上 `--godot <路径>`：客户端启动服务器时用自己的环境（Codex 只转发少数几个变量），`GODOT_BIN` 传不过去；用户配置或 PATH 里的 Godot 服务器自己能找到，不写。`--command gd` 时不写本机路径。
 
 ---
 
