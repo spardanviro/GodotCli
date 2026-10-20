@@ -23,6 +23,8 @@ const COMMAND_TIMEOUT_MS = 300_000;
 const INSPECT_TIMEOUT_MS = 120_000;
 /** Game checks are timing-sensitive under load: one more try before failing. */
 const GAME_TRIES = 2;
+const GAME_START_TIMEOUT_MS = 30_000;
+const GAME_POLL_MS = 1000;
 const AGENT_TIMEOUT_MS = 30 * 60_000;
 const DEFAULT_MAX_TURNS = 60;
 const MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
@@ -381,12 +383,20 @@ async function gameCheckOnce(check, project, env) {
     return `editor_play: ${describeFailure(play)}`;
   }
   try {
-    await sleep((check.settle ?? 1.5) * 1000);
-    const tree = gd(env, project, ["command", "game_tree"]);
-    const node = findInGame(tree.data?.tree ?? tree.data, check.class);
-    if (node === undefined) {
-      return `no ${check.class} in the running game`;
+    // A slow machine (CI) needs seconds before the game is up and talks to the
+    // editor: ask for its tree until the node is there.
+    let node;
+    let lastAnswer = "";
+    for (const started = Date.now(); node === undefined && Date.now() - started < GAME_START_TIMEOUT_MS; ) {
+      await sleep(GAME_POLL_MS);
+      const tree = gd(env, project, ["command", "game_tree"]);
+      node = findInGame(tree.data?.tree ?? tree.data, check.class);
+      lastAnswer = tree.success ? "the tree had none" : describeFailure(tree);
     }
+    if (node === undefined) {
+      return `no ${check.class} in the running game (${lastAnswer})`;
+    }
+    await sleep((check.settle ?? 1.5) * 1000); // Let it land before the first input.
     const read = () => {
       const value = gd(env, project, ["command", "game_node_get", "--path", node, "--properties", '["global_position"]']).data?.properties?.global_position;
       return Array.isArray(value?.value) ? value.value : Array.isArray(value) ? value : undefined;
