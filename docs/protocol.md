@@ -608,7 +608,7 @@ gd ──HTTP──▶ 桥接（编辑器进程）──调试器消息 gdcli:re
 - **只对编辑器启动的游戏有效**（`editor_play`，或在编辑器里按 F5）。`gd run` 启动的游戏没有编辑器的调试器连接，不能用这些命令。
 - **节点路径相对根窗口**，主场景通常是第一段：`Main/Player`。`game_tree` 返回的 `current_scene` 给出当前场景的路径和文件。自动加载项也在这棵树里。
 - `game_node_get` 能读到检视面板不显示的属性（`velocity`、`global_position`、脚本变量）；不带 `properties` 时返回检视面板属性加脚本变量。`game_node_set` 同样能写这些属性，值按第 6.4 节转换；改的只是运行中的游戏，场景文件和编辑器里的场景都不变。
-- `game_input` 按下或松开输入映射里的一个动作，相当于玩家操作；`hold` 是按住的秒数（游戏时间，0 表示一直按着直到再发一次 `pressed=false`），上限 10 秒。
+- `game_input` 按下或松开输入映射里的一个动作，相当于玩家操作。它发送一个输入事件（`InputEventAction`），游戏在下一帧处理：用 `Input.is_action_pressed` 轮询的代码、写在 `_input` 或 `_unhandled_input` 里的处理、有焦点的按钮（`ui_accept`）都能收到。游戏停在断点上时，事件等继续运行后才处理，不在断点里执行游戏脚本；`hold` 是按住的秒数（游戏时间，0 表示一直按着直到再发一次 `pressed=false`），上限 10 秒。
 - `game_screenshot` 的图片由游戏发给编辑器、由编辑器写到 `~/.gdcli/screenshots/`（先检查是 PNG）；游戏不写文件。游戏以无头方式运行时没有画面，返回 `PRECONDITION_FAILED`。
 - **等待**：答案要过几帧才到，桥接保持 HTTP 连接，最多等 5 秒。游戏还没启动完（辅助节点还没报到）时会在这 5 秒内等它；始终没报到返回 `PRECONDITION_FAILED`，发出请求后没有回答返回 `TIMEOUT`。游戏停在调试器里时照常应答（见下）。
 - **信任**：游戏是项目代码，它发回的内容按项目文本对待：只保留 JSON 值，字符串全部清洗；失败时错误码只接受固定的几种，`message` 用桥接自己的文案，游戏给的文字放进 `details.reported_message`。

@@ -53,8 +53,9 @@ gd command game_input --action jump --hold 0.1
 gd command game_screenshot                                # path of a PNG you can open; not in a headless game
 ```
 
-`game_input` presses an action of the input map, as a player would. A sequence that tests behaviour: read a value,
-press, wait, read again, compare.
+`game_input` presses an action of the input map, as a player would: the game gets an input event, so code that polls
+`Input`, `_input`/`_unhandled_input` handlers and a focused button (`ui_accept`) all see it. A sequence that tests
+behaviour: read a value, press, wait, read again, compare.
 
 ```bash
 gd command game_node_get --path Main/Player --properties '["position"]'

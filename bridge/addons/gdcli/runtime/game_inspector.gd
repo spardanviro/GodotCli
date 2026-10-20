@@ -158,14 +158,25 @@ func _input(args: Dictionary) -> Dictionary:
 	if not (hold is float or hold is int) or not (strength is float or strength is int) or hold < 0.0 or hold > MAX_HOLD_SECONDS:
 		return Reply.fail("INVALID_ARGS", "hold must be 0 to %d seconds and strength a number." % int(MAX_HOLD_SECONDS))
 	var pressed: bool = args.get("pressed", true) == true
-	if pressed:
-		Input.action_press(action, clampf(strength, 0.0, 1.0))
-	else:
-		Input.action_release(action)
+	_send_action(action, pressed, clampf(strength, 0.0, 1.0))
 	if pressed and hold > 0.0:
 		# Counted in game time on purpose: a paused game keeps the key down.
-		_tree.create_timer(hold, false).timeout.connect(Input.action_release.bind(action))
+		_tree.create_timer(hold, false).timeout.connect(_send_action.bind(action, false, 0.0))
 	return Reply.ok({"action": TextSanitizer.clean_line(action), "pressed": pressed, "released_after": hold if pressed else 0.0})
+
+
+## An input event, not only the action's state (Input.action_press): the game
+## sees it in _input and _unhandled_input, and a focused button takes ui_accept,
+## as with a real key; code that polls Input.is_action_pressed sees it as well.
+func _send_action(action: String, pressed: bool, strength: float) -> void:
+	var event := InputEventAction.new()
+	event.action = action
+	event.pressed = pressed
+	event.strength = strength if pressed else 0.0
+	# Handled with the next frame's input, not here and now: a game stopped at
+	# a breakpoint answers commands, and running its input handlers then would
+	# run its scripts inside the break. Stopped, it sees the key on resuming.
+	Input.parse_input_event(event)
 
 
 func _screenshot() -> Dictionary:

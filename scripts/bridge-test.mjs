@@ -641,6 +641,32 @@ async function checkGame(instance) {
 }
 
 /**
+ * game_input sends a real input event: a game that reads input in
+ * _unhandled_input (not by polling) sees it too.
+ * @param {Instance} instance
+ */
+async function checkInputEvents(instance) {
+  const played = await command(instance, "editor_play", { scene: "res://tests/fixtures/input_probe.tscn" });
+  check(played.status === 200, "editor_play the input probe", played.body);
+  let ready = await command(instance, "game_node_get", { path: "InputProbe", properties: ["accepted"] });
+  for (const deadline = Date.now() + GAME_START_TIMEOUT_MS; ready.status !== 200 && Date.now() < deadline; ) {
+    await sleep(500);
+    ready = await command(instance, "game_node_get", { path: "InputProbe", properties: ["accepted"] });
+  }
+  check(ready.status === 200, "the input probe game started", ready.body);
+  const input = await command(instance, "game_input", { action: "ui_accept", hold: 0.1 });
+  await sleep(500);
+  const seen = await command(instance, "game_node_get", { path: "InputProbe", properties: ["accepted"] });
+  check(input.status === 200 && seen.body?.data?.properties?.accepted === 1, "game_input reaches _unhandled_input", seen.body);
+  await command(instance, "editor_stop");
+  let status = await command(instance, "editor_status");
+  for (const deadline = Date.now() + 10_000; status.body?.data?.playing !== false && Date.now() < deadline; ) {
+    await sleep(200);
+    status = await command(instance, "editor_status");
+  }
+}
+
+/**
  * Things a model gets wrong without help: a Control's anchors, a node that
  * jumps when it changes parent, and animations, which had no command.
  * Runs on the fixture scene, which is the edited one here.
@@ -1016,6 +1042,7 @@ async function endToEnd(godot) {
     await checkCommands(instance);
     // Before the edits: running the project saves scenes with unsaved changes.
     await checkGame(instance);
+    await checkInputEvents(instance);
     await checkGameDebugging(instance);
     await checkEdits(instance);
     const output = log.join("");

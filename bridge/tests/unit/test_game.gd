@@ -222,8 +222,11 @@ func test_game_inspector_input_presses_and_releases_an_action() -> void:
 	var inspector := _inspector()
 
 	var pressed: Dictionary = inspector.handle("input", {"action": ACTION})
+	# The event waits for the next frame; a test has no frames, so it flushes.
+	Input.flush_buffered_events()
 	var down := Input.is_action_pressed(ACTION)
 	inspector.handle("input", {"action": ACTION, "pressed": false})
+	Input.flush_buffered_events()
 	var unknown: Dictionary = inspector.handle("input", {"action": "no_such_action"})
 	var too_long: Dictionary = inspector.handle("input", {"action": ACTION, "hold": 3600})
 
