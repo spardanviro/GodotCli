@@ -1,6 +1,6 @@
 {
   "name": "gdcli",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Command line for driving the Godot editor and engine, built for coding agents.",
   "type": "module",
   "repository": {
