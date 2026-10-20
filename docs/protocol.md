@@ -230,9 +230,9 @@ HTTP 解析是手写的，所以把它能接受的东西限定得很窄，其余
 - **人工批准**是唯一不经过调用方的确认：桥接在编辑器里弹出对话框，写明命令、原因、目标和将要写入的**完整内容**，人点"Allow"才执行，默认焦点在"Deny"上。它在两种情况下出现：
   1. **会让代码进入编辑器进程、或改变编辑器和项目加载什么的改动**，在 `standard` 和 `ask` 模式下都要人批准，调用方自己带 `confirm: true` 不算数：
      - `fs_write_text` 写入的内容里出现工具注解（`@tool`）。不看扩展名也不看它在哪一行：写在别的注解后面、藏在场景或资源文件内嵌的脚本里都算；注释里提到它也算，宁可多问一次。
-     - `fs_write_text` 写入 `.cs` 文件，且内容里出现 `Tool`、`ToolAttribute`、`ModuleInitializer`、`ModuleInitializerAttribute` 这几个词中的任何一个，或者出现 `\u` 转义字符。前两个让类在编辑器里运行，后两个在编辑器加载构建好的程序集时就运行。特性可以跨行写、嵌在别的特性里、用转义拼出来，所以不去解析特性语法，只找词，宁可多问。这一条只按文本判断；本仓库的测试环境没有 .NET 版 Godot，没有在真实的 C# 项目上验证过，C# 里不带这些标记也可能在编辑器里运行的代码（例如被编辑器实例化的类型的静态构造函数）不在覆盖范围内。
-     - `fs_move` 把文件改成另一种扩展名，而它的内容在新扩展名下属于上面两类（例如把写成 `notes.txt` 的 C# 工具类改名为 `Notes.cs`）。
-     - `fs_write_text` 写入第 4.4 节的敏感位置：`addons/`、`gdcli_commands/`、`project.godot`、`project.binary`、`override.cfg`、`*.gdextension`，以及 C# 构建会执行的 `*.csproj`、`*.sln`、`*.props`、`*.targets` 等。
+     - `fs_write_text` 写入任何 `.cs` 文件，`node_attach_script` 把任何 C# 脚本挂到节点上。在 .NET 版编辑器上实测（`scripts/dotnet-probe.mjs`，持续集成的 .NET 任务每次都跑）：构建之后，在编辑器进程里运行的 C# 代码不止带 `[Tool]` 的类和 `[ModuleInitializer]`，**普通类的字段初始化**也会运行，因为编辑器要读出导出属性的默认值；普通类的 `_Ready`、构造函数体、静态构造函数没有运行。而构建只需要一次 `editor_play`。所以按标记判断拦不住，凡是 C# 都要人批准。代价是无头编辑器里不能经由桥接写 C#；带窗口的编辑器里每次写入都要点一次同意。
+     - `fs_move` 把文件改成另一种扩展名，而它的内容在新扩展名下属于上面两类（例如把 `notes.txt` 改名为 `Notes.cs`）。
+     - `fs_write_text` 写入第 4.4 节的敏感位置：`addons/`、`gdcli_commands/`、`project.godot`、`project.binary`、`override.cfg`、`*.gdextension`，以及 .NET 构建和还原会读取的文件（见 4.4）。
      - `node_attach_script` 挂的脚本带工具注解。这一条不管脚本是怎么进到项目里的，在加载之前就问。
      - `resource_create`、`resource_set`、`scene_new`、`scene_save` 落在敏感位置。
      - `fs_move` 的源或目标在敏感位置，或者会改写敏感位置里的文件。
@@ -280,6 +280,7 @@ HTTP 解析是手写的，所以把它能接受的东西限定得很窄，其余
 - `res://gdcli_commands/` 下的任何文件
 - 扩展名为 `.gdextension` 的文件
 - 任何位置的 `.gitmodules`、`.gitattributes`
+- .NET 构建和还原按名字读取的文件：各种项目和解决方案（`.csproj`、`.fsproj`、`.vbproj`、`.proj`、`.sln`、`.slnx`、`.slnf`），导入的 `.props`、`.targets`（包括 `Directory.Build.*`），会被自动导入的 `.user`（如 `Game.csproj.user`），响应文件 `.rsp`（如 `Directory.Build.rsp`），以及 `NuGet.Config`（包来源）、`global.json`（SDK 版本）、`dotnet-tools.json`。这些文件里能写构建时执行的命令，或换掉构建要下载的包
 - 内容带 `@tool` 的 `.gd` 脚本（按内容判断，见 4.1）
 
 项目设置里的 `autoload/*`、`editor_plugins/*`、`application/run/main_scene` 同理，这也是 `project_settings_set` 整体定为 `destructive` 的原因。

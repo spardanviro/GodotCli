@@ -52,6 +52,9 @@ func test_path_policy_flags_sensitive_targets() -> void:
 	for path in [
 		"res://project.godot", "res://Project.Godot", "res://override.cfg", "res://export_presets.cfg",
 		"res://addons/other/plugin.cfg", "res://gdcli_commands/x.gd", "res://bin/lib.gdextension",
+		# What a .NET build or restore reads by name.
+		"res://Game.csproj.user", "res://Directory.Build.rsp", "res://NuGet.Config", "res://sub/nuget.config",
+		"res://global.json", "res://.config/dotnet-tools.json", "res://Game.slnx", "res://Build.proj",
 	]:
 		equal(PathPolicy.check_text(path, "write")["sensitive"], true, path)
 	for path in ["res://main.tscn", "res://scripts/player.gd", "res://sub/project.godot", "res://my_addons/x.gd"]:

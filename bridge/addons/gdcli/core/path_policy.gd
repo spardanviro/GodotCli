@@ -11,12 +11,20 @@ const ACCESS_WRITE := "write"
 const _HIDDEN_ROOTS: Array[String] = [".godot", ".git"]
 const _OWN_ADDON := "addons/gdcli"
 const _SENSITIVE_ROOT_FILES: Array[String] = ["project.godot", "project.binary", "override.cfg", "export_presets.cfg"]
-# Files git itself acts on: a submodule URL, a filter command.
-const _SENSITIVE_FILE_NAMES: Array[String] = [".gitmodules", ".gitattributes"]
+# Files git itself acts on (a submodule URL, a filter command), and those a
+# .NET restore or build reads by name: package sources, the SDK version,
+# MSBuild command-line arguments, local tools.
+const _SENSITIVE_FILE_NAMES: Array[String] = [
+	".gitmodules", ".gitattributes", "nuget.config", "global.json", "directory.build.rsp", "dotnet-tools.json",
+]
 const _GIT_DIR := ".git"
 const _SENSITIVE_ROOTS: Array[String] = ["addons", "gdcli_commands"]
-# Native libraries, and the files a C# build runs.
-const _SENSITIVE_EXTENSIONS: Array[String] = ["gdextension", "csproj", "sln", "props", "targets"]
+# Native libraries, and the files a C# build runs: projects and solutions of
+# every kind, imported props and targets, a project's .user file (imported
+# automatically) and response files.
+const _SENSITIVE_EXTENSIONS: Array[String] = [
+	"gdextension", "csproj", "fsproj", "vbproj", "proj", "sln", "slnx", "slnf", "props", "targets", "user", "rsp",
+]
 const _FIRST_PRINTABLE := 0x20
 const _DELETE := 0x7f
 const _RESERVED_DEVICE_PATTERN := "^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\\..*)?$"

@@ -14,6 +14,7 @@ const _RESOURCE_EXTENSIONS: Array[String] = ["tres", "res"]
 const _SENSITIVE := "sensitive location: files here are loaded by the editor or change how the project loads"
 const _OVERWRITE := "overwrites an existing file"
 const _TOOL_SCRIPT := "tool script: it runs inside the editor as soon as it is loaded"
+const _CSHARP := "C# file: once built, the editor runs part of any C# class (field initializers), not only [Tool] ones"
 const _UNSAFE_IN_REFERENCES: Array[String] = ["\"", "'", ";", "%", "{", "}", "(", ")", "#", "$"]
 # Binary scene and resource files can carry a script and cannot be reviewed.
 const _SCRIPT_EXTENSION := "gd"
@@ -128,7 +129,7 @@ func _write_text(args: Dictionary, options: Dictionary) -> Dictionary:
 	# can do; so do the files in the sensitive locations. A person allows those.
 	var is_tool := Edit.runs_in_editor(args["text"], path.get_extension())
 	if checked["sensitive"] or is_tool:
-		var what := {"command": "fs_write_text", "reason": _TOOL_SCRIPT if is_tool else _SENSITIVE, "target": path, "preview": args["text"]}
+		var what := {"command": "fs_write_text", "reason": _code_reason(path) if is_tool else _SENSITIVE, "target": path, "preview": args["text"]}
 		var person := Edit.person_gate(_context, options, what, _write_text.bind(args, Edit.approved(options)))
 		if not person.is_empty():
 			return person
@@ -272,7 +273,7 @@ func _move(args: Dictionary, options: Dictionary) -> Dictionary:
 			and Edit.runs_in_editor(FileAccess.get_file_as_string(from), to.get_extension())
 	if source["sensitive"] or target["sensitive"] or not references["sensitive"].is_empty() or becomes_code:
 		var what := {
-			"command": "fs_move", "reason": _TOOL_SCRIPT if becomes_code else _SENSITIVE, "target": "%s -> %s" % [from, to],
+			"command": "fs_move", "reason": _code_reason(to) if becomes_code else _SENSITIVE, "target": "%s -> %s" % [from, to],
 			"preview": FileAccess.get_file_as_string(from) if becomes_code else "Files in sensitive locations that would be rewritten:\n" + "\n".join(references["sensitive"]),
 		}
 		var person := Edit.person_gate(_context, options, what, _move.bind(args, Edit.approved(options)))
@@ -385,3 +386,7 @@ func _resource_set(args: Dictionary, options: Dictionary) -> Dictionary:
 		return Reply.fail("COMMAND_FAILED", "The resource could not be saved.", "", {"path": path, "error": error_string(result)})
 	_context.file_changed(path)
 	return Reply.ok({"path": path, "set": properties.keys()}, [Edit.NOT_UNDOABLE])
+
+
+static func _code_reason(path: String) -> String:
+	return _CSHARP if path.get_extension().to_lower() == Edit.CSHARP_EXTENSION else _TOOL_SCRIPT

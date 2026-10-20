@@ -93,6 +93,13 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: node scripts/cli-e2e.mjs
+      # Which C# code runs inside a .NET editor, and which C# writes the bridge holds back.
+      - if: matrix.build == 'dotnet'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - if: matrix.build == 'dotnet'
+        run: node scripts/dotnet-probe.mjs
       # The eval set without a model: every reference answer passes its checks,
       # and doing nothing fails them. Oldest and newest Godot on Linux only, for time.
       - if: matrix.evals

@@ -122,9 +122,9 @@ run `gd command fs_scan` afterwards so the editor notices them.
 
 ## When a person has to agree
 
-Some changes are shown to the person at the editor, who allows or denies them: a script with `@tool` (in C#: a
-class marked `[Tool]`), anything under `addons/`, autoloads and similar project settings, `eval`, and in the
-editor's `ask` mode every destructive command.
+Some changes are shown to the person at the editor, who allows or denies them: a script with `@tool`, every C#
+file (the editor runs part of any C# script once it is built), anything under `addons/`, autoloads and similar
+project settings, `eval`, and in the editor's `ask` mode every destructive command.
 The call waits up to 50 seconds for the answer.
 
 - `NOT_APPROVED`: the person said no, did not answer, or the editor has no window. **Stop and tell the user** what you

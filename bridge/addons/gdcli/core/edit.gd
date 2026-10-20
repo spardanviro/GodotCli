@@ -11,28 +11,23 @@ const UNDO_PREFIX := "gdcli: "
 # embedded in a scene or resource file. A mention in a comment matches too;
 # the cost of that is one question too many, never one too few.
 const _TOOL_PATTERN := "@[\\s\\\\]*tool\\b"
-# In C#: the Tool attribute, which makes a class run in the editor, and a
-# module initializer, which runs when the editor loads the built assembly.
-# An attribute can be spread over lines, nested in others or spelled with
-# escapes, so the words themselves are looked for, wherever they stand, and
-# any escaped character in an identifier counts too: a question too many,
-# never one too few.
-const _CSHARP_PATTERN := "\\b(?:Tool|ToolAttribute|ModuleInitializer|ModuleInitializerAttribute)\\b|\\\\[uU][0-9a-fA-F]{4}"
+# Any C# at all: once built, the editor runs more of it than the marks say.
+# Tried on a .NET editor (scripts/dotnet-probe.mjs): besides a [Tool] class
+# and a [ModuleInitializer], the field initializer of an ordinary class runs
+# there too, when the editor reads the class's exported defaults. A build
+# needs nothing but `editor_play`, so every C# file waits for a person.
 const CSHARP_EXTENSION := "cs"
 
 static var _tool_regex: RegEx
-static var _csharp_regex: RegEx
 
 
 ## Whether a text contains code that the editor would run by itself.
-## `extension` is that of the file the text is for: C# marks such code in
-## its own way, which in other files would be ordinary text.
+## `extension` is that of the file the text is for: every C# file counts.
 static func runs_in_editor(text: String, extension: String = "") -> bool:
+	if extension.to_lower() == CSHARP_EXTENSION:
+		return true
 	if _tool_regex == null:
 		_tool_regex = RegEx.create_from_string(_TOOL_PATTERN)
-		_csharp_regex = RegEx.create_from_string(_CSHARP_PATTERN)
-	if extension.to_lower() == CSHARP_EXTENSION:
-		return _csharp_regex.search(text) != null
 	return _tool_regex.search(text) != null
 const NOT_UNDOABLE := "This change is not on the editor's undo stack."
 

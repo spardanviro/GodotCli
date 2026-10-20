@@ -409,10 +409,13 @@ func _attach_script(args: Dictionary, options: Dictionary) -> Dictionary:
 		if not ResourceLoader.exists(checked["path"]):
 			return Reply.fail("RESOURCE_NOT_FOUND", "The script file does not exist.", "", {"path": checked["path"]})
 		# A tool script starts running in the editor once it is on a node,
-		# whoever wrote the file and however. Asked before it is even loaded.
+		# whoever wrote the file and however; so does part of any C# script
+		# (its exported fields' initializers). Asked before it is even loaded.
 		if Edit.runs_in_editor(FileAccess.get_file_as_string(checked["path"]), checked["path"].get_extension()):
+			var is_csharp: bool = checked["path"].get_extension().to_lower() == Edit.CSHARP_EXTENSION
 			var what := {
-				"command": "node_attach_script", "reason": "tool script: it runs inside the editor as soon as it is loaded",
+				"command": "node_attach_script",
+				"reason": "C# script: the editor runs part of it (field initializers) once it is on a node" if is_csharp else "tool script: it runs inside the editor as soon as it is loaded",
 				"target": checked["path"], "preview": FileAccess.get_file_as_string(checked["path"]),
 			}
 			var gate := Edit.person_gate(_context, options, what, _attach_script.bind(args, Edit.approved(options)))

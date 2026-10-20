@@ -457,7 +457,7 @@ func test_edit_runs_in_editor_finds_the_tool_annotation_however_it_is_written() 
 	check(not Edit.runs_in_editor("extends Node\n\nvar tools := 3\n# uses a toolbox\n"), "an ordinary script")
 
 
-func test_edit_runs_in_editor_knows_the_marks_of_csharp() -> void:
+func test_edit_runs_in_editor_counts_every_csharp_file() -> void:
 	for text in [
 		"[Tool]\npublic partial class Hud : Control {}\n",
 		"[GlobalClass, Tool]\npublic partial class Hud : Control {}\n",
@@ -470,20 +470,21 @@ func test_edit_runs_in_editor_knows_the_marks_of_csharp() -> void:
 		"// was: [Tool]\npublic partial class Hud : Control {}\n",
 	]:
 		check(Edit.runs_in_editor(text, "cs"), text.c_escape())
-	check(not Edit.runs_in_editor("public partial class Player : CharacterBody2D\n{\n\tint[] tools = new int[3];\n\t[Export] public float Speed = 3;\n}\n", "cs"), "an ordinary class")
+	# An exported field's initializer runs in the editor too (scripts/dotnet-probe.mjs).
+	check(Edit.runs_in_editor("public partial class Player : CharacterBody2D\n{\n\t[Export] public float Speed = 3;\n}\n", "cs"), "an ordinary class")
+	check(Edit.runs_in_editor("", "CS"), "the extension in any case, whatever the text")
 	check(not Edit.runs_in_editor("[node name=\"Tool\" type=\"Node\"]\n", "tscn"), "the same word in a file that is not C#")
-	check(not Edit.runs_in_editor("@tool\n", "CS") and Edit.runs_in_editor("[Tool]", "CS"), "the extension in any case; the GDScript mark means nothing in C#")
 
 
-func test_fs_write_text_asks_before_writing_csharp_that_runs_in_the_editor() -> void:
+func test_fs_write_text_asks_before_writing_any_csharp() -> void:
 	_setup()
 
 	equal(_code("fs_write_text", {"path": "res://tests/tmp/Hud.cs", "text": "[Tool]\npublic partial class Hud : Godot.Control {}\n"}), "NOT_APPROVED", "a tool class")
-	equal(_code("fs_write_text", {"path": "res://tests/tmp/Player.cs", "text": "public partial class Player : Godot.Node {}\n"}), "", "an ordinary class")
-	DirAccess.remove_absolute(ProjectSettings.globalize_path("res://tests/tmp/Player.cs"))
+	equal(_code("fs_write_text", {"path": "res://tests/tmp/Player.cs", "text": "public partial class Player : Godot.Node {}\n"}), "NOT_APPROVED", "an ordinary class")
+	check(not FileAccess.file_exists("res://tests/tmp/Player.cs"), "nothing was written")
 
 
-func test_fs_move_asks_when_a_rename_turns_text_into_editor_code() -> void:
+func test_fs_move_asks_when_a_rename_turns_text_into_csharp() -> void:
 	_setup()
 	var notes := "res://tests/tmp/hud_notes.txt"
 	_call("fs_write_text", {"path": notes, "text": "[Tool]\npublic partial class Hud : Godot.Control {}\n"})
@@ -491,12 +492,14 @@ func test_fs_move_asks_when_a_rename_turns_text_into_editor_code() -> void:
 	_call("fs_write_text", {"path": plain, "text": "public partial class Player : Godot.Node {}\n"})
 
 	var renamed := _code("fs_move", {"from": notes, "to": "res://tests/tmp/Hud.cs", "update_references": false}, {"confirm": true})
-	var harmless := _code("fs_move", {"from": plain, "to": "res://tests/tmp/Player.cs", "update_references": false}, {"confirm": true})
+	var plain_renamed := _code("fs_move", {"from": plain, "to": "res://tests/tmp/Player.cs", "update_references": false}, {"confirm": true})
+	var harmless := _code("fs_move", {"from": plain, "to": "res://tests/tmp/plain_notes_2.txt", "update_references": false}, {"confirm": true})
 
 	equal(renamed, "NOT_APPROVED", "a tool class that arrives by being renamed")
 	check(FileAccess.file_exists(notes), "is still where it was")
-	equal(harmless, "", "an ordinary class is renamed")
-	for leftover in [notes, "res://tests/tmp/Player.cs"]:
+	equal(plain_renamed, "NOT_APPROVED", "an ordinary class that arrives by being renamed")
+	equal(harmless, "", "text renamed to other text")
+	for leftover in [notes, plain, "res://tests/tmp/plain_notes_2.txt"]:
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(leftover))
 
 

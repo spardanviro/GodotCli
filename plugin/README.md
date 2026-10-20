@@ -90,7 +90,7 @@ GDCLI_UPDATE_PLUGIN=1 GODOT_BIN=/path/to/godot node scripts/bridge-test.mjs
 
 - **shell 命令只能按文本检查。** 第二个钩子 `hooks/guard-shell-writes.mjs` 在 Bash 和 PowerShell 命令执行前读命令文本，拦住常见的写法：重定向到这些文件、`cp`/`mv`/`rm`/`tee`/`touch`/`sed -i`、`Set-Content`/`Out-File`/`Copy-Item`/`Remove-Item` 等、`git checkout`/`git restore` 指定这些文件、一行脚本（`python -c`、`node -e`、`bash -c`）里写这些文件。读文件、把文件复制到项目外、`gd` 命令都放行。它挡不住变量拼出来的路径、先写一个脚本文件再运行、没列进去的工具。这是护栏，不是沙箱。
 - **硬约束要靠 Claude Code 的沙箱**（见下一节，已在 WSL2 上实测），而沙箱不支持原生 Windows。
-- C# 的批准规则（桥接一侧）只按文本判断 `[Tool]` 和 `[ModuleInitializer]`，没有在 .NET 版 Godot 上验证过。
+- C#：桥接一侧凡是写入 `.cs`、改名成 `.cs`、挂上 C# 脚本都要人批准，因为在 .NET 版编辑器上实测，普通类的字段初始化也会在编辑器里运行（`scripts/dotnet-probe.mjs`）。所以无头编辑器里不能经由桥接写 C#。
 - Claude Code 自己的配置不归它管：项目里的 `.claude/settings.json` 可以设置环境变量或关掉全部钩子。克隆来的仓库如果自带这样的配置，这个钩子可能根本不运行。
 - 游戏进程里的代码不受约束，离线通道（`gd run`、`gd exec`）也不经过桥接。
 
