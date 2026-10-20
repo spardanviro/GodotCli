@@ -142,6 +142,7 @@ func _move() -> bool:
 	# What the editor already holds in memory follows the file.
 	for entry in cached:
 		entry["resource"].take_over_path(entry["path"])
+	_remap_uids()
 
 	# Files inside a moved folder are rewritten where they are now.
 	var targets := []
@@ -178,31 +179,62 @@ func _move() -> bool:
 	return true
 
 
+# The file, or the files of the folder, under `root` (at most MAX_FOLDER_FILES).
+func _files_under(root: String) -> Array[String]:
+	if not _is_folder:
+		return [root]
+	var files: Array[String] = []
+	var pending: Array[String] = [root]
+	var visited := 0
+	while not pending.is_empty() and files.size() < MAX_FOLDER_FILES:
+		var folder: String = pending.pop_back()
+		var directory := DirAccess.open(folder)
+		if directory == null:
+			continue
+		visited += 1
+		# Links are moved as they are and not followed.
+		for name in directory.get_directories():
+			if not directory.is_link(folder.path_join(name)) and visited + pending.size() < MAX_FOLDER_FILES:
+				pending.append(folder.path_join(name))
+		for name in directory.get_files():
+			files.append(folder.path_join(name))
+	return files
+
+
 # [{resource, path}]: what the editor has loaded from the file or folder, with
 # the path each will have.
 func _cached_resources() -> Array:
-	var files: Array[String] = [_from]
-	if _is_folder:
-		files = []
-		var pending: Array[String] = [_from]
-		var visited := 0
-		while not pending.is_empty() and files.size() < MAX_FOLDER_FILES:
-			var folder: String = pending.pop_back()
-			var directory := DirAccess.open(folder)
-			if directory == null:
-				continue
-			visited += 1
-			# Links are moved as they are and not followed.
-			for name in directory.get_directories():
-				if not directory.is_link(folder.path_join(name)) and visited + pending.size() < MAX_FOLDER_FILES:
-					pending.append(folder.path_join(name))
-			for name in directory.get_files():
-				files.append(folder.path_join(name))
 	var cached := []
-	for path in files:
+	for path in _files_under(_from):
 		if ResourceLoader.has_cached(path):
 			cached.append({"resource": ResourceLoader.load(path), "path": _updater.moved_path(path) if _is_folder else _to})
 	return cached
+
+
+# A scene refers to a file by uid first. The editor learns a moved file's new
+# path from its file system scan, which takes frames; a scene loaded again
+# before that looks for the old path, finds nothing and drops the reference
+# (a busy machine showed it). So the uids are pointed at the new paths now.
+func _remap_uids() -> void:
+	for path in _files_under(_to):
+		if path.ends_with(".uid") or path.ends_with(".import"):
+			continue
+		var id := _uid_of(path)
+		# Only a uid that named this very file before: a .uid file written to
+		# claim another resource's uid does not redirect that resource here.
+		var old_path := _from + path.substr(_to.length()) if _is_folder else _from
+		if id != ResourceUID.INVALID_ID and ResourceUID.has_id(id) and ResourceUID.get_id_path(id) == old_path:
+			ResourceUID.set_id(id, path)
+
+
+# From the .uid file next to it (scripts, shaders) or, in the editor, from the
+# file itself (a scene's or resource's header).
+static func _uid_of(path: String) -> int:
+	if FileAccess.file_exists(path + ".uid"):
+		return ResourceUID.text_to_id(FileAccess.get_file_as_string(path + ".uid").strip_edges())
+	if ResourceLoader.has_method("get_resource_uid"):
+		return ResourceLoader.get_resource_uid(path)
+	return ResourceUID.INVALID_ID
 
 
 func _add_warnings(outcome: Dictionary) -> void:

@@ -225,6 +225,39 @@ func test_fs_move_dry_run_lists_the_references_it_would_update() -> void:
 	check(FileAccess.file_exists(args["from"]), "nothing was moved")
 
 
+func test_fs_move_points_the_uid_at_the_new_path_at_once() -> void:
+	# A scene loaded again right after the move finds the file by uid; the
+	# editor's own scan updates the uid only frames later.
+	_setup()
+	var from := "res://tests/tmp/uid_probe.gd"
+	var to := "res://tests/tmp/moved/uid_probe.gd"
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://tests/tmp"))
+	FileAccess.open(from, FileAccess.WRITE).store_string("extends Node\n")
+	var id := ResourceUID.create_id()
+	FileAccess.open(from + ".uid", FileAccess.WRITE).store_string(ResourceUID.id_to_text(id) + "\n")
+	ResourceUID.add_id(id, from)
+
+	var moved := _call("fs_move", {"from": from, "to": to, "update_references": false}, {"confirm": true})
+
+	equal(moved["ok"], true, "moved")
+	equal(ResourceUID.get_id_path(id), to, "the uid names the new path")
+	check(FileAccess.file_exists(to + ".uid"), "the .uid file went along")
+
+	# A .uid file that claims someone else's uid moves nothing but itself.
+	var other := ResourceUID.create_id()
+	ResourceUID.add_id(other, "res://tests/fixtures/empty_script.gd")
+	var claimer := "res://tests/tmp/claimer.gd"
+	FileAccess.open(claimer, FileAccess.WRITE).store_string("extends Node\n")
+	FileAccess.open(claimer + ".uid", FileAccess.WRITE).store_string(ResourceUID.id_to_text(other) + "\n")
+	_call("fs_move", {"from": claimer, "to": "res://tests/tmp/moved/claimer.gd", "update_references": false}, {"confirm": true})
+	equal(ResourceUID.get_id_path(other), "res://tests/fixtures/empty_script.gd", "the other resource keeps its uid")
+
+	ResourceUID.remove_id(id)
+	ResourceUID.remove_id(other)
+	for leftover in [to, to + ".uid", "res://tests/tmp/moved/claimer.gd", "res://tests/tmp/moved/claimer.gd.uid"]:
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(leftover))
+
+
 func test_fs_move_refuses_folders_and_names_that_cannot_be_moved_safely() -> void:
 	_setup()
 	var fixtures := "res://tests/fixtures"
