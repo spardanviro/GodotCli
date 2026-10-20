@@ -2,7 +2,7 @@
 
 从命令行和编码智能体里控制 Godot：一个编辑器桥接插件，一个 `gd` 命令行，一个 Claude 插件。
 
-**状态：0.3.0，第 6 阶段（加固与发布）进行中。** `gd` 能读写运行中编辑器里的场景（每一步都进编辑器的撤销栈），能查看和操作编辑器启动的游戏，也能不开编辑器运行场景、检查脚本、导入、导出、查接口；`gd mcp` 把这些提供给任何 MCP 客户端。Claude 插件有十个技能和两个写入拦截钩子，见 [plugin/README.md](plugin/README.md)。
+**状态：0.3.1，第 6 阶段（加固与发布）进行中。** `gd` 能读写运行中编辑器里的场景（每一步都进编辑器的撤销栈），能查看和操作编辑器启动的游戏，也能不开编辑器运行场景、检查脚本、导入、导出、查接口；`gd mcp` 把这些提供给任何 MCP 客户端。Claude 插件有十个技能和两个写入拦截钩子，见 [plugin/README.md](plugin/README.md)。
 
 ## 安装
 
@@ -10,7 +10,7 @@
 npm install -g gdcli    # Node.js 22 以上；Godot 4.3 以上
 ```
 
-装好后 `gd` 和 `gdcli` 是同一个命令。`gd` 被别名占用时（oh-my-zsh 的 git 插件把它设成了 `git diff`）用 `gdcli`。npm 上的包发布之前，从源码构建（见"开发"），用 `node cli/dist/main.js` 代替 `gd`。
+装好后 `gd` 和 `gdcli` 是同一个命令。`gd` 被别名占用时（oh-my-zsh 的 git 插件把它设成了 `git diff`）用 `gdcli`。也可以从源码构建（见"开发"），用 `node cli/dist/main.js` 代替 `gd`。
 
 Claude Code 用户再装插件，得到技能和写入钩子：
 
