@@ -65,6 +65,7 @@ Windows 上 `GODOT_BIN` 用 `.console.exe`。
 }
 ```
 
+- 每个项目都设了 `editor/run/main_run_args = "--headless"`：从编辑器运行的游戏不开窗口，没有显示器的机器（持续集成）上也能检查游戏行为。
 - `setup`：默认建一个主场景 `res://main.tscn`（根节点类型由 `root` 给出，默认 `Node2D`，名为 `Main`）并设为主场景。`"empty": true` 表示什么都不建。`files` 是要放进项目的文件（文本，或 `{"fixture": "tiles.png"}` 取自 `fixtures/`），`commands` 是额外的 `gd` 命令。
 - `prompt`：交给智能体的那句话，字符串或字符串数组（按行拼接）。故意写得像真人的需求：不提 `gd`，不提要保存。
 - 检查看的是**磁盘上**的项目：编辑器里改了却没有保存（`scene_save`）的场景不算数，这是有意的，技能里要求保存。

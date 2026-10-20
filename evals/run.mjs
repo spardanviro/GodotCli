@@ -452,6 +452,12 @@ function setUp(task, env, project) {
   if (!started.success) {
     return `gd host start: ${describeFailure(started)}`;
   }
+  // A game started from the headless editor still opens a window, and on a
+  // machine without a display (CI) it quits at once. The game checks run it headless.
+  const headlessGame = gd(env, project, ["command", "project_settings_set", "--name", "editor/run/main_run_args", "--value", JSON.stringify("--headless"), "--yes"]);
+  if (!headlessGame.success) {
+    return `setup main_run_args: ${describeFailure(headlessGame)}`;
+  }
   const commands = task.setup?.empty === true ? [] : [
     ["command", "scene_new", "--path", DEFAULT_SCENE, "--root-type", task.setup?.root ?? "Node2D", "--root-name", "Main"],
     ["command", "project_settings_set", "--name", "application/run/main_scene", "--value", JSON.stringify(DEFAULT_SCENE), "--yes"],
