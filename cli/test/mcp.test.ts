@@ -463,6 +463,28 @@ describe("gd mcp configure", () => {
     expect(sharedResult.envelope.warnings).toEqual(["Nothing was written: add --yes."]);
   });
 
+  test("names a Godot from the user config too, so a later run without GODOT_BIN does not lose it", async () => {
+    const godot = join(tempDir(), "godot-editor");
+    writeFile(godot, "");
+    const { home, project, run } = configured("cursor");
+    writeFile(join(home, ".gdcli", "config.json"), JSON.stringify({ godot_bin: godot }));
+
+    const result = await run();
+
+    expect(result.envelope.data).toMatchObject({ server: { args: ["/opt/gdcli/dist/main.js", "mcp", "--project", project, "--godot", godot] } });
+  });
+
+  test("Codex: escapes DEL, and refuses a path TOML cannot write", () => {
+    const del = String.fromCodePoint(0x7f);
+    const lone = String.fromCharCode(0xd800);
+
+    const escaped = mergeToml("", "gdcli", { command: `/a${del}b`, args: [] });
+    const refused = mergeToml("", "gdcli", { command: `/a${lone}b`, args: [] });
+
+    expect(escaped).toContain('command = "/a\\u007Fb"');
+    expect(refused).toBeInstanceOf(Error);
+  });
+
   test("without a Godot it still writes the entry, and says gd_host_start will fail", async () => {
     const { project, run } = configured("cursor", [], {}, "linux", { GODOT_BIN: join(tempDir(), "missing") });
 

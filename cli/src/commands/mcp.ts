@@ -97,18 +97,17 @@ function entryFor(context: Context, project: string, bareName: boolean, godot: s
 }
 
 /**
- * The Godot binary to name in the entry. Clients start servers with an
- * environment of their own (Codex passes on only a few variables), so one
- * chosen with --godot or GODOT_BIN is written out; one from the user config
- * or PATH the server finds by itself.
+ * The Godot binary to name in the entry: the one gd finds now, wherever from.
+ * Clients start servers with an environment of their own (Codex passes on
+ * only a few variables), so GODOT_BIN would not reach the server. Each run
+ * writes the entry anew: one that finds no Godot names none, and says so.
  */
 function godotFor(context: Context, globals: GlobalOptions): { godot?: string; warning?: string } {
-  const chosen = globals.godot ?? nonEmpty(context.io.env[GODOT_ENV]);
   const located = locateGodot(context, globals);
   if (isEnvelopeError(located)) {
-    return { warning: `${located.message} The server starts without one: set it with --godot when configuring, or gd_host_start will fail.` };
+    return { warning: `${located.message} The server starts without one: set it with --godot or ${GODOT_ENV} when configuring, or gd_host_start will fail.` };
   }
-  return chosen === undefined ? {} : { godot: located };
+  return { godot: located };
 }
 
 /** The first symbolic link on the way to the file (its folders included), if any. */

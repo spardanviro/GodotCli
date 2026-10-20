@@ -97,8 +97,12 @@ function isServer(path: readonly string[], name: string): boolean {
   return path[0] === TABLE_ROOT && path[1] === name;
 }
 
+/** TOML has no way to write a code point that is half of a surrogate pair. */
+const LONE_SURROGATE = /\p{Cs}/u;
+
+/** A JSON string is a TOML basic string, except that TOML also wants DEL escaped. */
 function tomlString(value: string): string {
-  return JSON.stringify(value); // A JSON string is a valid TOML basic string.
+  return JSON.stringify(value).replaceAll("\u007f", "\\u007F");
 }
 
 /**
@@ -107,6 +111,9 @@ function tomlString(value: string): string {
  * the file in a form that is not such a table.
  */
 export function mergeToml(old: string, name: string, entry: TomlEntry): string | Error {
+  if ([entry.command, ...entry.args].some((value) => LONE_SURROGATE.test(value))) {
+    return new Error("A path in the entry holds a character TOML cannot write (half of a surrogate pair).");
+  }
   const newline = old.includes("\r\n") ? "\r\n" : "\n";
   const lines = old === "" ? [] : old.split(/\r?\n/u);
   const kept: string[] = [];
