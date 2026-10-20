@@ -71,7 +71,11 @@ jobs:
       - run: npm run test:package
       - name: Pack the npm package
         working-directory: cli
-        run: npm pack --pack-destination "${RUNNER_TEMP}/package"
+        run: |
+          set -euo pipefail
+          # npm pack does not create the folder it writes into.
+          mkdir -p "${RUNNER_TEMP}/package"
+          npm pack --pack-destination "${RUNNER_TEMP}/package"
       - uses: actions/upload-artifact@v4
         with:
           name: npm-package
