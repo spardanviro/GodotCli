@@ -10,7 +10,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const EVALS = dirname(fileURLToPath(import.meta.url));
@@ -431,6 +431,224 @@ async function gameCheckOnce(check, project, env) {
   }
 }
 
+/** Every node of the running game's tree, flattened: {name, type, path, groups}. */
+function flatten(tree, found = []) {
+  if (tree === null || typeof tree !== "object") {
+    return found;
+  }
+  found.push({ name: String(tree.name), type: tree.type ?? tree.class, path: tree.path, groups: tree.groups ?? [] });
+  for (const child of tree.children ?? []) {
+    flatten(child, found);
+  }
+  return found;
+}
+
+/** Nodes matching {name}, {name_like} (a regex), {class} and {group}, all that are given. */
+function matching(nodes, spec) {
+  const pattern = spec.name_like === undefined ? undefined : new RegExp(spec.name_like, "iu");
+  return nodes.filter(
+    (node) =>
+      (spec.name === undefined || node.name === spec.name) &&
+      (pattern === undefined || pattern.test(node.name)) &&
+      (spec.class === undefined || node.type === spec.class) &&
+      (spec.group === undefined || node.groups.includes(spec.group)),
+  );
+}
+
+/**
+ * The first node a find step names: `spec` or a list of specs tried in order;
+ * `text_like` (a regex) is matched against each candidate's text property.
+ */
+function firstFound(nodes, spec, env, project) {
+  for (const one of Array.isArray(spec) ? spec : [spec]) {
+    const pattern = one.text_like === undefined ? undefined : new RegExp(one.text_like, "iu");
+    for (const node of matching(nodes, one)) {
+      if (pattern === undefined) {
+        return node;
+      }
+      const text = gd(env, project, ["command", "game_node_get", "--path", node.path, "--properties", '["text"]']).data?.properties?.text;
+      if (typeof text === "string" && pattern.test(text)) {
+        return node;
+      }
+    }
+  }
+  return undefined;
+}
+
+function gameTree(env, project) {
+  const answer = gd(env, project, ["command", "game_tree", "--max-depth", "12"]);
+  return answer.success ? answer.data : null;
+}
+
+/** A step's value: a literal, "$name" for a stored one, or [value, index] into a vector. */
+function valueOf(raw, vars) {
+  if (typeof raw === "string" && raw.startsWith("$")) {
+    return vars[raw.slice(1)];
+  }
+  return raw;
+}
+
+/** The same with every "$name" inside arrays and objects replaced too. */
+function filledIn(raw, vars) {
+  if (Array.isArray(raw)) {
+    return raw.map((entry) => filledIn(entry, vars));
+  }
+  if (raw !== null && typeof raw === "object") {
+    return Object.fromEntries(Object.entries(raw).map(([key, entry]) => [key, filledIn(entry, vars)]));
+  }
+  return valueOf(raw, vars);
+}
+
+function holds(left, op, right) {
+  // Nothing read (or not a number) never satisfies a comparison, not even !=.
+  if (left === undefined || right === undefined || Number.isNaN(left) || Number.isNaN(right)) {
+    return false;
+  }
+  switch (op) {
+    case "==": return JSON.stringify(left) === JSON.stringify(right) || (typeof left === "number" && typeof right === "number" && Math.abs(left - right) < 1e-3);
+    case "!=": return !holds(left, "==", right);
+    case ">": return left > right;
+    case ">=": return left >= right;
+    case "<": return left < right;
+    case "<=": return left <= right;
+    default: return false;
+  }
+}
+
+/**
+ * A scripted look at the running game (check type "play"): the steps find
+ * nodes, read, set and call them, press input actions, wait, restart the game,
+ * and expect things of what they read. See evals/README.md.
+ */
+async function playCheck(check, project, env) {
+  let failure = null;
+  for (let attempt = 0; attempt < GAME_TRIES; attempt++) {
+    failure = await playCheckOnce(check, project, env);
+    if (failure === null) {
+      return null;
+    }
+  }
+  return failure;
+}
+
+async function startGame(check, project, env) {
+  const play = gd(env, project, ["command", "editor_play", ...(check.scene === undefined ? [] : ["--scene", check.scene])]);
+  if (!play.success) {
+    return `editor_play: ${describeFailure(play)}`;
+  }
+  for (const started = Date.now(); Date.now() - started < GAME_START_TIMEOUT_MS; ) {
+    await sleep(GAME_POLL_MS);
+    const tree = gameTree(env, project);
+    if (tree !== null && flatten(tree.tree).length > 1) {
+      await sleep((check.settle ?? 1) * 1000);
+      return null;
+    }
+  }
+  return "the game did not start";
+}
+
+async function playCheckOnce(check, project, env) {
+  const found = {};
+  // $rand: a number of this run, so that what an earlier run left behind (user://) cannot pass for this one.
+  const vars = { rand: 1000 + Math.floor(Math.random() * 9000) };
+  const pathOf = (alias) => found[alias] ?? alias;
+  try {
+    const started = await startGame(check, project, env);
+    if (started !== null) {
+      return started;
+    }
+    for (const [index, step] of (check.steps ?? []).entries()) {
+      const at = `step ${index + 1}`;
+      if (step.wait !== undefined) {
+        await sleep(step.wait * 1000);
+      } else if (step.restart === true) {
+        gd(env, project, ["command", "editor_stop"]);
+        // The old game must be gone first, or its tree would pass for the new one's.
+        for (const begun = Date.now(); gameTree(env, project) !== null && Date.now() - begun < GAME_START_TIMEOUT_MS; ) {
+          await sleep(GAME_POLL_MS);
+        }
+        const again = await startGame(check, project, env);
+        if (again !== null) {
+          return `${at}: ${again}`;
+        }
+      } else if (step.find !== undefined) {
+        let node;
+        for (const begun = Date.now(); node === undefined && Date.now() - begun < (step.timeout ?? 10) * 1000; ) {
+          const tree = gameTree(env, project);
+          node = tree === null ? undefined : firstFound(flatten(tree.tree), step.find, env, project);
+          if (node === undefined) {
+            await sleep(GAME_POLL_MS);
+          }
+        }
+        if (node === undefined) {
+          return `${at}: no node like ${JSON.stringify(step.find)} in the running game`;
+        }
+        found[step.as] = node.path;
+      } else if (step.get !== undefined) {
+        const answer = gd(env, project, ["command", "game_node_get", "--path", pathOf(step.get), "--properties", JSON.stringify([step.property])]);
+        const entry = answer.data?.properties?.[step.property];
+        if (!answer.success || entry === undefined) {
+          return `${at}: could not read ${step.property} of ${pathOf(step.get)} (${answer.success ? "no such property" : describeFailure(answer)})`;
+        }
+        const value = entry !== null && typeof entry === "object" && "value" in entry ? entry.value : entry;
+        vars[step.as] = step.index === undefined ? value : value?.[step.index];
+      } else if (step.distance !== undefined) {
+        const points = step.distance.map((alias) => {
+          const entry = gd(env, project, ["command", "game_node_get", "--path", pathOf(alias), "--properties", '["global_position"]']).data?.properties?.global_position;
+          return entry?.value ?? entry;
+        });
+        if (!points.every(Array.isArray)) {
+          return `${at}: could not read the positions of ${step.distance.join(" and ")}`;
+        }
+        vars[step.as] = Math.hypot(points[0][0] - points[1][0], points[0][1] - points[1][1]);
+      } else if (step.set !== undefined) {
+        const answer = gd(env, project, ["command", "game_node_set", "--path", pathOf(step.set), "--properties", JSON.stringify(filledIn(step.properties, vars))]);
+        if (!answer.success) {
+          return `${at}: game_node_set ${pathOf(step.set)}: ${describeFailure(answer)}`;
+        }
+      } else if (step.call !== undefined) {
+        const answer = gd(env, project, ["command", "game_call", "--path", pathOf(step.call), "--method", step.method, "--arguments", JSON.stringify(filledIn(step.arguments ?? [], vars))]);
+        if (!answer.success) {
+          return `${at}: game_call ${pathOf(step.call)}.${step.method}: ${describeFailure(answer)}`;
+        }
+        if (step.as !== undefined) {
+          const result = answer.data?.result;
+          vars[step.as] = result !== null && typeof result === "object" && "value" in result ? result.value : result;
+        }
+      } else if (step.input !== undefined) {
+        const answer = gd(env, project, ["command", "game_input", "--action", step.input, "--hold", String(step.hold ?? 0.1)]);
+        if (!answer.success) {
+          return `${at}: game_input ${step.input}: ${describeFailure(answer)}`;
+        }
+      } else if (step.release !== undefined) {
+        const answer = gd(env, project, ["command", "game_input", "--action", step.release, "--pressed", "false"]);
+        if (!answer.success) {
+          return `${at}: game_input ${step.release} (release): ${describeFailure(answer)}`;
+        }
+      } else if (step.count !== undefined) {
+        const tree = gameTree(env, project);
+        vars[step.as] = tree === null ? -1 : matching(flatten(tree.tree), step.count).length;
+      } else if (step.paused !== undefined) {
+        vars[step.paused] = gameTree(env, project)?.paused;
+      } else if (step.expect !== undefined) {
+        const left = valueOf(step.expect.left, vars);
+        const raw = valueOf(step.expect.right, vars);
+        // A number on the right may be scaled and shifted: "$d1 < $d0 × 0.7", "$x3 < $x2 + 90".
+        const right = typeof raw === "number" ? raw * (step.expect.scale ?? 1) + (step.expect.plus ?? 0) : raw;
+        if (!holds(left, step.expect.op, right)) {
+          const shown = `${step.expect.right}${step.expect.scale === undefined ? "" : ` × ${step.expect.scale}`}${step.expect.plus === undefined ? "" : ` + ${step.expect.plus}`}`;
+          return `${at}: expected ${step.expect.left} ${step.expect.op} ${shown}, got ${JSON.stringify(left)} vs ${JSON.stringify(right)}${step.why === undefined ? "" : ` (${step.why})`}`;
+        }
+      } else {
+        return `${at}: unknown step ${JSON.stringify(step)}`;
+      }
+    }
+    return null;
+  } finally {
+    gd(env, project, ["command", "editor_stop"]);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // One task
 
@@ -457,6 +675,13 @@ function setUp(task, env, project) {
   const headlessGame = gd(env, project, ["command", "project_settings_set", "--name", "editor/run/main_run_args", "--value", JSON.stringify("--headless"), "--yes"]);
   if (!headlessGame.success) {
     return `setup main_run_args: ${describeFailure(headlessGame)}`;
+  }
+  // Every project is called "Eval": without its own user:// folder, runs side by side would share save files.
+  for (const [name, value] of [["application/config/use_custom_user_dir", true], ["application/config/custom_user_dir_name", `gdcli-eval/${basename(dirname(project))}`]]) {
+    const set = gd(env, project, ["command", "project_settings_set", "--name", name, "--value", JSON.stringify(value), "--yes"]);
+    if (!set.success) {
+      return `setup ${name}: ${describeFailure(set)}`;
+    }
   }
   const commands = task.setup?.empty === true ? [] : [
     ["command", "scene_new", "--path", DEFAULT_SCENE, "--root-type", task.setup?.root ?? "Node2D", "--root-name", "Main"],
@@ -503,16 +728,16 @@ async function runTask(task, options, attempt) {
     result.finalText = outcome.finalText;
     // Game checks need the editor; it may have been stopped by the agent.
     gd(env, project, ["host", "start"]);
-    for (const check of task.checks.filter((entry) => entry.type === "game")) {
-      const failure = await gameCheck(check, project, env);
+    for (const check of task.checks.filter((entry) => entry.type === "game" || entry.type === "play")) {
+      const failure = check.type === "game" ? await gameCheck(check, project, env) : await playCheck(check, project, env);
       if (failure !== null) {
-        result.failures.push(`game: ${failure}`);
+        result.failures.push(`${check.type}: ${failure}`);
       }
     }
     gd(env, project, ["host", "stop"]);
     const engine = engineChecks(task, project, root);
     task.checks.forEach((check, index) => {
-      if (check.type === "game") {
+      if (check.type === "game" || check.type === "play") {
         return;
       }
       const failure = ENGINE_CHECKS.has(check.type) ? engine.get(index) : fileOrRunCheck(check, project, env, outcome, options.agent);

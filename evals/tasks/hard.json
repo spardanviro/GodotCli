@@ -1,0 +1,1008 @@
+[
+  {
+    "id": "hard.enemy_patrol_chase",
+    "setup": {
+      "commands": [
+        [
+          "command",
+          "node_create",
+          "--args",
+          "{\"type\": \"CharacterBody2D\", \"name\": \"Player\", \"parent\": \".\", \"properties\": {\"position\": [100, 300]}}"
+        ]
+      ]
+    },
+    "prompt": [
+      "Add an enemy to the main scene: a CharacterBody2D named \"Enemy\" at (500, 300) with a script that has two states.",
+      "While patrolling it walks back and forth up to 100 pixels either side of where it started, at 60 pixels per second.",
+      "When the node \"Player\" comes within 200 pixels it chases the player at 120 pixels per second, and it goes back to",
+      "patrolling once the player is more than 300 pixels away. It is a top-down game: no gravity."
+    ],
+    "max_turns": 70,
+    "checks": [
+      {
+        "type": "node",
+        "path": "Enemy",
+        "class": "CharacterBody2D",
+        "script": true
+      },
+      {
+        "type": "runs_clean"
+      },
+      {
+        "type": "play",
+        "steps": [
+          {
+            "find": {
+              "name": "Enemy"
+            },
+            "as": "enemy"
+          },
+          {
+            "find": {
+              "name": "Player"
+            },
+            "as": "player"
+          },
+          {
+            "get": "enemy",
+            "property": "global_position",
+            "index": 0,
+            "as": "x0"
+          },
+          {
+            "wait": 1.5
+          },
+          {
+            "get": "enemy",
+            "property": "global_position",
+            "index": 0,
+            "as": "x1"
+          },
+          {
+            "expect": {
+              "left": "$x1",
+              "op": "!=",
+              "right": "$x0"
+            },
+            "why": "it patrols while the player is far"
+          },
+          {
+            "expect": {
+              "left": "$x1",
+              "op": ">=",
+              "right": 385
+            }
+          },
+          {
+            "expect": {
+              "left": "$x1",
+              "op": "<=",
+              "right": 615
+            }
+          },
+          {
+            "set": "player",
+            "properties": {
+              "global_position": [
+                500,
+                420
+              ]
+            }
+          },
+          {
+            "distance": [
+              "enemy",
+              "player"
+            ],
+            "as": "d0"
+          },
+          {
+            "wait": 1.0
+          },
+          {
+            "distance": [
+              "enemy",
+              "player"
+            ],
+            "as": "d1"
+          },
+          {
+            "expect": {
+              "left": "$d1",
+              "op": "<",
+              "right": "$d0",
+              "scale": 0.7
+            },
+            "why": "it closes in on a near player"
+          },
+          {
+            "set": "player",
+            "properties": {
+              "global_position": [
+                1400,
+                300
+              ]
+            }
+          },
+          {
+            "wait": 2.0
+          },
+          {
+            "get": "enemy",
+            "property": "global_position",
+            "index": 0,
+            "as": "x2"
+          },
+          {
+            "wait": 1.0
+          },
+          {
+            "get": "enemy",
+            "property": "global_position",
+            "index": 0,
+            "as": "x3"
+          },
+          {
+            "expect": {
+              "left": "$x3",
+              "op": "!=",
+              "right": "$x2"
+            },
+            "why": "it keeps moving after giving up"
+          },
+          {
+            "expect": {
+              "left": "$x3",
+              "op": "<",
+              "right": "$x2",
+              "plus": 90
+            },
+            "why": "it does not chase a player 900 pixels away"
+          }
+        ]
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"CharacterBody2D\", \"name\": \"Enemy\", \"parent\": \".\", \"properties\": {\"position\": [500, 300]}}"
+      ],
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"CollisionShape2D\", \"name\": \"Shape\", \"parent\": \"Enemy\", \"properties\": {\"shape\": {\"$new\": \"CircleShape2D\", \"properties\": {\"radius\": 12}}}}"
+      ],
+      [
+        "command",
+        "fs_write_text",
+        "--args",
+        "{\"path\": \"res://enemy.gd\", \"text\": \"extends CharacterBody2D\\n\\nenum State { PATROL, CHASE }\\n\\n@export var patrol_speed := 60.0\\n@export var chase_speed := 120.0\\n@export var patrol_range := 100.0\\n@export var chase_radius := 200.0\\n@export var give_up_radius := 300.0\\n\\nvar state := State.PATROL\\nvar start_x := 0.0\\nvar direction := 1.0\\n@onready var player: Node2D = get_parent().get_node_or_null(\\\"Player\\\")\\n\\n\\nfunc _ready() -> void:\\n\\tstart_x = global_position.x\\n\\n\\nfunc _physics_process(_delta: float) -> void:\\n\\tif player == null:\\n\\t\\treturn\\n\\tvar distance := global_position.distance_to(player.global_position)\\n\\tif state == State.PATROL and distance < chase_radius:\\n\\t\\tstate = State.CHASE\\n\\telif state == State.CHASE and distance > give_up_radius:\\n\\t\\tstate = State.PATROL\\n\\tif state == State.CHASE:\\n\\t\\tvelocity = global_position.direction_to(player.global_position) * chase_speed\\n\\telse:\\n\\t\\tif global_position.x > start_x + patrol_range:\\n\\t\\t\\tdirection = -1.0\\n\\t\\telif global_position.x < start_x - patrol_range:\\n\\t\\t\\tdirection = 1.0\\n\\t\\tvelocity = Vector2(direction * patrol_speed, 0.0)\\n\\tmove_and_slide()\\n\", \"overwrite\": true}",
+        "--yes"
+      ],
+      [
+        "command",
+        "node_attach_script",
+        "--args",
+        "{\"path\": \"Enemy\", \"script\": \"res://enemy.gd\"}"
+      ],
+      [
+        "command",
+        "scene_save"
+      ]
+    ]
+  },
+  {
+    "id": "hard.spawner_cap",
+    "prompt": "Make the main scene spawn coins: every 0.5 seconds add a new Area2D coin, in the group \"coins\", at a random position inside the 640x360 screen, but never have more than 5 coins at once.",
+    "checks": [
+      {
+        "type": "runs_clean"
+      },
+      {
+        "type": "play",
+        "steps": [
+          {
+            "wait": 4.5
+          },
+          {
+            "count": {
+              "group": "coins"
+            },
+            "as": "n1"
+          },
+          {
+            "expect": {
+              "left": "$n1",
+              "op": "==",
+              "right": 5
+            },
+            "why": "five coins after a few seconds"
+          },
+          {
+            "wait": 1.5
+          },
+          {
+            "count": {
+              "group": "coins"
+            },
+            "as": "n2"
+          },
+          {
+            "expect": {
+              "left": "$n2",
+              "op": "==",
+              "right": 5
+            },
+            "why": "and never more"
+          }
+        ]
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "fs_write_text",
+        "--args",
+        "{\"path\": \"res://main.gd\", \"text\": \"extends Node2D\\n\\nconst MAX_COINS := 5\\n\\n\\nfunc _ready() -> void:\\n\\tvar timer := Timer.new()\\n\\ttimer.wait_time = 0.5\\n\\ttimer.autostart = true\\n\\ttimer.timeout.connect(_spawn)\\n\\tadd_child(timer)\\n\\n\\nfunc _spawn() -> void:\\n\\tif get_tree().get_nodes_in_group(\\\"coins\\\").size() >= MAX_COINS:\\n\\t\\treturn\\n\\tvar coin := Area2D.new()\\n\\tcoin.add_to_group(\\\"coins\\\")\\n\\tcoin.position = Vector2(randf() * 640.0, randf() * 360.0)\\n\\tvar shape := CollisionShape2D.new()\\n\\tvar circle := CircleShape2D.new()\\n\\tcircle.radius = 8.0\\n\\tshape.shape = circle\\n\\tcoin.add_child(shape)\\n\\tadd_child(coin)\\n\", \"overwrite\": true}",
+        "--yes"
+      ],
+      [
+        "command",
+        "node_attach_script",
+        "--args",
+        "{\"path\": \".\", \"script\": \"res://main.gd\"}"
+      ],
+      [
+        "command",
+        "scene_save"
+      ]
+    ]
+  },
+  {
+    "id": "hard.menu_to_level",
+    "setup": {
+      "root": "Control"
+    },
+    "prompt": [
+      "Turn the main scene into a start menu with a \"Play\" button that has keyboard focus when the menu opens.",
+      "Pressing it switches to a new level scene res://levels/level1.tscn whose root is a Node2D named \"Level1\" with a Label that says \"Level 1\"."
+    ],
+    "checks": [
+      {
+        "type": "node",
+        "scene": "res://levels/level1.tscn",
+        "path": ".",
+        "class": "Node2D"
+      },
+      {
+        "type": "expression",
+        "scene": "res://levels/level1.tscn",
+        "code": "root.name == \"Level1\" and helper.find(root, \"Label\").size() > 0 and helper.find(root, \"Label\")[0].text == \"Level 1\""
+      },
+      {
+        "type": "play",
+        "steps": [
+          {
+            "find": [
+              {
+                "class": "Button",
+                "text_like": "play"
+              },
+              {
+                "class": "Button",
+                "name_like": "play"
+              }
+            ],
+            "as": "button"
+          },
+          {
+            "call": "button",
+            "method": "emit_signal",
+            "arguments": [
+              "pressed"
+            ]
+          },
+          {
+            "find": {
+              "name": "Level1",
+              "timeout": 10
+            },
+            "as": "level"
+          }
+        ]
+      },
+      {
+        "type": "play",
+        "steps": [
+          {
+            "input": "ui_accept",
+            "hold": 0.1
+          },
+          {
+            "find": {
+              "name": "Level1",
+              "timeout": 10
+            },
+            "as": "level"
+          }
+        ]
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "scene_new",
+        "--args",
+        "{\"path\": \"res://levels/level1.tscn\", \"root_type\": \"Node2D\", \"root_name\": \"Level1\"}"
+      ],
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"Label\", \"name\": \"Title\", \"parent\": \".\", \"properties\": {\"text\": \"Level 1\"}}"
+      ],
+      [
+        "command",
+        "scene_save"
+      ],
+      [
+        "command",
+        "scene_open",
+        "--args",
+        "{\"path\": \"res://main.tscn\"}"
+      ],
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"Button\", \"name\": \"Play\", \"parent\": \".\", \"properties\": {\"text\": \"Play\", \"position\": [280, 160], \"size\": [80, 32]}}"
+      ],
+      [
+        "command",
+        "fs_write_text",
+        "--args",
+        "{\"path\": \"res://menu.gd\", \"text\": \"extends Control\\n\\n\\nfunc _ready() -> void:\\n\\t$Play.grab_focus()\\n\\t$Play.pressed.connect(_on_play_pressed)\\n\\n\\nfunc _on_play_pressed() -> void:\\n\\tget_tree().change_scene_to_file(\\\"res://levels/level1.tscn\\\")\\n\", \"overwrite\": true}",
+        "--yes"
+      ],
+      [
+        "command",
+        "node_attach_script",
+        "--args",
+        "{\"path\": \".\", \"script\": \"res://menu.gd\"}"
+      ],
+      [
+        "command",
+        "scene_save"
+      ]
+    ]
+  },
+  {
+    "id": "hard.save_high_score",
+    "prompt": [
+      "Give the main scene's root a script with an integer variable high_score (0 at first) and two functions:",
+      "save_game() writes it to user://save.json as {\"high_score\": <value>}, and load_game() reads it back.",
+      "The game loads the saved value when it starts."
+    ],
+    "checks": [
+      {
+        "type": "runs_clean"
+      },
+      {
+        "type": "play",
+        "steps": [
+          {
+            "find": {
+              "name": "Main"
+            },
+            "as": "main"
+          },
+          {
+            "set": "main",
+            "properties": {
+              "high_score": "$rand"
+            }
+          },
+          {
+            "call": "main",
+            "method": "save_game"
+          },
+          {
+            "restart": true
+          },
+          {
+            "find": {
+              "name": "Main"
+            },
+            "as": "main"
+          },
+          {
+            "get": "main",
+            "property": "high_score",
+            "as": "loaded"
+          },
+          {
+            "expect": {
+              "left": "$loaded",
+              "op": "==",
+              "right": "$rand"
+            },
+            "why": "the value saved before the restart"
+          }
+        ]
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "fs_write_text",
+        "--args",
+        "{\"path\": \"res://main.gd\", \"text\": \"extends Node2D\\n\\nconst SAVE_PATH := \\\"user://save.json\\\"\\n\\nvar high_score := 0\\n\\n\\nfunc _ready() -> void:\\n\\tload_game()\\n\\n\\nfunc save_game() -> void:\\n\\tvar file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)\\n\\tfile.store_string(JSON.stringify({\\\"high_score\\\": high_score}))\\n\\n\\nfunc load_game() -> void:\\n\\tif not FileAccess.file_exists(SAVE_PATH):\\n\\t\\treturn\\n\\tvar data: Variant = JSON.parse_string(FileAccess.get_file_as_string(SAVE_PATH))\\n\\tif data is Dictionary and data.has(\\\"high_score\\\"):\\n\\t\\thigh_score = int(data[\\\"high_score\\\"])\\n\", \"overwrite\": true}",
+        "--yes"
+      ],
+      [
+        "command",
+        "node_attach_script",
+        "--args",
+        "{\"path\": \".\", \"script\": \"res://main.gd\"}"
+      ],
+      [
+        "command",
+        "scene_save"
+      ]
+    ]
+  },
+  {
+    "id": "hard.debug_double_score",
+    "setup": {
+      "files": {
+        "res://main.gd": [
+          "extends Node2D",
+          "",
+          "var score := 0",
+          "",
+          "",
+          "func _ready() -> void:",
+          "\t$Coin.collected.connect(func() -> void: score += 1)",
+          "",
+          "",
+          "func _on_coin_collected() -> void:",
+          "\tscore += 1"
+        ],
+        "res://coin.gd": [
+          "extends Area2D",
+          "",
+          "signal collected",
+          "",
+          "",
+          "func collect() -> void:",
+          "\tcollected.emit()",
+          "\tqueue_free()"
+        ]
+      },
+      "commands": [
+        [
+          "command",
+          "node_attach_script",
+          "--args",
+          "{\"path\": \".\", \"script\": \"res://main.gd\"}"
+        ],
+        [
+          "command",
+          "node_create",
+          "--args",
+          "{\"type\": \"Area2D\", \"name\": \"Coin\", \"parent\": \".\", \"properties\": {\"position\": [200, 200]}}"
+        ],
+        [
+          "command",
+          "node_attach_script",
+          "--args",
+          "{\"path\": \"Coin\", \"script\": \"res://coin.gd\"}"
+        ],
+        [
+          "command",
+          "node_connect_signal",
+          "--args",
+          "{\"path\": \"Coin\", \"signal\": \"collected\", \"target\": \".\", \"method\": \"_on_coin_collected\"}"
+        ]
+      ]
+    },
+    "prompt": "Collecting the coin should add 1 to the score, but it adds 2. Find out why and fix it.",
+    "checks": [
+      {
+        "type": "runs_clean"
+      },
+      {
+        "type": "play",
+        "steps": [
+          {
+            "find": {
+              "name": "Main"
+            },
+            "as": "main"
+          },
+          {
+            "find": {
+              "name": "Coin"
+            },
+            "as": "coin"
+          },
+          {
+            "call": "coin",
+            "method": "collect"
+          },
+          {
+            "wait": 0.3
+          },
+          {
+            "get": "main",
+            "property": "score",
+            "as": "score"
+          },
+          {
+            "expect": {
+              "left": "$score",
+              "op": "==",
+              "right": 1
+            },
+            "why": "one coin, one point"
+          }
+        ]
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "fs_write_text",
+        "--args",
+        "{\"path\": \"res://main.gd\", \"text\": \"extends Node2D\\n\\nvar score := 0\\n\\n\\nfunc _on_coin_collected() -> void:\\n\\tscore += 1\\n\", \"overwrite\": true}",
+        "--yes"
+      ]
+    ]
+  },
+  {
+    "id": "hard.pause_menu",
+    "setup": {
+      "files": {
+        "res://mover.gd": [
+          "extends Node2D",
+          "",
+          "",
+          "func _process(delta: float) -> void:",
+          "\tposition.x += 100.0 * delta"
+        ]
+      },
+      "commands": [
+        [
+          "command",
+          "node_create",
+          "--args",
+          "{\"type\": \"Node2D\", \"name\": \"Mover\", \"parent\": \".\"}"
+        ],
+        [
+          "command",
+          "node_attach_script",
+          "--args",
+          "{\"path\": \"Mover\", \"script\": \"res://mover.gd\"}"
+        ]
+      ]
+    },
+    "prompt": [
+      "Add pausing: pressing Escape (the ui_cancel action) pauses the game (the scene tree) and shows a Control named \"PauseMenu\", which is hidden",
+      "while playing; pressing Escape again hides it and resumes. While paused, Mover stops moving."
+    ],
+    "max_turns": 70,
+    "checks": [
+      {
+        "type": "runs_clean"
+      },
+      {
+        "type": "play",
+        "steps": [
+          {
+            "find": {
+              "name": "Mover"
+            },
+            "as": "mover"
+          },
+          {
+            "find": {
+              "name": "PauseMenu"
+            },
+            "as": "menu"
+          },
+          {
+            "get": "menu",
+            "property": "visible",
+            "as": "shown0"
+          },
+          {
+            "expect": {
+              "left": "$shown0",
+              "op": "==",
+              "right": false
+            },
+            "why": "hidden while playing"
+          },
+          {
+            "input": "ui_cancel",
+            "hold": 0
+          },
+          {
+            "wait": 0.3
+          },
+          {
+            "release": "ui_cancel"
+          },
+          {
+            "wait": 0.3
+          },
+          {
+            "paused": "paused1"
+          },
+          {
+            "expect": {
+              "left": "$paused1",
+              "op": "==",
+              "right": true
+            },
+            "why": "Escape pauses"
+          },
+          {
+            "get": "menu",
+            "property": "visible",
+            "as": "shown1"
+          },
+          {
+            "expect": {
+              "left": "$shown1",
+              "op": "==",
+              "right": true
+            },
+            "why": "and shows the menu"
+          },
+          {
+            "get": "mover",
+            "property": "position",
+            "index": 0,
+            "as": "x1"
+          },
+          {
+            "wait": 1.0
+          },
+          {
+            "get": "mover",
+            "property": "position",
+            "index": 0,
+            "as": "x2"
+          },
+          {
+            "expect": {
+              "left": "$x2",
+              "op": "==",
+              "right": "$x1"
+            },
+            "why": "Mover stands still"
+          },
+          {
+            "input": "ui_cancel",
+            "hold": 0
+          },
+          {
+            "wait": 0.3
+          },
+          {
+            "release": "ui_cancel"
+          },
+          {
+            "wait": 0.3
+          },
+          {
+            "paused": "paused2"
+          },
+          {
+            "expect": {
+              "left": "$paused2",
+              "op": "==",
+              "right": false
+            },
+            "why": "Escape again resumes"
+          },
+          {
+            "get": "menu",
+            "property": "visible",
+            "as": "shown2"
+          },
+          {
+            "expect": {
+              "left": "$shown2",
+              "op": "==",
+              "right": false
+            },
+            "why": "and hides the menu"
+          },
+          {
+            "get": "mover",
+            "property": "position",
+            "index": 0,
+            "as": "x3"
+          },
+          {
+            "wait": 0.5
+          },
+          {
+            "get": "mover",
+            "property": "position",
+            "index": 0,
+            "as": "x4"
+          },
+          {
+            "expect": {
+              "left": "$x4",
+              "op": ">",
+              "right": "$x3"
+            },
+            "why": "Mover moves again"
+          }
+        ]
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"Panel\", \"name\": \"PauseMenu\", \"parent\": \".\", \"properties\": {\"size\": [200, 120], \"position\": [220, 120]}}"
+      ],
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"Label\", \"name\": \"Label\", \"parent\": \"PauseMenu\", \"properties\": {\"text\": \"Paused\"}}"
+      ],
+      [
+        "command",
+        "fs_write_text",
+        "--args",
+        "{\"path\": \"res://main.gd\", \"text\": \"extends Node2D\\n\\n\\nfunc _ready() -> void:\\n\\tprocess_mode = Node.PROCESS_MODE_ALWAYS\\n\\t$Mover.process_mode = Node.PROCESS_MODE_PAUSABLE\\n\\t$PauseMenu.hide()\\n\\n\\nfunc _unhandled_input(event: InputEvent) -> void:\\n\\tif event.is_action_pressed(\\\"ui_cancel\\\"):\\n\\t\\tget_tree().paused = not get_tree().paused\\n\\t\\t$PauseMenu.visible = get_tree().paused\\n\", \"overwrite\": true}",
+        "--yes"
+      ],
+      [
+        "command",
+        "node_attach_script",
+        "--args",
+        "{\"path\": \".\", \"script\": \"res://main.gd\"}"
+      ],
+      [
+        "command",
+        "scene_save"
+      ]
+    ]
+  },
+  {
+    "id": "hard.move_scripts",
+    "setup": {
+      "files": {
+        "res://main.gd": [
+          "extends Node2D",
+          "",
+          "",
+          "func _ready() -> void:",
+          "\tprint($Player.speed)"
+        ],
+        "res://player.gd": [
+          "extends CharacterBody2D",
+          "",
+          "@export var speed := 200.0"
+        ]
+      },
+      "commands": [
+        [
+          "command",
+          "node_attach_script",
+          "--args",
+          "{\"path\": \".\", \"script\": \"res://main.gd\"}"
+        ],
+        [
+          "command",
+          "node_create",
+          "--args",
+          "{\"type\": \"CharacterBody2D\", \"name\": \"Player\", \"parent\": \".\"}"
+        ],
+        [
+          "command",
+          "node_attach_script",
+          "--args",
+          "{\"path\": \"Player\", \"script\": \"res://player.gd\"}"
+        ]
+      ]
+    },
+    "prompt": "Tidy up the project: move every script from the project's top folder into res://scripts/, keeping everything working.",
+    "checks": [
+      {
+        "type": "file_missing",
+        "file": "res://main.gd"
+      },
+      {
+        "type": "file_missing",
+        "file": "res://player.gd"
+      },
+      {
+        "type": "file_exists",
+        "file": "res://scripts/main.gd"
+      },
+      {
+        "type": "file_exists",
+        "file": "res://scripts/player.gd"
+      },
+      {
+        "type": "expression",
+        "code": "root.get_script().resource_path == \"res://scripts/main.gd\" and root.get_node(\"Player\").get_script().resource_path == \"res://scripts/player.gd\""
+      },
+      {
+        "type": "runs_clean"
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "fs_move",
+        "--args",
+        "{\"from\": \"res://main.gd\", \"to\": \"res://scripts/main.gd\"}",
+        "--yes"
+      ],
+      [
+        "command",
+        "fs_move",
+        "--args",
+        "{\"from\": \"res://player.gd\", \"to\": \"res://scripts/player.gd\"}",
+        "--yes"
+      ]
+    ]
+  },
+  {
+    "id": "hard.zh_health_hud",
+    "setup": {
+      "commands": [
+        [
+          "command",
+          "node_create",
+          "--args",
+          "{\"type\": \"CharacterBody2D\", \"name\": \"Player\", \"parent\": \".\", \"properties\": {\"position\": [300, 200]}}"
+        ]
+      ]
+    },
+    "prompt": [
+      "给 Player 加生命值：一开始 3 点，并提供受伤函数 take_damage(amount)。生命值降到 0 时 Player 从场景里移除。",
+      "左上角用一个 Label 显示 \"HP: 3\"，受伤后立刻更新成剩下的生命值。"
+    ],
+    "checks": [
+      {
+        "type": "runs_clean"
+      },
+      {
+        "type": "play",
+        "steps": [
+          {
+            "find": {
+              "name": "Player"
+            },
+            "as": "player"
+          },
+          {
+            "find": {
+              "class": "Label",
+              "text_like": "^\\s*HP"
+            },
+            "as": "label"
+          },
+          {
+            "get": "label",
+            "property": "text",
+            "as": "t0"
+          },
+          {
+            "expect": {
+              "left": "$t0",
+              "op": "==",
+              "right": "HP: 3"
+            }
+          },
+          {
+            "call": "player",
+            "method": "take_damage",
+            "arguments": [
+              1
+            ]
+          },
+          {
+            "wait": 0.3
+          },
+          {
+            "get": "label",
+            "property": "text",
+            "as": "t1"
+          },
+          {
+            "expect": {
+              "left": "$t1",
+              "op": "==",
+              "right": "HP: 2"
+            },
+            "why": "the label follows the damage"
+          },
+          {
+            "call": "player",
+            "method": "take_damage",
+            "arguments": [
+              2
+            ]
+          },
+          {
+            "wait": 0.5
+          },
+          {
+            "count": {
+              "name": "Player"
+            },
+            "as": "left"
+          },
+          {
+            "expect": {
+              "left": "$left",
+              "op": "==",
+              "right": 0
+            },
+            "why": "no health, no Player"
+          }
+        ]
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "fs_write_text",
+        "--args",
+        "{\"path\": \"res://player.gd\", \"text\": \"extends CharacterBody2D\\n\\nsignal health_changed(value: int)\\n\\nvar health := 3\\n\\n\\nfunc take_damage(amount: int) -> void:\\n\\thealth = max(health - amount, 0)\\n\\thealth_changed.emit(health)\\n\\tif health == 0:\\n\\t\\tqueue_free()\\n\", \"overwrite\": true}",
+        "--yes"
+      ],
+      [
+        "command",
+        "node_attach_script",
+        "--args",
+        "{\"path\": \"Player\", \"script\": \"res://player.gd\"}"
+      ],
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"CanvasLayer\", \"name\": \"HUD\", \"parent\": \".\"}"
+      ],
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"Label\", \"name\": \"HP\", \"parent\": \"HUD\", \"properties\": {\"text\": \"HP: 3\", \"position\": [16, 16]}}"
+      ],
+      [
+        "command",
+        "fs_write_text",
+        "--args",
+        "{\"path\": \"res://main.gd\", \"text\": \"extends Node2D\\n\\n\\nfunc _ready() -> void:\\n\\t$Player.health_changed.connect(_on_health_changed)\\n\\n\\nfunc _on_health_changed(value: int) -> void:\\n\\t$HUD/HP.text = \\\"HP: %d\\\" % value\\n\", \"overwrite\": true}",
+        "--yes"
+      ],
+      [
+        "command",
+        "node_attach_script",
+        "--args",
+        "{\"path\": \".\", \"script\": \"res://main.gd\"}"
+      ],
+      [
+        "command",
+        "scene_save"
+      ]
+    ]
+  }
+]
