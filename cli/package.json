@@ -1,5 +1,5 @@
 {
-  "name": "gdcli",
+  "name": "@spardanviro/gdcli",
   "version": "0.3.1",
   "description": "Command line for driving the Godot editor and engine, built for coding agents.",
   "type": "module",

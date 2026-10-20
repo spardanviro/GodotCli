@@ -7,7 +7,7 @@ Drive the Godot editor and engine from the command line and from coding agents: 
 ## 安装
 
 ```bash
-npm install -g gdcli
+npm install -g @spardanviro/gdcli
 ```
 
 装好后有两个同样的命令：`gd` 和 `gdcli`。如果 `gd` 被别名占用（oh-my-zsh 的 git 插件把它设成了 `git diff`），用 `gdcli`，或者在 shell 配置里 `unalias gd`。

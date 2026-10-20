@@ -7,7 +7,7 @@
 ## 安装
 
 ```bash
-npm install -g gdcli    # Node.js 22 以上；Godot 4.3 以上
+npm install -g @spardanviro/gdcli    # Node.js 22 以上；Godot 4.3 以上
 ```
 
 装好后 `gd` 和 `gdcli` 是同一个命令。`gd` 被别名占用时（oh-my-zsh 的 git 插件把它设成了 `git diff`）用 `gdcli`。也可以从源码构建（见"开发"），用 `node cli/dist/main.js` 代替 `gd`。

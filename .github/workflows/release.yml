@@ -152,13 +152,14 @@ jobs:
         run: |
           set -euo pipefail
           # Asked anonymously: npm view would send setup-node's placeholder token.
-          code="$(curl -sS -o /dev/null -w '%{http_code}' "https://registry.npmjs.org/gdcli/${VERSION}")"
+          code="$(curl -sS -o /dev/null -w '%{http_code}' "https://registry.npmjs.org/@spardanviro/gdcli/${VERSION}")"
           case "${code}" in
-            200) echo "gdcli@${VERSION} is already on npm"; exit 0 ;;
+            200) echo "@spardanviro/gdcli@${VERSION} is already on npm"; exit 0 ;;
             404) ;;
-            *) echo "::error title=release::the registry answered ${code} for gdcli@${VERSION}"; exit 1 ;;
+            *) echo "::error title=release::the registry answered ${code} for @spardanviro/gdcli@${VERSION}"; exit 1 ;;
           esac
-          tarball="package/gdcli-${VERSION}.tgz"
+          # npm names a scoped package's file <scope>-<name>-<version>.tgz.
+          tarball="package/spardanviro-gdcli-${VERSION}.tgz"
           test -f "${tarball}"
           # A version with a suffix (0.4.0-rc.1) is not what npm install gdcli should get.
           case "${VERSION}" in

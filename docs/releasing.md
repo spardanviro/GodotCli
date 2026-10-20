@@ -1,6 +1,6 @@
 # 发布
 
-三样东西一起发布、版本号相同：npm 上的命令行 `gdcli`（里面带着桥接和技能）、Claude 插件 `godot@gdcli`（从本仓库安装）、Godot 资源库里的桥接插件。
+三样东西一起发布、版本号相同：npm 上的命令行 `@spardanviro/gdcli`（里面带着桥接和技能）、Claude 插件 `godot@gdcli`（从本仓库安装）、Godot 资源库里的桥接插件。
 
 ## 每次发布
 
@@ -44,7 +44,7 @@ npm publish --access public
 
 然后设置自动发布：
 
-1. 在 npmjs.com 打开包 `gdcli` 的 Settings，找到 Trusted Publisher，选 GitHub Actions，填写：
+1. 在 npmjs.com 打开包 `@spardanviro/gdcli` 的 Settings，找到 Trusted Publisher，选 GitHub Actions，填写：
    - Organization or user：`spardanviro`
    - Repository：`GodotCli`
    - Workflow filename：`release.yml`
@@ -82,4 +82,4 @@ Custom 这种方式在资源库的源码里（`getComputedDownloadUrl`）：Down
 
 描述可以用这一段：
 
-> The editor side of gdcli. With it enabled, the `gd` command line (npm: gdcli) and coding agents (Claude Code, Codex, Cursor and other MCP clients) can read and change the open scene through the editor's undo stack, run and inspect the game, and query the engine. It listens on 127.0.0.1 only, with a per-session token kept in your home folder. Changes that would run code inside the editor (tool scripts, addons, autoloads, eval) wait for you to approve them in a dialog. Install the command line with `npm install -g gdcli`; `gd bridge install` also installs this plugin into a project.
+> The editor side of gdcli. With it enabled, the `gd` command line (npm: @spardanviro/gdcli) and coding agents (Claude Code, Codex, Cursor and other MCP clients) can read and change the open scene through the editor's undo stack, run and inspect the game, and query the engine. It listens on 127.0.0.1 only, with a per-session token kept in your home folder. Changes that would run code inside the editor (tool scripts, addons, autoloads, eval) wait for you to approve them in a dialog. Install the command line with `npm install -g @spardanviro/gdcli`; `gd bridge install` also installs this plugin into a project.
