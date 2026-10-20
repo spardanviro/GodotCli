@@ -24,7 +24,7 @@
    - 把桥接打成 `gdcli-bridge-<版本>.zip`，挂到这个标签的 GitHub Release 上。还没有 Release 时，先建一个草稿。已经发布的 Release 上如果已有这个 zip，不会覆盖它，因为资源库下载的就是它。
    - 打开了 npm 自动发布的话（见下文），把命令行发布到 npm。发布的就是核对任务里打包并测试过的那个文件；发布任务本身不安装依赖、不运行仓库里的任何代码。
 5. 在 GitHub 上写好 Release 的说明，然后发布（草稿要点 Publish）。
-6. 资源库：在资源页面上点 Edit，把 Version 和 Download Commit（新 zip 的地址）改掉，提交后等审核。
+6. 资源库：在资源页面（<https://godotengine.org/asset-library/asset/24670>，审核通过前在 My Assets → View pending 里）上点 Edit，把 Version 和 Download Commit（新 zip 的地址）改掉，提交后等审核。
 
 Claude 插件不需要另外发布：用户运行 `claude plugin marketplace update gdcli` 和 `claude plugin update godot@gdcli` 时，会读到 main 上的新版本号。
 

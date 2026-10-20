@@ -49,12 +49,12 @@
 
 ## 第 6 阶段的进展
 
-- **npm 包**：包名 `@spardanviro/gdcli`（npm 不接受 `gdcli`：和已有的 `gd-cli` 太像），装好后 `gd` 和 `gdcli` 两个命令都有（`gd` 和 oh-my-zsh 的 git 别名冲突时用 `gdcli`）。包里带着桥接、十个技能、README 和 LICENSE，不含源码和测试。`npm run test:package` 用 npm 打包后装进一个空目录，再运行两个命令、`gd bridge install`、`gd skills install` 和 `gd mcp`。持续集成在 Linux、Windows、macOS 上都跑这项检查。0.3.1 是第一个发布到 npm 的版本（2026-10-20）。
+- **npm 包**：包名 `@spardanviro/gdcli`（npm 不接受 `gdcli`：和已有的 `gd-cli` 太像），装好后 `gd` 和 `gdcli` 两个命令都有（`gd` 和 oh-my-zsh 的 git 别名冲突时用 `gdcli`）。包里带着桥接、十个技能、README 和 LICENSE，不含源码和测试。`npm run test:package` 用 npm 打包后装进一个空目录，再运行两个命令、`gd bridge install`、`gd skills install` 和 `gd mcp`。持续集成在 Linux、Windows、macOS 上都跑这项检查。0.3.1 是第一个发布到 npm 的版本（2026-10-20，手动发布）。之后的版本由发布流程自动发布：npm 上已把本仓库的 `release.yml` 设为可信发布者，仓库里有 `npm` 环境（只允许 `v*` 标签）、`v*` 标签保护规则和变量 `NPM_PUBLISH`。
 - **发布流程**（[releasing.md](releasing.md)，`.github/workflows/release.yml`）：推送版本标签后自动做三件事。
   - 核对标签和版本号一致，打包并测试。
   - 把桥接打成资源库用的 zip，挂到 Release 上。
   - 用 npm 的可信发布上传核对过的包。这一步需要 `npm` 环境的保护规则，打开前要先手动发布一次。
-- **资源库**：zip 的结构是一个顶层文件夹，下面是 `addons/gdcli`，提交时用 Custom 方式填 zip 地址；图标在 `docs/images/`。提交要用户本人登录。
+- **资源库**：zip 的结构是一个顶层文件夹，下面是 `addons/gdcli`，提交时用 Custom 方式填 zip 地址；图标在 `docs/images/`。0.3.1 已于 2026-10-20 提交（资源编号 24670，名称 "gdcli bridge"），等待审核。
 - **版本矩阵**：桥接测试和端到端测试原来只在 Linux 上跑 4.3 至 4.7，现在 4.7 还在 Windows、macOS 和 .NET 版上跑。
 - **多实例**：端到端测试覆盖了几种情况：两个项目各开一个编辑器；同一个项目开两个编辑器时返回 `MULTIPLE_EDITORS`，用 `--instance` 选中一个；关掉一个后又只剩一个。被强制结束的编辑器留下的锁文件，`gd status` 会清理掉，前提是它的进程已经不在。
 - **Windows 的目录联接**：已验证 `is_link` 能识别它。新增一个桥接测试，确认经过链接的读写会被拒绝。
