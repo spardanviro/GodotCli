@@ -33,17 +33,33 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run verify
+      # What npm would publish, installed into an empty prefix and run.
+      - run: npm run test:package
 
   bridge:
-    name: bridge (godot ${{ matrix.godot }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 35
+    name: bridge (godot ${{ matrix.godot }}, ${{ matrix.build }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
-        godot: ["4.3-stable", "4.4-stable", "4.5-stable", "4.6-stable", "4.7-stable"]
+        # Every minor version on Linux; the newest on Windows, macOS and the .NET build.
+        include:
+          - { godot: 4.3-stable, os: ubuntu-latest, build: linux, archive: linux.x86_64.zip, binary: "*_linux.x86_64", evals: true }
+          - { godot: 4.4-stable, os: ubuntu-latest, build: linux, archive: linux.x86_64.zip, binary: "*_linux.x86_64" }
+          - { godot: 4.5-stable, os: ubuntu-latest, build: linux, archive: linux.x86_64.zip, binary: "*_linux.x86_64" }
+          - { godot: 4.6-stable, os: ubuntu-latest, build: linux, archive: linux.x86_64.zip, binary: "*_linux.x86_64" }
+          - { godot: 4.7-stable, os: ubuntu-latest, build: linux, archive: linux.x86_64.zip, binary: "*_linux.x86_64", evals: true }
+          - { godot: 4.7-stable, os: ubuntu-latest, build: dotnet, archive: mono_linux_x86_64.zip, binary: "*_mono_linux.x86_64" }
+          - { godot: 4.7-stable, os: windows-latest, build: windows, archive: win64.exe.zip, binary: "*_win64_console.exe" }
+          - { godot: 4.7-stable, os: macos-latest, build: macos, archive: macos.universal.zip, binary: "Godot" }
     env:
       GODOT_TAG: ${{ matrix.godot }}
+      ARCHIVE_SUFFIX: ${{ matrix.archive }}
+      BINARY_NAME: ${{ matrix.binary }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -53,20 +69,33 @@ jobs:
         run: |
           set -euo pipefail
           base="https://github.com/godotengine/godot/releases/download/${GODOT_TAG}"
-          archive="Godot_v${GODOT_TAG}_linux.x86_64.zip"
+          archive="Godot_v${GODOT_TAG}_${ARCHIVE_SUFFIX}"
           curl -fsSL --retry 3 -o "${archive}" "${base}/${archive}"
           curl -fsSL --retry 3 -o SHA512-SUMS.txt "${base}/SHA512-SUMS.txt"
           # Same origin as the archive, so this catches a bad download, not a compromised release.
-          grep " ${archive}\$" SHA512-SUMS.txt | sha512sum --check --strict -
-          unzip -q "${archive}" -d "${RUNNER_TEMP}/godot"
-          echo "GODOT_BIN=${RUNNER_TEMP}/godot/Godot_v${GODOT_TAG}_linux.x86_64" >> "${GITHUB_ENV}"
+          line="$(grep " ${archive}\$" SHA512-SUMS.txt)"
+          if command -v sha512sum >/dev/null; then
+            echo "${line}" | sha512sum --check --strict -
+          else
+            echo "${line}" | shasum -a 512 --check --strict -
+          fi
+          if command -v unzip >/dev/null; then
+            unzip -q "${archive}" -d "${RUNNER_TEMP}/godot"
+          else
+            7z x -bd -o"${RUNNER_TEMP}/godot" "${archive}" >/dev/null
+          fi
+          binary="$(find "${RUNNER_TEMP}/godot" -type f -name "${BINARY_NAME}" | head -n 1)"
+          test -n "${binary}"
+          # Later steps run node directly, which wants a Windows path there.
+          if command -v cygpath >/dev/null; then binary="$(cygpath -w "${binary}")"; fi
+          echo "GODOT_BIN=${binary}" >> "${GITHUB_ENV}"
       - run: node scripts/bridge-test.mjs
       - run: npm ci
       - run: npm run build
       - run: node scripts/cli-e2e.mjs
       # The eval set without a model: every reference answer passes its checks,
-      # and doing nothing fails them. Oldest and newest Godot only, for time.
-      - if: matrix.godot == '4.3-stable' || matrix.godot == '4.7-stable'
+      # and doing nothing fails them. Oldest and newest Godot on Linux only, for time.
+      - if: matrix.evals
         run: node evals/run.mjs --jobs 3
-      - if: matrix.godot == '4.3-stable' || matrix.godot == '4.7-stable'
+      - if: matrix.evals
         run: node evals/run.mjs --agent idle --jobs 3

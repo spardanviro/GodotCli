@@ -88,8 +88,27 @@ export function readInstances(home: string, platform: NodeJS.Platform): readonly
     .filter((instance): instance is Instance => instance !== undefined);
 }
 
-/** Removes the lock file of an editor that is gone. Only files that passed validation get here. */
+function isRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error: unknown) {
+    // EPERM: there is such a process, it is only not ours to signal.
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * Removes the lock file of an editor that is gone. Only files that passed
+ * validation get here. While its process still runs the file stays: a refused
+ * connection can be brief (the editor restarting its listener), and a file
+ * kept by mistake is only ignored, whereas one removed by mistake hides a
+ * live editor until it writes the file again.
+ */
 export function removeStale(instance: Instance): void {
+  if (isRunning(instance.pid)) {
+    return;
+  }
   try {
     unlinkSync(instance.filePath);
   } catch {

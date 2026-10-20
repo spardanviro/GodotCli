@@ -983,6 +983,12 @@ async function stop(child) {
     return;
   }
   const exited = new Promise((resolve) => child.once("exit", resolve));
+  if (process.platform === "win32") {
+    // The *_console.exe started here only wraps the editor, which runs as its child.
+    spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+    await Promise.race([exited, sleep(5000)]);
+    return;
+  }
   child.kill();
   await Promise.race([exited, sleep(5000)]);
   if (child.exitCode === null) {
@@ -1022,7 +1028,7 @@ async function endToEnd(godot) {
     failures.push(`${error instanceof Error ? error.message : String(error)}\n--- editor output ---\n${log.join("")}`);
   } finally {
     await stop(child);
-    rmSync(home, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 500 });
     rmSync(join(projectDir, "tests", "tmp"), { recursive: true, force: true, maxRetries: 5, retryDelay: 300 });
   }
 }

@@ -56,3 +56,23 @@ func test_path_policy_flags_sensitive_targets() -> void:
 		equal(PathPolicy.check_text(path, "write")["sensitive"], true, path)
 	for path in ["res://main.tscn", "res://scripts/player.gd", "res://sub/project.godot", "res://my_addons/x.gd"]:
 		equal(PathPolicy.check_text(path, "write")["sensitive"], false, path)
+
+
+func test_path_policy_refuses_a_path_through_a_link() -> void:
+	# On Windows a directory junction, which anyone can make without rights;
+	# elsewhere a symbolic link. Either would let a write leave the project.
+	var target := ProjectSettings.globalize_path("res://tests/tmp/link_target")
+	var link := ProjectSettings.globalize_path("res://tests/tmp/link_here")
+	DirAccess.make_dir_recursive_absolute(target)
+	DirAccess.remove_absolute(link)
+	if OS.get_name() == "Windows":
+		OS.execute("cmd.exe", ["/c", "mklink", "/J", link.replace("/", "\\"), target.replace("/", "\\")])
+	else:
+		DirAccess.open(target).create_link(target, link)
+	check(DirAccess.dir_exists_absolute(link), "the link was made")
+	# check(), not check_text(): looking at the disk is the full check's part.
+	check(not PathPolicy.check("res://tests/tmp/link_here/x.gd", "write")["ok"], "a write through the link")
+	check(not PathPolicy.check("res://tests/tmp/link_here/x.gd", "read")["ok"], "a read through the link")
+	check(PathPolicy.check("res://tests/tmp/link_target/x.gd", "write")["ok"], "the real folder")
+	DirAccess.remove_absolute(link)
+	DirAccess.remove_absolute(target)

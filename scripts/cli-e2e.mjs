@@ -412,13 +412,143 @@ async function buildSceneFromTheCommandLine() {
   }
 }
 
+/** @param {number | undefined} pid */
+function killTree(pid) {
+  if (pid === undefined) {
+    return;
+  }
+  if (process.platform === "win32") {
+    spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
+    return;
+  }
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch {
+    // Already gone.
+  }
+}
+
+/** @param {number} pid */
+function isAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * An editor whose lock file is gone may still be exiting, holding the
+ * project's files for a few seconds (on Windows they cannot be removed).
+ * @param {readonly (number | undefined)[]} pids
+ */
+async function waitUntilExited(pids, ms = 30_000) {
+  for (const deadline = Date.now() + ms; pids.some((pid) => pid !== undefined && isAlive(pid)) && Date.now() < deadline; ) {
+    await sleep(POLL_INTERVAL_MS);
+  }
+}
+
+/**
+ * @param {readonly string[]} args
+ * @param {(result: ReturnType<typeof gd>) => boolean} done
+ */
+async function waitFor(args, done, ms = EDITOR_TIMEOUT_MS) {
+  let result = gd(args);
+  for (const deadline = Date.now() + ms; !done(result) && Date.now() < deadline; ) {
+    await sleep(POLL_INTERVAL_MS);
+    result = gd(args);
+  }
+  return result;
+}
+
+/**
+ * Several editors on one machine (roadmap phase 6): one per project, each
+ * reached through its own project; then a second editor on the same project,
+ * started the way a person would (no ports of gd's choosing), which makes gd
+ * ask which one, and --instance answers.
+ */
+async function severalEditors() {
+  const other = join(root, "other");
+  mkdirSync(other, { recursive: true });
+  writeFileSync(join(other, "project.godot"), 'config_version=5\n\n[application]\n\nconfig/name="other game"\n');
+  const pids = [];
+  /** Hosts that quit when asked: waited for, not killed. */
+  const stopped = [];
+  /** @type {import("node:child_process").ChildProcess | undefined} */
+  let second;
+  /** @type {number | undefined} */
+  let secondPid;
+  try {
+    const installed = gd(["bridge", "install", "--project", other]);
+    check(installed.status === 0, "bridge install in a second project", installed.envelope);
+    for (const folder of [project, other]) {
+      const started = gd(["host", "start", "--project", folder, "--wait", "120"]);
+      pids.push(started.envelope?.data?.pid);
+      check(started.status === 0 && started.envelope?.data?.started === true, `host start in ${folder}`, started.envelope);
+    }
+
+    const everywhere = gd(["status"], root);
+    const ready = (everywhere.envelope?.data?.editors ?? []).filter((editor) => editor.state === "ready");
+    check(ready.length === 2, "gd status outside a project lists both editors", everywhere.envelope);
+    const first = gd(["command", "editor_status", "--project", project]);
+    const third = gd(["command", "editor_status", "--project", other]);
+    check(first.status === 0 && third.status === 0 && first.envelope?.meta?.instance_id !== third.envelope?.meta?.instance_id, "each project reaches its own editor", [first.envelope?.meta, third.envelope?.meta]);
+    const again = gd(["host", "start", "--project", project]);
+    check(again.status === 0 && again.envelope?.data?.started === false, "host start again finds the running one", again.envelope);
+
+    // A second editor on the same project, as when someone opens it by hand.
+    // With gd's environment, so its lock file lands in this test's GDCLI_HOME.
+    second = spawn(godot, ["--headless", "--editor", "--path", project], { env, stdio: "ignore" });
+    const ambiguous = await waitFor(["command", "editor_status", "--project", project], (result) => result.envelope?.errors?.[0]?.code === "MULTIPLE_EDITORS");
+    const listed = ambiguous.envelope?.errors?.[0]?.details?.instances ?? [];
+    check(ambiguous.envelope?.errors?.[0]?.code === "MULTIPLE_EDITORS" && listed.length === 2, "two editors on one project: gd asks which", ambiguous.envelope);
+    // The editor's own process; on Windows the *_console.exe that was started is only its wrapper.
+    const chosen = listed.find((editor) => !pids.includes(editor.pid));
+    secondPid = chosen?.pid;
+    const picked = gd(["command", "editor_status", "--project", project, "--instance", String(chosen?.instance_id)]);
+    check(picked.status === 0 && picked.envelope?.meta?.instance_id === chosen?.instance_id, "--instance picks one", picked.envelope);
+
+    killTree(secondPid);
+    killTree(second.pid);
+    stopped.push(secondPid, second.pid);
+    second = undefined;
+    secondPid = undefined;
+    const single = await waitFor(["command", "editor_status", "--project", project], (result) => result.status === 0, 30_000);
+    check(single.status === 0, "once it is gone, the project has one editor again", single.envelope);
+
+    for (const folder of [project, other]) {
+      const stopped = gd(["host", "stop", "--project", folder]);
+      check(stopped.status === 0, `host stop in ${folder}`, stopped.envelope);
+    }
+    const none = await waitFor(["status"], (result) => result.envelope?.errors?.[0]?.code === "NO_EDITOR", 30_000);
+    check(none.envelope?.errors?.[0]?.code === "NO_EDITOR", "both hosts are gone", none.envelope);
+    if (none.envelope?.errors?.[0]?.code === "NO_EDITOR") {
+      stopped.push(...pids.splice(0));
+    }
+  } catch (error) {
+    failures.push(error instanceof Error ? error.message : String(error));
+  } finally {
+    killTree(secondPid);
+    killTree(second?.pid);
+    pids.forEach(killTree);
+    await waitUntilExited([secondPid, second?.pid, ...pids, ...stopped]);
+  }
+}
+
 try {
   writeProject();
   offlineChecks();
   await liveChecks();
   await buildSceneFromTheCommandLine();
+  await severalEditors();
 } finally {
-  rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
+  // An editor that was just stopped may still hold files for a few seconds.
+  try {
+    rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 500 });
+  } catch (error) {
+    process.stderr.write(`could not remove ${root}: ${error instanceof Error ? error.message : String(error)}\n`);
+  }
 }
 
 if (failures.length > 0) {

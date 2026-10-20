@@ -9,7 +9,8 @@
     "directory": "cli"
   },
   "bin": {
-    "gd": "dist/main.js"
+    "gd": "dist/main.js",
+    "gdcli": "dist/main.js"
   },
   "files": [
     "dist",
@@ -27,6 +28,9 @@
     "lint": "eslint .",
     "test": "vitest run --coverage"
   },
+  "homepage": "https://github.com/spardanviro/GodotCli#readme",
+  "bugs": "https://github.com/spardanviro/GodotCli/issues",
+  "license": "Apache-2.0",
   "keywords": [
     "godot",
     "cli",

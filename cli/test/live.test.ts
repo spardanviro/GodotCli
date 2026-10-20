@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
@@ -148,16 +149,46 @@ describe("gd status", () => {
   });
 });
 
+/** The id of a process that has already ended. */
+function exitedPid(): number {
+  const pid = spawnSync(process.execPath, ["-e", ""]).pid;
+  if (pid === undefined) {
+    throw new Error("could not start a process");
+  }
+  return pid;
+}
+
 describe("finding the editor", () => {
   test("removes the lock file of an editor that is gone", async () => {
     const { home, project } = setup();
     const lockFile = join(home, ".gdcli", "instances", `${FAKE_INSTANCE_ID}.json`);
-    writeLockFile(lockFile, { instance_id: FAKE_INSTANCE_ID, port: 1024, project_path: project.replaceAll("\\", "/") });
+    writeLockFile(lockFile, { instance_id: FAKE_INSTANCE_ID, pid: exitedPid(), port: 1024, project_path: project.replaceAll("\\", "/") });
 
     const { envelope } = await harness({ homeDir: home, cwd: project }).json("list");
 
     expect(envelope.errors[0]?.code).toBe("NO_EDITOR");
     expect(existsSync(lockFile)).toBe(false);
+  });
+
+  test("gd status also removes it, after showing it once as gone", async () => {
+    const { home, project } = setup();
+    const lockFile = join(home, ".gdcli", "instances", `${FAKE_INSTANCE_ID}.json`);
+    writeLockFile(lockFile, { instance_id: FAKE_INSTANCE_ID, pid: exitedPid(), port: 1024, project_path: project.replaceAll("\\", "/") });
+
+    const { envelope } = await harness({ homeDir: home, cwd: project }).json("status");
+
+    expect(envelope.errors[0]?.details).toMatchObject({ editors: [{ state: "gone" }] });
+    expect(existsSync(lockFile)).toBe(false);
+  });
+
+  test("keeps the lock file while the editor's process still runs", async () => {
+    const { home, project } = setup();
+    const lockFile = join(home, ".gdcli", "instances", `${FAKE_INSTANCE_ID}.json`);
+    writeLockFile(lockFile, { instance_id: FAKE_INSTANCE_ID, pid: process.pid, port: 1024, project_path: project.replaceAll("\\", "/") });
+
+    await harness({ homeDir: home, cwd: project }).json("status");
+
+    expect(existsSync(lockFile)).toBe(true);
   });
 
   test("keeps the lock file when the editor is merely slow", async () => {

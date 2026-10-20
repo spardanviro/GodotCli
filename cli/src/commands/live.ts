@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { DEFAULT_TIMEOUT_MS, callCommand, fetchCommands, handshake, resolveInstance } from "../client.js";
 import type { CommandHandler, CommandResult, Context, GlobalOptions } from "../context.js";
 import { type Envelope, type EnvelopeError, errorOf, isEnvelopeError, success } from "../envelope.js";
-import { type Instance, readInstances } from "../instances.js";
+import { type Instance, readInstances, removeStale } from "../instances.js";
 import { findProject, gdcliHome, samePath } from "../project.js";
 import { sanitize } from "../text.js";
 import { dataAsText, fail, parseCommandArgs, usage } from "./shared.js";
@@ -54,6 +54,10 @@ export const statusCommand: CommandHandler = async (context, globals) => {
   const editors = [];
   for (const instance of instances) {
     const outcome = await handshake(instance);
+    if (outcome.state === "gone") {
+      // Shown this once: an editor that was killed left its lock file behind.
+      removeStale(instance);
+    }
     editors.push(publicView(instance, outcome.state === "protocol" ? "protocol_mismatch" : outcome.state));
   }
 

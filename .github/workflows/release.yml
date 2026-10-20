@@ -1,0 +1,163 @@
+name: Release
+
+# On a version tag (v1.2.3): check that the tag and the packages agree, attach
+# the bridge as a zip for the Godot Asset Library to the GitHub release
+# (made as a draft when there is none yet), and publish the CLI to npm.
+#
+# Every job works on the commit the check job resolved the tag to, so a tag
+# moved in the meantime changes nothing. The npm package is packed and tested
+# in the check job; the publishing job, the only one that can get an npm
+# token, installs and runs nothing of the repository's: it uploads that file.
+#
+# npm publishing uses npm's trusted publishing (no token in the repository).
+# It runs only once the repository variable NPM_PUBLISH is "true", which is
+# set after the package exists on npm and this workflow is registered there
+# as its trusted publisher, with the GitHub environment "npm"
+# (docs/releasing.md). Until then publish by hand.
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "An existing tag to (re)build the release files for, e.g. v0.3.1"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      sha: ${{ steps.version.outputs.sha }}
+    steps:
+      - name: The input is a version tag
+        run: |
+          set -euo pipefail
+          if ! [[ "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error title=release::${TAG} is not a version tag (v1.2.3)"
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.TAG }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - id: version
+        name: The tag names the packages' version
+        run: |
+          set -euo pipefail
+          version="$(node -p 'require("./cli/package.json").version')"
+          if [ "v${version}" != "${TAG}" ]; then
+            echo "::error title=release::tag ${TAG} but the packages say ${version}"
+            exit 1
+          fi
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "sha=$(git rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
+      - run: npm ci
+      - run: npm run verify
+      - run: npm run test:package
+      - name: Pack the npm package
+        working-directory: cli
+        run: npm pack --pack-destination "${RUNNER_TEMP}/package"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-package
+          path: ${{ runner.temp }}/package/*.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+  bridge-zip:
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+      - name: Zip the bridge the way the Asset Library installs it
+        run: |
+          set -euo pipefail
+          # One top folder, inside it addons/gdcli: the installer drops the top folder.
+          top="gdcli-bridge-${VERSION}"
+          mkdir -p "${RUNNER_TEMP}/${top}/addons"
+          cp -R bridge/addons/gdcli "${RUNNER_TEMP}/${top}/addons/gdcli"
+          cp LICENSE "${RUNNER_TEMP}/${top}/addons/gdcli/LICENSE"
+          (cd "${RUNNER_TEMP}" && zip -qr "${top}.zip" "${top}")
+          echo "ZIP=${RUNNER_TEMP}/${top}.zip" >> "${GITHUB_ENV}"
+          echo "ZIP_NAME=${top}.zip" >> "${GITHUB_ENV}"
+      - name: Attach it to the release
+        run: |
+          set -euo pipefail
+          if ! gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release create "${TAG}" --draft --verify-tag --title "${TAG}" --notes "Release notes to be written."
+          fi
+          # A published release's zip is what the Asset Library downloads: never replaced.
+          draft="$(gh release view "${TAG}" --json isDraft --jq .isDraft)"
+          present="$(gh release view "${TAG}" --json assets --jq "[.assets[].name] | index(\"${ZIP_NAME}\") != null")"
+          if [ "${draft}" != "true" ] && [ "${present}" = "true" ]; then
+            echo "${ZIP_NAME} is already on the published release ${TAG}; left as it is."
+            exit 0
+          fi
+          gh release upload "${TAG}" "${ZIP}" --clobber
+
+  npm:
+    needs: check
+    if: vars.NPM_PUBLISH == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Its protection rules (who may approve, which tags) are set in the repository's settings.
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: npm new enough for trusted publishing (11.5.1)
+        run: |
+          set -euo pipefail
+          npm --version
+          node -e 'const [a,b,c]=process.argv[1].split(".").map(Number);process.exit(a>11||(a===11&&(b>5||(b===5&&c>=1)))?0:1)' "$(npm --version)"
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-package
+          path: package
+      - name: Publish (skipped when this version is already on npm)
+        run: |
+          set -euo pipefail
+          # Asked anonymously: npm view would send setup-node's placeholder token.
+          code="$(curl -sS -o /dev/null -w '%{http_code}' "https://registry.npmjs.org/gdcli/${VERSION}")"
+          case "${code}" in
+            200) echo "gdcli@${VERSION} is already on npm"; exit 0 ;;
+            404) ;;
+            *) echo "::error title=release::the registry answered ${code} for gdcli@${VERSION}"; exit 1 ;;
+          esac
+          tarball="package/gdcli-${VERSION}.tgz"
+          test -f "${tarball}"
+          # A version with a suffix (0.4.0-rc.1) is not what npm install gdcli should get.
+          case "${VERSION}" in
+            *-*) npm publish "${tarball}" --provenance --access public --tag next ;;
+            *) npm publish "${tarball}" --provenance --access public ;;
+          esac
