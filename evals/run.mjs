@@ -578,6 +578,13 @@ function report(results, summary, options) {
   }
   lines.push("", `Passed ${summary.passed}/${summary.runs - summary.infra} (${Math.round(summary.rate * 100)}%)` + (summary.infra > 0 ? `, ${summary.infra} without a verdict` : "") + `; ${summary.turns} turns, $${summary.costUsd}`);
   process.stdout.write(`${lines.join("\n")}\n`);
+  // Job logs need a login; annotations are readable by anyone through the API.
+  if (process.env.GITHUB_ACTIONS === "true") {
+    for (const result of results.filter((entry) => !entry.passed)) {
+      const detail = [...result.failures, ...result.notes].join(" | ").replace(/[\r\n%]/gu, " ");
+      process.stdout.write(`::error title=eval ${result.id}::${detail.slice(0, 900)}\n`);
+    }
+  }
 }
 
 function compare(results, baselineFile) {
