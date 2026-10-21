@@ -159,7 +159,8 @@ jobs:
             *) echo "::error title=release::the registry answered ${code} for @spardanviro/gdcli@${VERSION}"; exit 1 ;;
           esac
           # npm names a scoped package's file <scope>-<name>-<version>.tgz.
-          tarball="package/spardanviro-gdcli-${VERSION}.tgz"
+          # "./": without it npm reads package/x.tgz as a GitHub repository (user/repo).
+          tarball="./package/spardanviro-gdcli-${VERSION}.tgz"
           test -f "${tarball}"
           # A version with a suffix (0.4.0-rc.1) is not what npm install gdcli should get.
           case "${VERSION}" in
