@@ -53,7 +53,8 @@ function parseOptions(argv) {
       case "--out": options.out = value(); break;
       case "--baseline": options.baseline = value(); break;
       case "--max-turns": options.maxTurns = Number(value()); break;
-      case "--plugin-dir": options.pluginDir = value(); break;
+      // Absolute: the session runs in the eval project, where a relative path finds nothing.
+      case "--plugin-dir": options.pluginDir = resolve(value()); break;
       case "--keep": options.keep = true; break;
       case "--verbose": options.verbose = true; break;
       default: throw new Error(`unknown option ${name}`);
@@ -870,6 +871,10 @@ async function main() {
   const options = parseOptions(process.argv.slice(2));
   if (!process.env.GODOT_BIN) {
     throw new Error("set GODOT_BIN to a Godot editor binary (the .console.exe on Windows)");
+  }
+  // A folder that is not a plugin would only mean sessions without it, scored as if with it.
+  if (options.pluginDir !== "" && !existsSync(join(options.pluginDir, ".claude-plugin", "plugin.json"))) {
+    throw new Error(`--plugin-dir ${options.pluginDir} has no .claude-plugin/plugin.json`);
   }
   if (!existsSync(GD)) {
     throw new Error("cli/dist/main.js is missing: run npm run build first");
