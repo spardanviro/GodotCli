@@ -135,6 +135,10 @@ function replay(task, env, project) {
   return Promise.resolve({ notes, transcript: [], finalText: "", turns: task.reference?.length ?? 0, costUsd: 0 });
 }
 
+const NOT_RUNNING = /failed to authenticate|oauth session expired|please run \/login|invalid api key|usage limit|credit balance is too low/iu;
+// After this many sessions in a row that could not run, the rest are not started.
+const MAX_INFRA_IN_A_ROW = 3;
+
 function claude(task, env, project, options) {
   const binary = process.env.CLAUDE_BIN || "claude";
   if (/\.(cmd|bat)$/iu.test(binary)) {
@@ -191,7 +195,10 @@ function claude(task, env, project, options) {
         child.stdout.emit("data", Buffer.from("\n"));
       }
       const notes = final.isError ? [`the session ended in an error${stderr === "" ? "" : `: ${stderr.slice(-300)}`}`] : [];
-      resolvePromise({ notes, transcript, finalText: final.finalText, turns: final.turns, costUsd: final.costUsd });
+      // A session that never got going (signed out, out of quota, no network) says nothing about the task.
+      const said = `${stderr}\n${final.finalText}`;
+      const infra = (final.isError && final.turns === 0 && transcript.length === 0) || NOT_RUNNING.test(said);
+      resolvePromise({ notes, transcript, finalText: final.finalText, turns: final.turns, costUsd: final.costUsd, infra });
     });
   });
 }
@@ -777,10 +784,16 @@ async function runAll(tasks, options) {
     }
   }
   const results = [];
+  let infraInARow = 0;
   const worker = async () => {
     for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
       const result = await runTask(next.task, options, next.attempt);
       results.push(result);
+      infraInARow = result.infra ? infraInARow + 1 : 0;
+      if (options.agent === "claude" && infraInARow >= MAX_INFRA_IN_A_ROW && queue.length > 0) {
+        process.stdout.write(`${infraInARow} sessions in a row could not run (${result.failures.concat(result.notes).join("; ").slice(0, 300)}); stopping, ${queue.length} left.\n`);
+        queue.length = 0;
+      }
       process.stdout.write(`${result.passed ? "pass" : result.infra ? "INFRA" : "FAIL"}  ${result.id}${options.repeat > 1 ? ` #${result.attempt + 1}` : ""}  ${result.seconds}s\n`);
     }
   };
