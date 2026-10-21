@@ -165,8 +165,8 @@ gd command node_create --type AudioStreamPlayer2D --parent Player --name JumpSou
 - One player plays one sound at a time; playing again restarts it. For overlapping copies of the same sound raise
   `max_polyphony`, or spawn a player per sound.
 - A sound on a node that is being freed is cut off. Play "death" sounds from a node that survives.
-- Buses (`Master`, and those the project adds, such as `Music` and `SFX`) are set up in the editor's audio panel and
-  referred to **by name**; a name that does not exist falls back to `Master` silently. Volume per bus:
+- Buses (`Master`, and those the project adds, such as `Music` and `SFX`) are made and given effects as in the
+  `godot-audio-buses` skill, and referred to **by name**; a name that does not exist falls back to `Master` silently. Volume per bus:
   `AudioServer.set_bus_volume_db(AudioServer.get_bus_index("Music"), db)`.
 - This plugin does not create audio. Use files the project has, or ask the user for them.
 

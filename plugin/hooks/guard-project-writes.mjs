@@ -21,8 +21,14 @@ const GUARDED_ROOT_FILES = new Set(["project.godot", "project.binary", "override
 const GUARDED_FOLDERS = new Set(["addons", "gdcli_commands", ".godot"]);
 // Scripts, the scene and resource files that can carry a script inside, import
 // settings (they can name a script to run on import), native libraries, C#
-// sources and what a C# build runs.
-const GUARDED_EXTENSIONS = new Set([".gd", ".cs", ".tscn", ".tres", ".scn", ".res", ".import", ".gdextension", ".csproj", ".sln", ".props", ".targets"]);
+// sources and what a .NET build runs or reads by name (as the bridge's own
+// sensitive paths: project and solution files, imported props and targets, a
+// project's .user file, response files, package sources, the SDK version).
+const GUARDED_EXTENSIONS = new Set([
+  ".gd", ".cs", ".tscn", ".tres", ".scn", ".res", ".import", ".gdextension",
+  ".csproj", ".fsproj", ".vbproj", ".proj", ".sln", ".slnx", ".slnf", ".props", ".targets", ".user", ".rsp",
+]);
+const GUARDED_NAMES = new Set(["nuget.config", "global.json", "dotnet-tools.json"]);
 
 const REASON = [
   "This file belongs to a Godot project that is driven through gdcli, and it decides what code the editor runs.",
@@ -100,7 +106,7 @@ export function isGuardedRelativePath(relativePath) {
   if (folded.length > 1 && GUARDED_FOLDERS.has(folded[0] ?? "")) {
     return true;
   }
-  return GUARDED_EXTENSIONS.has(extname(name));
+  return GUARDED_EXTENSIONS.has(extname(name)) || GUARDED_NAMES.has(name);
 }
 
 /**

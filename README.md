@@ -2,7 +2,7 @@
 
 从命令行和编码智能体里控制 Godot：一个编辑器桥接插件，一个 `gd` 命令行，一个 Claude 插件。
 
-**状态：0.3.1，第 6 阶段（加固与发布）进行中。** `gd` 能读写运行中编辑器里的场景（每一步都进编辑器的撤销栈），能查看和操作编辑器启动的游戏，也能不开编辑器运行场景、检查脚本、导入、导出、查接口；`gd mcp` 把这些提供给任何 MCP 客户端。Claude 插件有十个技能和两个写入拦截钩子，见 [plugin/README.md](plugin/README.md)。
+**状态：0.3.2，路线图各阶段完成。** 命令行在 npm（`@spardanviro/gdcli`），桥接在 Godot 资源库（[gdcli bridge](https://godotengine.org/asset-library/asset/5539)）。 `gd` 能读写运行中编辑器里的场景（每一步都进编辑器的撤销栈），能查看和操作编辑器启动的游戏，也能不开编辑器运行场景、检查脚本、导入、导出、查接口；`gd mcp` 把这些提供给任何 MCP 客户端。Claude 插件有十三个技能、一个在 Godot 项目里提醒用技能的钩子和两个写入拦截钩子，见 [plugin/README.md](plugin/README.md)。
 
 ## 安装
 
@@ -64,7 +64,7 @@ Codex、Cursor、VS Code、Gemini CLI 等支持 Model Context Protocol 的客户
 ```bash
 gd mcp configure codex          # 显示要加进 ~/.codex/config.toml 的条目
 gd mcp configure codex --yes    # 写进去；claude、cursor、vscode、gemini 写进项目里对应的文件
-gd skills install codex --yes   # 把 Claude 插件的十个技能装进 ~/.codex/skills（同一种 SKILL.md 格式）
+gd skills install codex --yes   # 把 Claude 插件的十三个技能装进 ~/.codex/skills（同一种 SKILL.md 格式）
 gd skills install --dir <目录> --yes   # 其他读 SKILL.md 文件夹的智能体
 ```
 

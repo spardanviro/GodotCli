@@ -1,6 +1,6 @@
 # Claude 插件
 
-让 Claude Code 通过 `gd` 命令行在 Godot 项目里干活：十个技能，加两个拦住"直接改项目脚本"的钩子。
+让 Claude Code 通过 `gd` 命令行在 Godot 项目里干活：十三个技能；一个会话开始时的钩子，在 Godot 项目里提醒 Claude 用这些技能；两个拦住"直接改项目脚本"的钩子。
 
 ## 安装
 
@@ -50,6 +50,9 @@ claude --plugin-dir /path/to/gdcli/plugin
 | `godot-troubleshooting` | 按任务切的技能：从症状找原因（掉出地面、不动、信号不触发、按钮没反应、黑屏、动画不播、空引用报错、改了不生效、导出后不对），先读运行中的值再改代码 |
 | `godot-tilemap` | 按任务切的技能：从一张图建瓦片集、画关卡、给瓦片加碰撞（含斜坡和单向平台）、地形自动拼接、分层 |
 | `godot-sprite-animation` | 按任务切的技能：从图集切帧动画、用代码切换动画、动画状态机、像素风的项目设置 |
+| `godot-localization` | 按任务切的技能：翻译表（CSV）导入与注册、`tr()`/`tr_n()`、控件自动翻译、切换并记住语言、中日韩等字体、测试语言与伪本地化 |
+| `godot-export` | 按任务切的技能：人在编辑器里准备的（导出模板、预设）、`gd export`、哪些文件进包、Web 导出（渲染器、线程与跨源隔离头、怎么托管、音频、浏览器里的存档） |
+| `godot-audio-buses` | 按任务切的技能：写出总线布局 `default_bus_layout.tres`（Music、SFX 等，带效果器）、把播放器接到总线、设置菜单里的音量滑块、压低音乐 |
 
 前五个领域技能的 `references/` 里各有两份资料：
 
@@ -71,6 +74,12 @@ GDCLI_UPDATE_PLUGIN=1 GODOT_BIN=/path/to/godot node scripts/bridge-test.mjs
 ```
 
 技能正文里的每条 `gd command` 写法都在真实编辑器里跑过。`npm run check:plugin` 会检查技能里提到的命令名和参数名确实存在。
+
+## 钩子：会话开始时说明这是 Godot 项目
+
+`hooks/godot-project-context.mjs` 在会话开始时运行：当前目录或它的上级有 `project.godot`，就告诉 Claude 这是一个 Godot 项目，先加载 `godot-cli` 技能，用 `gd` 改脚本、场景和设置，并说明桥接装好了没有。不在 Godot 项目里时什么也不说。它只看这两个文件在不在，不读别的。
+
+加它的原因：需求里不一定提到 Godot（"捡金币应该加 1 分，现在加了 2 分"）。第二次基线里，这样的需求在 3 个会话里都没有加载技能，是靠写入钩子挡回来才改用 `gd` 的。
 
 ## 钩子：项目脚本不能直接写
 

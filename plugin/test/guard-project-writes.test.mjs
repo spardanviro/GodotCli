@@ -36,6 +36,12 @@ function writeEvent(filePath, cwd, tool = "Write") {
 }
 
 describe("isGuardedRelativePath", () => {
+  test("guards what a .NET build reads by name", () => {
+    for (const path of ["Game.csproj.user", "Directory.Build.rsp", "NuGet.Config", "global.json", ".config/dotnet-tools.json", "Game.slnx"]) {
+      assert.equal(isGuardedRelativePath(path), true, path);
+    }
+  });
+
   test("guards scripts, scenes and resources anywhere in the project", () => {
     for (const path of ["player.gd", "scripts/player.gd", "scenes/main.tscn", "data/item.tres", "a/b/c.SCN", "x.res", "bin/lib.gdextension", "Game.csproj", "models/crate.glb.import", "src/Player.cs"]) {
       assert.equal(isGuardedRelativePath(path), true, path);
