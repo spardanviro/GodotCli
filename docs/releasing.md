@@ -28,7 +28,7 @@
 
 Claude 插件不需要另外发布：用户运行 `claude plugin marketplace update gdcli` 和 `claude plugin update godot@gdcli` 时，会读到 main 上的新版本号。
 
-工作流也可以从 Actions 页面手动运行（Run workflow，填一个已有的标签），用来补做某个标签的发布文件。
+工作流也可以从 Actions 页面手动运行（Run workflow，填一个已有的标签），用来补做某个标签的桥接 zip。手动运行是从 main 分支发起的，而 `npm` 环境只允许 `v*` 标签，所以这样**发不了 npm**。某个标签的 npm 发布失败了（比如 0.3.2 第一次运行时工作流有 bug），而标签又受规则保护不能挪动，就在 `cli/` 里手动发：`npm publish --access public --auth-type=web`，在浏览器里确认。
 
 ## 第一次发布到 npm（只做一次）
 

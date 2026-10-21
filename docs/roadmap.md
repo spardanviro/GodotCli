@@ -53,7 +53,7 @@
 
 ## 第 6 阶段的进展
 
-- **npm 包**：包名 `@spardanviro/gdcli`（npm 不接受 `gdcli`：和已有的 `gd-cli` 太像），装好后 `gd` 和 `gdcli` 两个命令都有（`gd` 和 oh-my-zsh 的 git 别名冲突时用 `gdcli`）。包里带着桥接、十个技能、README 和 LICENSE，不含源码和测试。`npm run test:package` 用 npm 打包后装进一个空目录，再运行两个命令、`gd bridge install`、`gd skills install` 和 `gd mcp`。持续集成在 Linux、Windows、macOS 上都跑这项检查。0.3.1 是第一个发布到 npm 的版本（2026-10-20，手动发布）。之后的版本由发布流程自动发布：npm 上已把本仓库的 `release.yml` 设为可信发布者，仓库里有 `npm` 环境（只允许 `v*` 标签）、`v*` 标签保护规则和变量 `NPM_PUBLISH`。
+- **npm 包**：包名 `@spardanviro/gdcli`（npm 不接受 `gdcli`：和已有的 `gd-cli` 太像），装好后 `gd` 和 `gdcli` 两个命令都有（`gd` 和 oh-my-zsh 的 git 别名冲突时用 `gdcli`）。包里带着桥接、十个技能、README 和 LICENSE，不含源码和测试。`npm run test:package` 用 npm 打包后装进一个空目录，再运行两个命令、`gd bridge install`、`gd skills install` 和 `gd mcp`。持续集成在 Linux、Windows、macOS 上都跑这项检查。0.3.1 是第一个发布到 npm 的版本（2026-10-20，手动发布）；0.3.2（2026-10-21）也是手动发的：自动发布第一次运行时，`npm publish` 把 `package/x.tgz` 当成了 GitHub 仓库的简写，现已修复。之后的版本由发布流程自动发布：npm 上已把本仓库的 `release.yml` 设为可信发布者，仓库里有 `npm` 环境（只允许 `v*` 标签）、`v*` 标签保护规则和变量 `NPM_PUBLISH`。
 - **发布流程**（[releasing.md](releasing.md)，`.github/workflows/release.yml`）：推送版本标签后自动做三件事。
   - 核对标签和版本号一致，打包并测试。
   - 把桥接打成资源库用的 zip，挂到 Release 上。
