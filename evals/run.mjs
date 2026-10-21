@@ -74,7 +74,8 @@ function loadTasks(filter) {
   const tasks = [];
   for (const file of readdirSync(join(EVALS, "tasks")).filter((name) => name.endsWith(".json")).sort()) {
     for (const task of JSON.parse(readFileSync(join(EVALS, "tasks", file), "utf8"))) {
-      if (task.id.includes(filter)) {
+      // Several filters, comma-separated: a task matching any of them.
+      if (filter.split(",").some((part) => task.id.includes(part.trim()))) {
         tasks.push(task);
       }
     }
@@ -136,7 +137,7 @@ function replay(task, env, project) {
   return Promise.resolve({ notes, transcript: [], finalText: "", turns: task.reference?.length ?? 0, costUsd: 0 });
 }
 
-const NOT_RUNNING = /failed to authenticate|oauth session expired|please run \/login|invalid api key|usage limit|credit balance is too low/iu;
+const NOT_RUNNING = /failed to authenticate|oauth session expired|please run \/login|invalid api key|usage limit|session limit|hit your .{0,20}limit|rate limit|credit balance is too low/iu;
 // After this many sessions in a row that could not run, the rest are not started.
 const MAX_INFRA_IN_A_ROW = 3;
 
@@ -277,6 +278,26 @@ function isPlainGd(part) {
   return /^(?:\.\/)?gd(?:\.cmd)?$/u.test(words[0] ?? "") && !["exec", "eval"].includes(words[1] ?? "");
 }
 
+/**
+ * The files a shell line plainly writes: redirections (> and >>), tee, and
+ * PowerShell's -Path/-FilePath/-LiteralPath. Other ways of writing (cp,
+ * an inline script) are not recognised, so a line that writes only those
+ * names no target at all.
+ */
+function shellWriteTargets(command) {
+  const targets = [];
+  for (const match of command.matchAll(/(?:^|[^<>0-9&])>>?\s*(["']?)([^\s"'<>|;&]+)\1/gu)) {
+    targets.push(match[2]);
+  }
+  for (const match of command.matchAll(/\btee\s+(?:-a\s+)?(["']?)([^\s"'<>|;&]+)\1/gu)) {
+    targets.push(match[2]);
+  }
+  for (const match of command.matchAll(/-(?:Path|FilePath|LiteralPath)\s+(["']?)([^\s"'<>|;&]+)\1/giu)) {
+    targets.push(match[2]);
+  }
+  return targets.filter((target) => target !== "/dev/null" && target.toLowerCase() !== "$null");
+}
+
 function inputsText(transcript) {
   return transcript.map((entry) => `${entry.tool} ${JSON.stringify(entry.input)}`);
 }
@@ -331,7 +352,13 @@ function fileOrRunCheck(check, project, env, outcome, agent) {
         }
         if (["Bash", "PowerShell"].includes(entry.tool)) {
           const command = String(input.command ?? "");
-          return pattern.test(command) && shellParts(command).some((part) => pattern.test(part) && !isPlainGd(part));
+          if (!pattern.test(command) || !shellParts(command).some((part) => pattern.test(part) && !isPlainGd(part))) {
+            return false;
+          }
+          // A draft written outside the project is what the skills ask for; anything
+          // else with the content (a target in the project, or none recognised) counts.
+          const targets = shellWriteTargets(command);
+          return targets.length === 0 || targets.some((target) => insideProject(project, target.replace(/^~(?=\/)/u, homedir())));
         }
         return false;
       });
@@ -842,16 +869,56 @@ function report(results, summary, options) {
   }
 }
 
+// A task whose average turns or cost moved by more than this share is named.
+const EFFORT_CHANGE = 0.3;
+
+/** Per task: did every counted run pass, and the average turns and cost. */
+function perTask(results) {
+  const tasks = new Map();
+  for (const result of results.filter((entry) => !entry.infra)) {
+    const task = tasks.get(result.id) ?? { passed: true, turns: 0, cost: 0, runs: 0 };
+    task.passed &&= result.passed;
+    task.turns += result.turns;
+    task.cost += result.costUsd;
+    task.runs += 1;
+    tasks.set(result.id, task);
+  }
+  for (const task of tasks.values()) {
+    task.turns /= task.runs;
+    task.cost /= task.runs;
+  }
+  return tasks;
+}
+
+/**
+ * Against an earlier result file: which tasks now fail that passed (a non-zero
+ * exit), which pass that failed, and, for a model run, where the average turns
+ * or cost moved by more than EFFORT_CHANGE. With every task passing, the
+ * effort is what still tells two versions of the skills apart.
+ */
 function compare(results, baselineFile) {
   const baseline = JSON.parse(readFileSync(baselineFile, "utf8"));
-  const before = new Map(baseline.results.map((result) => [result.id, result.passed]));
-  const now = new Map();
-  for (const result of results.filter((entry) => !entry.infra)) {
-    now.set(result.id, (now.get(result.id) ?? true) && result.passed);
-  }
-  const broken = [...now].filter(([id, passed]) => before.get(id) === true && !passed).map(([id]) => id);
-  const fixed = [...now].filter(([id, passed]) => before.get(id) === false && passed).map(([id]) => id);
+  const before = perTask(baseline.results);
+  const now = perTask(results);
+  const broken = [...now].filter(([id, task]) => before.get(id)?.passed === true && !task.passed).map(([id]) => id);
+  const fixed = [...now].filter(([id, task]) => before.get(id)?.passed === false && task.passed).map(([id]) => id);
   process.stdout.write(`\nAgainst ${baselineFile} (${Math.round(baseline.summary.rate * 100)}%): fixed ${fixed.length} ${JSON.stringify(fixed)}, broken ${broken.length} ${JSON.stringify(broken)}\n`);
+  const moved = [];
+  for (const [id, task] of now) {
+    const old = before.get(id);
+    if (old === undefined || old.turns === 0 || task.turns === 0) {
+      continue;
+    }
+    const turns = task.turns / old.turns - 1;
+    const cost = old.cost > 0 ? task.cost / old.cost - 1 : 0;
+    if (Math.abs(turns) > EFFORT_CHANGE || Math.abs(cost) > EFFORT_CHANGE) {
+      const percent = (share) => `${share > 0 ? "+" : ""}${Math.round(share * 100)}%`;
+      moved.push(`  ${id.padEnd(38)} turns ${old.turns.toFixed(1)} -> ${task.turns.toFixed(1)} (${percent(turns)}), cost $${old.cost.toFixed(2)} -> $${task.cost.toFixed(2)} (${percent(cost)})`);
+    }
+  }
+  if (moved.length > 0) {
+    process.stdout.write(`Effort moved by more than ${EFFORT_CHANGE * 100}%:\n${moved.join("\n")}\n`);
+  }
   return broken.length;
 }
 
