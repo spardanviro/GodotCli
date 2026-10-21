@@ -13,6 +13,8 @@ const ValueDecoder = preload("../core/value_decoder.gd")
 const _RESOURCE_EXTENSIONS: Array[String] = ["tres", "res"]
 const _SENSITIVE := "sensitive location: files here are loaded by the editor or change how the project loads"
 const _OVERWRITE := "overwrites an existing file"
+const _BUS_LAYOUT_SETTING := "audio/buses/default_bus_layout"
+const _BUS_LAYOUT_DEFAULT := "res://default_bus_layout.tres"
 const _TOOL_SCRIPT := "tool script: it runs inside the editor as soon as it is loaded"
 const _CSHARP := "C# file: once built, the editor runs part of any C# class (field initializers), not only [Tool] ones"
 const _UNSAFE_IN_REFERENCES: Array[String] = ["\"", "'", ";", "%", "{", "}", "(", ")", "#", "$"]
@@ -147,6 +149,8 @@ func _write_text(args: Dictionary, options: Dictionary) -> Dictionary:
 	_announce(path, new_folder)
 	var data := {"path": path, "bytes": bytes.size(), "created": not exists}
 	var warnings := [Edit.NOT_UNDOABLE]
+	if path == str(ProjectSettings.get_setting(_BUS_LAYOUT_SETTING, _BUS_LAYOUT_DEFAULT)):
+		data["bus_layout_loaded"] = _load_bus_layout(path, args["text"], warnings)
 	# A script is checked right away: the caller learns of a mistake now and
 	# not when the game runs. It is written either way, since it may refer to
 	# something the next step creates.
@@ -155,6 +159,58 @@ func _write_text(args: Dictionary, options: Dictionary) -> Dictionary:
 		if data["check"].get("compiles") == false:
 			warnings.append("The script was written but does not compile; see data.check.")
 	return Reply.ok(data, warnings)
+
+
+# The editor reads the bus layout once, when it starts; until then a player
+# given a new bus by name is saved with Master, as the editor knows no other.
+# So the layout just written is the editor's at once (its Audio panel follows),
+# but only a plain one: buses and built-in effects, nothing that refers to
+# another file or carries a script, which loading would set running here
+# before anyone looked at it.
+func _load_bus_layout(path: String, text: String, warnings: Array) -> bool:
+	if not _is_plain_bus_layout(text):
+		warnings.append("The bus layout was written but not loaded into the editor: it refers to other files or scripts. The editor reads it when it is opened again.")
+		return false
+	var layout := ResourceLoader.load(path, "AudioBusLayout", ResourceLoader.CACHE_MODE_IGNORE) as AudioBusLayout
+	if layout == null:
+		warnings.append("The file was written but is not a bus layout the editor can load; it keeps its old buses.")
+		return false
+	AudioServer.set_bus_layout(layout)
+	return true
+
+
+# Every line of a plain layout: its header, blank lines, [resource], effects
+# of built-in AudioEffect classes with their properties, and bus/... keys.
+static func _is_plain_bus_layout(text: String) -> bool:
+	var section := RegEx.create_from_string("^\\[sub_resource type=\"(\\w+)\" id=\"[\\w-]+\"\\]$")
+	var header := RegEx.create_from_string("^\\[gd_resource type=\"AudioBusLayout\"( load_steps=\\d+)? format=3( uid=\"uid://\\w+\")?\\]$")
+	var bus_key := RegEx.create_from_string("^bus/\\d+/(name|solo|mute|bypass_fx|volume_db|send|effect/\\d+/(effect|enabled)) = ")
+	var plain_key := RegEx.create_from_string("^[a-z_0-9]+ = [^\\[\\]()]*$")
+	var in_effect := false
+	for raw in text.split("\n"):
+		var line := raw.strip_edges()
+		if line == "" or header.search(line) != null:
+			continue
+		if line == "[resource]":
+			in_effect = false
+			continue
+		var found := section.search(line)
+		if found != null:
+			var type := found.get_string(1)
+			if not (ClassDB.class_exists(type) and ClassDB.is_parent_class(type, "AudioEffect")):
+				return false
+			in_effect = true
+			continue
+		if bus_key.search(line) != null:
+			# Only built-in values or SubResource(...) of this file.
+			var value := line.substr(line.find(" = ") + 3)
+			if value.contains("ExtResource") or (value.contains("(") and not value.begins_with("SubResource(")):
+				return false
+			continue
+		if in_effect and plain_key.search(line) != null and not line.begins_with("script"):
+			continue
+		return false
+	return true
 
 
 # Compiles the text without loading the file. In the editor, compiling a

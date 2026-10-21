@@ -556,14 +556,31 @@ function holds(left, op, right) {
  * and expect things of what they read. See evals/README.md.
  */
 async function playCheck(check, project, env) {
+  // Settings for this check only (a forced locale, say), put back afterwards.
+  // A setting that was not there comes back as "" (fine for the string settings this is used for).
+  const saved = [];
   let failure = null;
-  for (let attempt = 0; attempt < GAME_TRIES; attempt++) {
-    failure = await playCheckOnce(check, project, env);
-    if (failure === null) {
-      return null;
+  try {
+    for (const [name, value] of Object.entries(check.settings ?? {})) {
+      const before = gd(env, project, ["command", "project_settings_get", "--name", name]).data?.value;
+      saved.push([name, before ?? ""]);
+      const set = gd(env, project, ["command", "project_settings_set", "--name", name, "--value", JSON.stringify(value), "--yes"]);
+      if (!set.success) {
+        return `setting ${name} for the check: ${describeFailure(set)}`;
+      }
+    }
+    for (let attempt = 0; attempt < GAME_TRIES; attempt++) {
+      failure = await playCheckOnce(check, project, env);
+      if (failure === null) {
+        return null;
+      }
+    }
+    return failure;
+  } finally {
+    for (const [name, value] of saved) {
+      gd(env, project, ["command", "project_settings_set", "--name", name, "--value", JSON.stringify(value), "--yes"]);
     }
   }
-  return failure;
 }
 
 async function startGame(check, project, env) {

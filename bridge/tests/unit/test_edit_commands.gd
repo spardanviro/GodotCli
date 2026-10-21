@@ -225,6 +225,35 @@ func test_fs_move_dry_run_lists_the_references_it_would_update() -> void:
 	check(FileAccess.file_exists(args["from"]), "nothing was moved")
 
 
+func test_fs_write_text_of_the_bus_layout_gives_the_editor_its_buses_at_once() -> void:
+	_setup()
+	var path := "res://tests/tmp/bus_layout.tres"
+	var setting := "audio/buses/default_bus_layout"
+	var old_setting: Variant = ProjectSettings.get_setting(setting)
+	var old_layout := AudioServer.generate_bus_layout()
+	ProjectSettings.set_setting(setting, path)
+	var text := "[gd_resource type=\"AudioBusLayout\" format=3]\n\n[resource]\nbus/1/name = &\"TestMusic\"\nbus/1/volume_db = -6.0\nbus/1/send = &\"Master\"\n"
+
+	var written := _call("fs_write_text", {"path": path, "text": text})
+	var index := AudioServer.get_bus_index("TestMusic")
+	var volume := AudioServer.get_bus_volume_db(index) if index >= 0 else 0.0
+	var elsewhere := _call("fs_write_text", {"path": "res://tests/tmp/other_layout.tres", "text": text})
+
+	equal(written["data"].get("bus_layout_loaded"), true, "the reply says so")
+	check(index > 0, "the editor has the new bus")
+	equal(volume, -6.0, "with its volume")
+	check(not elsewhere["data"].has("bus_layout_loaded"), "another .tres is only written")
+	# A layout that points at another file is written, not loaded.
+	var pointing := "[gd_resource type=\"AudioBusLayout\" load_steps=2 format=3]\n\n[ext_resource type=\"AudioStream\" path=\"res://tests/fixtures/beep.wav\" id=\"1\"]\n\n[resource]\nbus/1/name = &\"TestOther\"\nbus/1/send = &\"Master\"\n"
+	var refused := _call("fs_write_text", {"path": path, "text": pointing, "overwrite": true}, {"confirm": true})
+	equal(refused["data"].get("bus_layout_loaded"), false, "a layout with an ext_resource is not loaded")
+	check(AudioServer.get_bus_index("TestOther") < 0, "and the editor did not get its bus")
+	AudioServer.set_bus_layout(old_layout)
+	ProjectSettings.set_setting(setting, old_setting)
+	for leftover in [path, "res://tests/tmp/other_layout.tres"]:
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(leftover))
+
+
 func test_fs_move_points_the_uid_at_the_new_path_at_once() -> void:
 	# A scene loaded again right after the move finds the file by uid; the
 	# editor's own scan updates the uid only frames later.
@@ -538,6 +567,9 @@ func test_fs_move_asks_when_a_rename_turns_text_into_csharp() -> void:
 
 func test_fs_write_text_asks_for_tool_code_in_any_file_and_refuses_binary_resources() -> void:
 	_setup()
+	# The annotation spelled with an escape, which the text parser undoes.
+	var escaped := "[gd_resource type=\"Resource\" load_steps=2 format=3]\n[sub_resource type=\"GDScript\" id=\"1\"]\nscript/source = \"@\\u0074ool\\nextends Resource\"\n[resource]\nscript = SubResource(\"1\")\n"
+	equal(_code("fs_write_text", {"path": "res://tests/tmp/escaped.tres", "text": escaped}), "NOT_APPROVED", "an embedded script, whatever it spells")
 	var embedded := "[gd_scene format=3]\n[sub_resource type=\"GDScript\" id=\"1\"]\nscript/source = \"@tool\\nextends Node\"\n"
 
 	equal(_code("fs_write_text", {"path": "res://tests/tmp/carrier.tscn", "text": embedded}), "NOT_APPROVED", "a scene with a tool script inside")

@@ -230,13 +230,14 @@ HTTP 解析是手写的，所以把它能接受的东西限定得很窄，其余
 - **人工批准**是唯一不经过调用方的确认：桥接在编辑器里弹出对话框，写明命令、原因、目标和将要写入的**完整内容**，人点"Allow"才执行，默认焦点在"Deny"上。它在两种情况下出现：
   1. **会让代码进入编辑器进程、或改变编辑器和项目加载什么的改动**，在 `standard` 和 `ask` 模式下都要人批准，调用方自己带 `confirm: true` 不算数：
      - `fs_write_text` 写入的内容里出现工具注解（`@tool`）。不看扩展名也不看它在哪一行：写在别的注解后面、藏在场景或资源文件内嵌的脚本里都算；注释里提到它也算，宁可多问一次。
+     - `fs_write_text` 写入内嵌了脚本的场景或资源文件（`.tscn`、`.tres` 里出现 `script/source` 或 `type="GDScript"`），不管脚本写的是什么：文本解析器会还原转义（`@\u0074ool`），在原始文本上找注解靠不住。
      - `fs_write_text` 写入任何 `.cs` 文件，`node_attach_script` 把任何 C# 脚本挂到节点上。在 .NET 版编辑器上实测（`scripts/dotnet-probe.mjs`，持续集成的 .NET 任务每次都跑）：构建之后，在编辑器进程里运行的 C# 代码不止带 `[Tool]` 的类和 `[ModuleInitializer]`，**普通类的字段初始化**也会运行，因为编辑器要读出导出属性的默认值；普通类的 `_Ready`、构造函数体、静态构造函数没有运行。而构建只需要一次 `editor_play`。所以按标记判断拦不住，凡是 C# 都要人批准。代价是无头编辑器里不能经由桥接写 C#；带窗口的编辑器里每次写入都要点一次同意。
      - `fs_move` 把文件改成另一种扩展名，而它的内容在新扩展名下属于上面两类（例如把 `notes.txt` 改名为 `Notes.cs`）。
      - `fs_write_text` 写入第 4.4 节的敏感位置：`addons/`、`gdcli_commands/`、`project.godot`、`project.binary`、`override.cfg`、`*.gdextension`，以及 .NET 构建和还原会读取的文件（见 4.4）。
      - `node_attach_script` 挂的脚本带工具注解。这一条不管脚本是怎么进到项目里的，在加载之前就问。
      - `resource_create`、`resource_set`、`scene_new`、`scene_save` 落在敏感位置。
      - `fs_move` 的源或目标在敏感位置，或者会改写敏感位置里的文件。
-     - `project_settings_set` 改 `autoload/`、`editor_plugins/`、`dotnet/` 下的设置，或 `application/config/project_settings_override`、`application/run/main_loop_type`。
+     - `project_settings_set` 改 `autoload/`、`editor_plugins/`、`dotnet/` 下的设置，或 `application/config/project_settings_override`、`application/run/main_loop_type`、`audio/buses/default_bus_layout`（决定游戏和桥接载入哪个总线布局文件）。
      - `eval`。
   2. **`ask` 模式下所有 `destructive` 和 `exec` 命令**，代替调用方的 `confirm`。桥接先把命令空跑一遍：本来就会失败的请求直接返回错误，不打扰人；对话框里显示参数和空跑得出的"将会发生什么"。
 - 批准的规则：
@@ -537,6 +538,7 @@ JSON 能直接表示的类型原样传。其余类型：
 - `node_get` 不带 `properties` 时返回检查器显示的属性；按名字可以读任何属性，包括检查器不显示的（`global_position`、被锚点预设隐藏的 `offset_left`）。
 - 给 Control 设 `anchors_preset` 时，`node_create` 和 `node_set` 会先把 `layout_mode` 切到锚点模式（检查器也是这么做的）；调用方自己给了 `layout_mode`、或父节点是容器时不动。
 - `node_move` 换父节点时默认保持节点在屏幕上的位置（`keep_global_transform`，默认真；撤销时恢复原来的本地值）。移到容器下面的 Control 由容器摆放，这个选项对它不起作用。
+- `fs_write_text` 写的是项目设置 `audio/buses/default_bus_layout` 指向的总线布局（默认 `res://default_bus_layout.tres`）时，写完立即把它载入编辑器（回复里 `bus_layout_loaded: true`）。只载入简单的布局：总线的键和内置 `AudioEffect` 类的子资源；引用了别的文件或带脚本的布局只写入、不载入（`bus_layout_loaded: false`，并有警告），等编辑器下次打开时才读。编辑器只在启动时读这个文件，不这样做的话，给播放器设上新总线的名字，保存时会变成 `Master`。
 - `fs_write_text` 写完 `.gd` 后立刻编译检查，结果放在 `data.check`（`{compiles, errors?}`，报错文本需要 4.5 及以上）。**不通过也照样写入**，因为它可能引用下一步才创建的东西；此时带一条警告。有三类脚本不做这项检查，`data.check` 里是 `{skipped: 原因}`，需要时用 `gd check`：带工具注解的；用了 `preload` 或 `extends "路径"` 的（编译会去加载别的文件）；引用了自己的 `class_name` 的（文本是单独编译的，那时类名还不存在）。在编辑器里编译一个非工具脚本不会运行其中任何代码（包括静态初始化），这一点实测确认过。
 - `animation_create` 用关键帧在 AnimationPlayer 上建一个动画：每条轨道给出场景里的节点路径、属性名和若干 `{time, value}`，值按属性类型转换；不能混合的类型（布尔、整数、字符串、资源）默认在关键帧处跳变。可指定循环方式和是否自动播放。只支持属性轨道，不支持方法调用、音频、贝塞尔轨道。
 - `gd run` 用的是磁盘上的文件。发现有编辑器开着这个项目时会给一条警告，提醒先保存场景；它无法知道是否真有未保存的改动。

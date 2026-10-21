@@ -704,6 +704,82 @@ tasks["hard"] = [
             SAVE,
         ],
     },
+    {
+        "id": "hard.translate_menu",
+        "setup": {
+            "root": "Control",
+            "commands": [
+                node("Title", "Label", props={"text": "My Game", "position": [260, 100]}),
+                node("Play", "Button", props={"text": "Play", "position": [280, 160], "size": [80, 32]}),
+            ],
+        },
+        "prompt": [
+            'Make the menu speak English and Chinese: the title is "My Game" in English and "我的游戏" in Chinese, the Play button',
+            'says "Play" and "开始". The game starts in the player\'s system language, English for any other.',
+        ],
+        "max_turns": 70,
+        "checks": [
+            check("expression", code='ProjectSettings.get_setting("internationalization/locale/translations", PackedStringArray()).size() >= 2'),
+            check("runs_clean"),
+            # Chinese forced for the run: what the Label and the Button show, not their raw text.
+            check("play", settings={"internationalization/locale/test": "zh"}, steps=[
+                find("title", **{"class": "Label"}),
+                {"get": "title", "property": "text", "as": "title_text"},
+                {"call": "title", "method": "atr", "arguments": ["$title_text"], "as": "title_shown"},
+                expect("$title_shown", "==", "我的游戏", why="the title in Chinese"),
+                find("play", **{"class": "Button"}),
+                {"get": "play", "property": "text", "as": "play_text"},
+                {"call": "play", "method": "atr", "arguments": ["$play_text"], "as": "play_shown"},
+                expect("$play_shown", "==", "开始", why="the button in Chinese"),
+            ]),
+            check("play", settings={"internationalization/locale/test": "en"}, steps=[
+                find("title", **{"class": "Label"}),
+                {"get": "title", "property": "text", "as": "title_text"},
+                {"call": "title", "method": "atr", "arguments": ["$title_text"], "as": "title_shown"},
+                expect("$title_shown", "==", "My Game", why="the title in English"),
+            ]),
+        ],
+        "reference": [
+            write_script("res://i18n/text.csv", ["keys,en,zh", "TITLE,My Game,我的游戏", "MENU_PLAY,Play,开始"]),
+            cmd("fs_scan"),
+            cmd("project_settings_set", {"name": "internationalization/locale/translations", "value": ["res://i18n/text.en.translation", "res://i18n/text.zh.translation"]}, yes=True),
+            cmd("node_set", {"path": "Title", "properties": {"text": "TITLE"}}),
+            cmd("node_set", {"path": "Play", "properties": {"text": "MENU_PLAY"}}),
+            SAVE,
+        ],
+    },
+    {
+        "id": "hard.audio_buses",
+        "setup": {"files": {"res://audio/theme.wav": {"fixture": "beep.wav"}}},
+        "prompt": [
+            "Set up the game's sound mixing: a Music bus and an SFX bus that both feed Master, the Music bus 6 dB quieter than",
+            'normal, and a reverb on the SFX bus. Then add an AudioStreamPlayer named "Music" to the main scene that plays',
+            "res://audio/theme.wav on the Music bus as soon as the scene starts.",
+        ],
+        "max_turns": 70,
+        "checks": [
+            check("node", path="Music", **{"class": "AudioStreamPlayer"}, properties={"bus": "Music", "autoplay": True}),
+            check("expression", code='AudioServer.get_bus_index("Music") > 0 and AudioServer.get_bus_index("SFX") > 0'),
+            check("expression", code='AudioServer.get_bus_send(AudioServer.get_bus_index("Music")) == "Master" and AudioServer.get_bus_send(AudioServer.get_bus_index("SFX")) == "Master"'),
+            check("expression", code='is_equal_approx(AudioServer.get_bus_volume_db(AudioServer.get_bus_index("Music")), -6.0)'),
+            check("expression", code='helper.bus_effects("SFX").has("AudioEffectReverb")'),
+            check("runs_clean"),
+        ],
+        "reference": [
+            write_script("res://default_bus_layout.tres", [
+                '[gd_resource type="AudioBusLayout" load_steps=2 format=3]', "",
+                '[sub_resource type="AudioEffectReverb" id="AudioEffectReverb_1"]', "",
+                "[resource]",
+                'bus/1/name = &"Music"', "bus/1/solo = false", "bus/1/mute = false", "bus/1/bypass_fx = false",
+                "bus/1/volume_db = -6.0", 'bus/1/send = &"Master"',
+                'bus/2/name = &"SFX"', "bus/2/solo = false", "bus/2/mute = false", "bus/2/bypass_fx = false",
+                "bus/2/volume_db = 0.0", 'bus/2/send = &"Master"',
+                'bus/2/effect/0/effect = SubResource("AudioEffectReverb_1")', "bus/2/effect/0/enabled = true",
+            ]),
+            node("Music", "AudioStreamPlayer", props={"stream": {"$res": "res://audio/theme.wav"}, "bus": "Music", "autoplay": True}),
+            SAVE,
+        ],
+    },
 ]
 
 OUT.mkdir(parents=True, exist_ok=True)

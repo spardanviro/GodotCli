@@ -1004,5 +1004,237 @@
         "scene_save"
       ]
     ]
+  },
+  {
+    "id": "hard.translate_menu",
+    "setup": {
+      "root": "Control",
+      "commands": [
+        [
+          "command",
+          "node_create",
+          "--args",
+          "{\"type\": \"Label\", \"name\": \"Title\", \"parent\": \".\", \"properties\": {\"text\": \"My Game\", \"position\": [260, 100]}}"
+        ],
+        [
+          "command",
+          "node_create",
+          "--args",
+          "{\"type\": \"Button\", \"name\": \"Play\", \"parent\": \".\", \"properties\": {\"text\": \"Play\", \"position\": [280, 160], \"size\": [80, 32]}}"
+        ]
+      ]
+    },
+    "prompt": [
+      "Make the menu speak English and Chinese: the title is \"My Game\" in English and \"我的游戏\" in Chinese, the Play button",
+      "says \"Play\" and \"开始\". The game starts in the player's system language, English for any other."
+    ],
+    "max_turns": 70,
+    "checks": [
+      {
+        "type": "expression",
+        "code": "ProjectSettings.get_setting(\"internationalization/locale/translations\", PackedStringArray()).size() >= 2"
+      },
+      {
+        "type": "runs_clean"
+      },
+      {
+        "type": "play",
+        "settings": {
+          "internationalization/locale/test": "zh"
+        },
+        "steps": [
+          {
+            "find": {
+              "class": "Label"
+            },
+            "as": "title"
+          },
+          {
+            "get": "title",
+            "property": "text",
+            "as": "title_text"
+          },
+          {
+            "call": "title",
+            "method": "atr",
+            "arguments": [
+              "$title_text"
+            ],
+            "as": "title_shown"
+          },
+          {
+            "expect": {
+              "left": "$title_shown",
+              "op": "==",
+              "right": "我的游戏"
+            },
+            "why": "the title in Chinese"
+          },
+          {
+            "find": {
+              "class": "Button"
+            },
+            "as": "play"
+          },
+          {
+            "get": "play",
+            "property": "text",
+            "as": "play_text"
+          },
+          {
+            "call": "play",
+            "method": "atr",
+            "arguments": [
+              "$play_text"
+            ],
+            "as": "play_shown"
+          },
+          {
+            "expect": {
+              "left": "$play_shown",
+              "op": "==",
+              "right": "开始"
+            },
+            "why": "the button in Chinese"
+          }
+        ]
+      },
+      {
+        "type": "play",
+        "settings": {
+          "internationalization/locale/test": "en"
+        },
+        "steps": [
+          {
+            "find": {
+              "class": "Label"
+            },
+            "as": "title"
+          },
+          {
+            "get": "title",
+            "property": "text",
+            "as": "title_text"
+          },
+          {
+            "call": "title",
+            "method": "atr",
+            "arguments": [
+              "$title_text"
+            ],
+            "as": "title_shown"
+          },
+          {
+            "expect": {
+              "left": "$title_shown",
+              "op": "==",
+              "right": "My Game"
+            },
+            "why": "the title in English"
+          }
+        ]
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "fs_write_text",
+        "--args",
+        "{\"path\": \"res://i18n/text.csv\", \"text\": \"keys,en,zh\\nTITLE,My Game,我的游戏\\nMENU_PLAY,Play,开始\\n\", \"overwrite\": true}",
+        "--yes"
+      ],
+      [
+        "command",
+        "fs_scan"
+      ],
+      [
+        "command",
+        "project_settings_set",
+        "--args",
+        "{\"name\": \"internationalization/locale/translations\", \"value\": [\"res://i18n/text.en.translation\", \"res://i18n/text.zh.translation\"]}",
+        "--yes"
+      ],
+      [
+        "command",
+        "node_set",
+        "--args",
+        "{\"path\": \"Title\", \"properties\": {\"text\": \"TITLE\"}}"
+      ],
+      [
+        "command",
+        "node_set",
+        "--args",
+        "{\"path\": \"Play\", \"properties\": {\"text\": \"MENU_PLAY\"}}"
+      ],
+      [
+        "command",
+        "scene_save"
+      ]
+    ]
+  },
+  {
+    "id": "hard.audio_buses",
+    "setup": {
+      "files": {
+        "res://audio/theme.wav": {
+          "fixture": "beep.wav"
+        }
+      }
+    },
+    "prompt": [
+      "Set up the game's sound mixing: a Music bus and an SFX bus that both feed Master, the Music bus 6 dB quieter than",
+      "normal, and a reverb on the SFX bus. Then add an AudioStreamPlayer named \"Music\" to the main scene that plays",
+      "res://audio/theme.wav on the Music bus as soon as the scene starts."
+    ],
+    "max_turns": 70,
+    "checks": [
+      {
+        "type": "node",
+        "path": "Music",
+        "class": "AudioStreamPlayer",
+        "properties": {
+          "bus": "Music",
+          "autoplay": true
+        }
+      },
+      {
+        "type": "expression",
+        "code": "AudioServer.get_bus_index(\"Music\") > 0 and AudioServer.get_bus_index(\"SFX\") > 0"
+      },
+      {
+        "type": "expression",
+        "code": "AudioServer.get_bus_send(AudioServer.get_bus_index(\"Music\")) == \"Master\" and AudioServer.get_bus_send(AudioServer.get_bus_index(\"SFX\")) == \"Master\""
+      },
+      {
+        "type": "expression",
+        "code": "is_equal_approx(AudioServer.get_bus_volume_db(AudioServer.get_bus_index(\"Music\")), -6.0)"
+      },
+      {
+        "type": "expression",
+        "code": "helper.bus_effects(\"SFX\").has(\"AudioEffectReverb\")"
+      },
+      {
+        "type": "runs_clean"
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "fs_write_text",
+        "--args",
+        "{\"path\": \"res://default_bus_layout.tres\", \"text\": \"[gd_resource type=\\\"AudioBusLayout\\\" load_steps=2 format=3]\\n\\n[sub_resource type=\\\"AudioEffectReverb\\\" id=\\\"AudioEffectReverb_1\\\"]\\n\\n[resource]\\nbus/1/name = &\\\"Music\\\"\\nbus/1/solo = false\\nbus/1/mute = false\\nbus/1/bypass_fx = false\\nbus/1/volume_db = -6.0\\nbus/1/send = &\\\"Master\\\"\\nbus/2/name = &\\\"SFX\\\"\\nbus/2/solo = false\\nbus/2/mute = false\\nbus/2/bypass_fx = false\\nbus/2/volume_db = 0.0\\nbus/2/send = &\\\"Master\\\"\\nbus/2/effect/0/effect = SubResource(\\\"AudioEffectReverb_1\\\")\\nbus/2/effect/0/enabled = true\\n\", \"overwrite\": true}",
+        "--yes"
+      ],
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"AudioStreamPlayer\", \"name\": \"Music\", \"parent\": \".\", \"properties\": {\"stream\": {\"$res\": \"res://audio/theme.wav\"}, \"bus\": \"Music\", \"autoplay\": true}}"
+      ],
+      [
+        "command",
+        "scene_save"
+      ]
+    ]
   }
 ]

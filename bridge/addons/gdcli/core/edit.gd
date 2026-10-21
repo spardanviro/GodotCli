@@ -17,6 +17,11 @@ const _TOOL_PATTERN := "@[\\s\\\\]*tool\\b"
 # there too, when the editor reads the class's exported defaults. A build
 # needs nothing but `editor_play`, so every C# file waits for a person.
 const CSHARP_EXTENSION := "cs"
+# A script embedded in a scene or resource file. Its source is a string the
+# text parser unescapes (`@\u0074ool`), so the pattern above may not see a
+# tool annotation in it: any embedded script counts.
+const _EMBEDDED_SCRIPT_PATTERN := "script/source\\s*=|type\\s*=\\s*\"(?:GDScript|CSharpScript)\""
+const _TEXT_RESOURCE_EXTENSIONS: Array[String] = ["tscn", "tres", "escn"]
 
 static var _tool_regex: RegEx
 
@@ -25,6 +30,8 @@ static var _tool_regex: RegEx
 ## `extension` is that of the file the text is for: every C# file counts.
 static func runs_in_editor(text: String, extension: String = "") -> bool:
 	if extension.to_lower() == CSHARP_EXTENSION:
+		return true
+	if extension.to_lower() in _TEXT_RESOURCE_EXTENSIONS and RegEx.create_from_string(_EMBEDDED_SCRIPT_PATTERN).search(text) != null:
 		return true
 	if _tool_regex == null:
 		_tool_regex = RegEx.create_from_string(_TOOL_PATTERN)

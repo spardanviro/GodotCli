@@ -13,6 +13,7 @@ const _OWN_PREFIX := "gdcli/"
 # Settings that decide which code is loaded, directly or through another file.
 const _LOADS_CODE: Array[String] = [
 	"autoload/", "editor_plugins/", "application/config/project_settings_override", "application/run/main_loop_type", "dotnet/",
+	"audio/buses/default_bus_layout",
 ]
 const _DEFAULT_DEADZONE := 0.5
 # Section and key as they appear in project.godot; nothing that could start a

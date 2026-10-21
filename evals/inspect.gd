@@ -114,12 +114,23 @@ func _equal(actual, expected) -> bool:
 
 func _expression(root: Node, check: Dictionary) -> Dictionary:
 	var expression := Expression.new()
-	if expression.parse(check["code"], ["root", "helper"]) != OK:
+	# Expressions cannot reach the engine's singletons by themselves.
+	if expression.parse(check["code"], ["root", "helper", "AudioServer", "ProjectSettings", "TranslationServer"]) != OK:
 		return _fail("expression does not parse: " + expression.get_error_text())
-	var result = expression.execute([root, self], self)
+	var result = expression.execute([root, self, AudioServer, ProjectSettings, TranslationServer], self)
 	if expression.has_execute_failed():
 		return _fail("expression failed: " + expression.get_error_text())
 	return _ok() if result == true else _fail("false: " + str(check["code"]))
+
+
+## For expressions: the classes of the effects on a bus, in order (empty for no such bus).
+func bus_effects(bus_name: String) -> PackedStringArray:
+	var bus := AudioServer.get_bus_index(bus_name)
+	var classes := PackedStringArray()
+	if bus >= 0:
+		for index in AudioServer.get_bus_effect_count(bus):
+			classes.append(AudioServer.get_bus_effect(bus, index).get_class())
+	return classes
 
 
 ## For expressions: every node below (and including) root of a class.
