@@ -254,6 +254,66 @@ func test_fs_write_text_of_the_bus_layout_gives_the_editor_its_buses_at_once() -
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(leftover))
 
 
+func test_fs_write_text_overwrite_in_ask_mode_waits_for_a_person() -> void:
+	_setup()
+	var path := "res://tests/tmp/overwrite_me.txt"
+	_call("fs_write_text", {"path": path, "text": "old\n"})
+
+	var standard := _call("fs_write_text", {"path": path, "text": "new\n", "overwrite": true}, {"confirm": true})
+	var asked := _call("fs_write_text", {"path": path, "text": "newer\n", "overwrite": true}, {"confirm": true, "mode": "ask"})
+
+	equal(standard["ok"], true, "standard mode: the caller's yes is enough")
+	equal(asked.get("error", {}).get("code"), "NOT_APPROVED", "ask mode: a person decides, and nobody is there")
+	equal(FileAccess.get_file_as_string(path), "new\n", "the refused overwrite changed nothing")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+
+func test_fs_move_refuses_text_that_changed_while_the_person_decided() -> void:
+	_setup()
+	var notes := "res://tests/tmp/plain_swap.txt"
+	var target := "res://tests/tmp/Swap.cs"
+	_call("fs_write_text", {"path": notes, "text": "public partial class Swap : Godot.Node {}
+"})
+	_context.answer = ""
+	var args := {"from": notes, "to": target, "update_references": false}
+	var waiting: Dictionary = _registry.handler_of("fs_move").call(args, {"dry_run": false, "confirm": false, "mode": "standard"})
+
+	_call("fs_write_text", {"path": notes, "text": "[Tool] public partial class Swap : Godot.Node {}
+", "overwrite": true}, {"confirm": true})
+	_context.questions[-1].decision = "allowed"
+	var reply: Dictionary = waiting["later"].poll()
+
+	equal(reply.get("error", {}).get("code"), "PRECONDITION_FAILED", "what the person allowed is not what would move")
+	check(not FileAccess.file_exists(target), "nothing was moved")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(notes))
+
+
+func test_fs_write_text_ask_mode_overwrite_names_the_strongest_reason() -> void:
+	_setup()
+	var path := "res://tests/tmp/overwrite_tool.gd"
+	_call("fs_write_text", {"path": path, "text": "extends Node
+"})
+
+	_call("fs_write_text", {"path": path, "text": "@tool
+extends Node
+", "overwrite": true}, {"confirm": true, "mode": "ask"})
+
+	check(str(_context.questions[-1].what["reason"]).contains("tool"), "the person is told it runs in the editor, not only that it overwrites")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+
+func test_fs_move_dry_run_shows_text_that_becomes_csharp() -> void:
+	_setup()
+	var notes := "res://tests/tmp/plain_for_plan.txt"
+	_call("fs_write_text", {"path": notes, "text": "public partial class Plan : Godot.Node {}\n"})
+
+	var plan := _call("fs_move", {"from": notes, "to": "res://tests/tmp/Plan.cs", "update_references": false}, {"dry_run": true})
+
+	equal(plan["data"]["would"].get("becomes_code"), true, "the plan says the text becomes code")
+	check(str(plan["data"]["would"].get("text", "")).contains("class Plan"), "and shows it, for the person in ask mode")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(notes))
+
+
 func test_fs_move_points_the_uid_at_the_new_path_at_once() -> void:
 	# A scene loaded again right after the move finds the file by uid; the
 	# editor's own scan updates the uid only frames later.

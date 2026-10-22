@@ -122,16 +122,24 @@ func _write_text(args: Dictionary, options: Dictionary) -> Dictionary:
 		return Reply.fail("ALREADY_EXISTS", "The file already exists.", "Pass overwrite to replace it.", {"path": path})
 	# Overwriting loses the old content; sensitive files change how the
 	# project or the editor loads. Both need an explicit yes.
-	if exists:
-		var gate := Edit.confirmation_gate(options, _OVERWRITE)
-		if not gate.is_empty():
-			return gate
 	# An ordinary script runs when the game runs. A tool script runs inside
 	# the editor as soon as something loads it, with everything the editor
 	# can do; so do the files in the sensitive locations. A person allows those.
 	var is_tool := Edit.runs_in_editor(args["text"], path.get_extension())
-	if checked["sensitive"] or is_tool:
-		var what := {"command": "fs_write_text", "reason": _code_reason(path) if is_tool else _SENSITIVE, "target": path, "preview": args["text"]}
+	var needs_person: bool = checked["sensitive"] or is_tool
+	if exists:
+		# In ask mode an overwrite is destructive (docs/protocol.md 4.3): a person
+		# decides, with the new text in front of them; elsewhere the caller's yes.
+		# One dialog then covers all of it, under the strongest reason.
+		if options.get("mode") == AccessPolicy.MODE_ASK:
+			needs_person = true
+		else:
+			var gate := Edit.confirmation_gate(options, _OVERWRITE)
+			if not gate.is_empty():
+				return gate
+	if needs_person:
+		var reason: String = _code_reason(path) if is_tool else _SENSITIVE if checked["sensitive"] else _OVERWRITE
+		var what := {"command": "fs_write_text", "reason": reason, "target": path, "preview": args["text"]}
 		var person := Edit.person_gate(_context, options, what, _write_text.bind(args, Edit.approved(options)))
 		if not person.is_empty():
 			return person
@@ -291,7 +299,9 @@ func _delete(args: Dictionary, options: Dictionary) -> Dictionary:
 	return Reply.ok({"path": path}, [Edit.NOT_UNDOABLE])
 
 
-func _move(args: Dictionary, options: Dictionary) -> Dictionary:
+## `approved_text` is the file's text as the person saw it, on the run after
+## they said yes; null on the first run.
+func _move(args: Dictionary, options: Dictionary, approved_text: Variant = null) -> Dictionary:
 	var source := PathPolicy.check(args["from"], PathPolicy.ACCESS_WRITE)
 	if not source["ok"]:
 		return source
@@ -325,18 +335,26 @@ func _move(args: Dictionary, options: Dictionary) -> Dictionary:
 	var open_scenes := _open_among(references["files"])
 	# Text that was harmless under one extension can be code under another:
 	# a C# tool class written as notes.txt and renamed to Notes.cs.
+	var text := "" if is_folder else FileAccess.get_file_as_string(from)
+	# Changed while the person was deciding: what they allowed is not what would move.
+	if approved_text != null and text != approved_text:
+		return Reply.fail("PRECONDITION_FAILED", "The file changed while waiting for approval.", "Run the move again.", {"path": from})
 	var becomes_code := not is_folder and to.get_extension().to_lower() != from.get_extension().to_lower() \
-			and Edit.runs_in_editor(FileAccess.get_file_as_string(from), to.get_extension())
+			and Edit.runs_in_editor(text, to.get_extension())
 	if source["sensitive"] or target["sensitive"] or not references["sensitive"].is_empty() or becomes_code:
 		var what := {
 			"command": "fs_move", "reason": _code_reason(to) if becomes_code else _SENSITIVE, "target": "%s -> %s" % [from, to],
-			"preview": FileAccess.get_file_as_string(from) if becomes_code else "Files in sensitive locations that would be rewritten:\n" + "\n".join(references["sensitive"]),
+			"preview": text if becomes_code else "Files in sensitive locations that would be rewritten:\n" + "\n".join(references["sensitive"]),
 		}
-		var person := Edit.person_gate(_context, options, what, _move.bind(args, Edit.approved(options)))
+		var person := Edit.person_gate(_context, options, what, _move.bind(args, Edit.approved(options), text))
 		if not person.is_empty():
 			return person
 	if options["dry_run"]:
-		return Edit.planned({
+		# Text that becomes code by the rename is shown (hidden characters spelled
+		# out, length capped): in ask mode this plan is what the person reads.
+		var shown := TextSanitizer.clean(TextSanitizer.reveal(text)) if becomes_code else ""
+		var becomes := {"becomes_code": true, "text": shown} if becomes_code else {}
+		return Edit.planned(becomes.merged({
 			"move": from,
 			"to": to,
 			"folder": is_folder,
@@ -348,7 +366,7 @@ func _move(args: Dictionary, options: Dictionary) -> Dictionary:
 				"settings": TextSanitizer.clean_lines(references["settings"]),
 				"open_scenes_saved_and_reloaded": TextSanitizer.clean_lines(open_scenes),
 			},
-		})
+		}))
 
 	var job := FileMove.new(_context, from, to, updater, references, open_scenes, not args["update_references"])
 	# Open scenes are saved and loaded again around the move, one step per frame.
