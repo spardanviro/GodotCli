@@ -333,6 +333,13 @@ tasks["domains"] = [
 ]
 
 # ---------------------------------------------------------------- the two the roadmap names
+PLATFORMER_SCRIPT = [
+    "extends CharacterBody2D", "", "@export var speed := 220.0", "@export var jump_velocity := -420.0", "",
+    "var gravity: float = ProjectSettings.get_setting(\"physics/2d/default_gravity\")", "", "",
+    "func _physics_process(delta: float) -> void:", "\tif not is_on_floor():", "\t\tvelocity.y += gravity * delta",
+    '\tif Input.is_action_just_pressed("jump") and is_on_floor():', "\t\tvelocity.y = jump_velocity",
+    '\tvelocity.x = Input.get_axis("move_left", "move_right") * speed', "\tmove_and_slide()"]
+
 PLATFORMER = [
     cmd("project_input_map_set", {"action": "move_left", "events": [{"key": "A"}, {"key": "Left"}]}, yes=True),
     cmd("project_input_map_set", {"action": "move_right", "events": [{"key": "D"}, {"key": "Right"}]}, yes=True),
@@ -343,12 +350,7 @@ PLATFORMER = [
     node("Body", "Polygon2D", parent="Player", props={"polygon": [[-14, -22], [14, -22], [14, 22], [-14, 22]], "color": "#4fa3ff"}),
     node("Ground", "StaticBody2D", props={"position": [320, 300]}),
     node("Shape", "CollisionShape2D", parent="Ground", props={"shape": {"$new": "RectangleShape2D", "properties": {"size": [640, 32]}}}),
-    write_script("res://player.gd", [
-        "extends CharacterBody2D", "", "@export var speed := 220.0", "@export var jump_velocity := -420.0", "",
-        "var gravity: float = ProjectSettings.get_setting(\"physics/2d/default_gravity\")", "", "",
-        "func _physics_process(delta: float) -> void:", "\tif not is_on_floor():", "\t\tvelocity.y += gravity * delta",
-        '\tif Input.is_action_just_pressed("jump") and is_on_floor():', "\t\tvelocity.y = jump_velocity",
-        '\tvelocity.x = Input.get_axis("move_left", "move_right") * speed', "\tmove_and_slide()"]),
+    write_script("res://player.gd", PLATFORMER_SCRIPT),
     cmd("node_attach_script", {"path": "Player", "script": "res://player.gd"}),
     SAVE,
     cmd("project_settings_set", {"name": "application/run/main_scene", "value": "res://main.tscn"}, yes=True),
@@ -468,8 +470,11 @@ HUD_MAIN = [
 ]
 
 
-def find(alias, **spec):
-    return {"find": spec, "as": alias}
+def find(alias, timeout=None, **spec):
+    step = {"find": spec, "as": alias}
+    if timeout is not None:
+        step["timeout"] = timeout
+    return step
 
 
 def expect(left, op, right, scale=None, plus=None, why=None):
@@ -527,14 +532,63 @@ tasks["hard"] = [
         ],
     },
     {
+        # Phase 4.5 together: tiles with collision, a character on them, frame animation; through commands, no eval.
+        "id": "hard.tile_platformer",
+        "setup": {"files": {"res://art/tiles.png": {"fixture": "tiles.png"}, "res://art/hero_walk.png": {"fixture": "tiles.png"}}},
+        "prompt": [
+            "Make a small platformer level in the main scene (the screen is 640x360). The floor is a TileMapLayer built from",
+            "the 32x32 tile sheet res://art/tiles.png: a full row of tiles along the bottom of the screen that a character can stand on.",
+            "The player is a CharacterBody2D starting at (100, 200) that falls onto the floor, walks left and right with the arrow keys",
+            'and jumps with Space. It shows an AnimatedSprite2D with a "walk" animation made of the two 32x32 frames in',
+            "res://art/hero_walk.png at 8 frames per second.",
+        ],
+        "max_turns": 80,
+        "checks": [
+            check("node_count", **{"class": "TileMapLayer"}, min=1),
+            check("expression", code='helper.find(root, "TileMapLayer")[0].tile_set != null and helper.find(root, "TileMapLayer")[0].tile_set.get_physics_layers_count() > 0 and helper.find(root, "TileMapLayer")[0].get_used_cells().size() >= 20'),
+            check("node_count", **{"class": "CharacterBody2D"}, min=1),
+            check("expression", code='helper.find(helper.find(root, "CharacterBody2D")[0], "AnimatedSprite2D").size() > 0 and helper.find(helper.find(root, "CharacterBody2D")[0], "AnimatedSprite2D")[0].sprite_frames != null and helper.find(helper.find(root, "CharacterBody2D")[0], "AnimatedSprite2D")[0].sprite_frames.get_frame_count("walk") == 2'),
+            check("expression", code='is_equal_approx(helper.find(helper.find(root, "CharacterBody2D")[0], "AnimatedSprite2D")[0].sprite_frames.get_animation_speed("walk"), 8.0)'),
+            check("runs_clean"),
+            check("play", steps=[
+                find("player", **{"class": "CharacterBody2D"}),
+                {"wait": 2.0},
+                {"get": "player", "property": "global_position", "index": 1, "as": "y1"},
+                {"wait": 0.5},
+                {"get": "player", "property": "global_position", "index": 1, "as": "y2"},
+                expect("$y2", "==", "$y1", why="it has landed and stays put"),
+                expect("$y1", ">", 200, why="it fell from where it started"),
+                expect("$y1", "<", 360, why="onto the floor, not through it"),
+            ]),
+            check("game", **{"class": "CharacterBody2D"}, actions_any=["jump", "player_jump", "ui_accept", "ui_up", "move_up", "up"], hold=0.15, after=0.3, expect="rises", min=20),
+            check("game", **{"class": "CharacterBody2D"}, actions_any=["move_right", "right", "ui_right", "player_right", "walk_right", "run_right"], hold=0.6, after=0.1, expect="moves_right", min=20),
+            check("transcript_lacks", pattern=r'\b(gd|gdcli)(\.exe)?\s+eval\b|"(command|name)":"eval"'),
+        ],
+        "reference": [
+            cmd("project_input_map_set", {"action": "move_left", "events": [{"key": "Left"}]}, yes=True),
+            cmd("project_input_map_set", {"action": "move_right", "events": [{"key": "Right"}]}, yes=True),
+            cmd("project_input_map_set", {"action": "jump", "events": [{"key": "Space"}]}, yes=True),
+            node("Floor", "TileMapLayer"),
+            cmd("tileset_add_atlas", {"layer": "Floor", "texture": "res://art/tiles.png", "tile_size": [32, 32], "collision": True}),
+            cmd("tilemap_set_cells", {"layer": "Floor", "rect": [0, 10, 20, 1], "atlas": [0, 0]}),
+            node("Player", "CharacterBody2D", props={"position": [100, 200]}),
+            node("Shape", "CollisionShape2D", parent="Player", props={"shape": {"$new": "RectangleShape2D", "properties": {"size": [24, 30]}}}),
+            node("Sprite", "AnimatedSprite2D", parent="Player"),
+            cmd("sprite_frames_create", {"node": "Player/Sprite", "autoplay": "walk", "animations": [{"name": "walk", "sheet": "res://art/hero_walk.png", "hframes": 2, "fps": 8, "loop": True}]}),
+            write_script("res://player.gd", PLATFORMER_SCRIPT),
+            cmd("node_attach_script", {"path": "Player", "script": "res://player.gd"}),
+            SAVE,
+        ],
+    },
+    {
         "id": "hard.spawner_cap",
         "prompt": 'Make the main scene spawn coins: every 0.5 seconds add a new Area2D coin, in the group "coins", at a random position inside the 640x360 screen, but never have more than 5 coins at once.',
         "checks": [
             check("runs_clean"),
             check("play", steps=[
-                {"wait": 4.5}, {"count": {"group": "coins"}, "as": "n1"},
+                {"wait": 4.5}, {"count": {"group": "coins", "class": "Area2D"}, "as": "n1"},
                 expect("$n1", "==", 5, why="five coins after a few seconds"),
-                {"wait": 1.5}, {"count": {"group": "coins"}, "as": "n2"},
+                {"wait": 1.5}, {"count": {"group": "coins", "class": "Area2D"}, "as": "n2"},
                 expect("$n2", "==", 5, why="and never more"),
             ]),
         ],
@@ -759,6 +813,7 @@ tasks["hard"] = [
         "max_turns": 70,
         "checks": [
             check("node", path="Music", **{"class": "AudioStreamPlayer"}, properties={"bus": "Music", "autoplay": True}),
+            check("expression", code='root.get_node("Music").stream != null and root.get_node("Music").stream.resource_path == "res://audio/theme.wav"'),
             check("expression", code='AudioServer.get_bus_index("Music") > 0 and AudioServer.get_bus_index("SFX") > 0'),
             check("expression", code='AudioServer.get_bus_send(AudioServer.get_bus_index("Music")) == "Master" and AudioServer.get_bus_send(AudioServer.get_bus_index("SFX")) == "Master"'),
             check("expression", code='is_equal_approx(AudioServer.get_bus_volume_db(AudioServer.get_bus_index("Music")), -6.0)'),

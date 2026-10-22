@@ -195,6 +195,225 @@
     ]
   },
   {
+    "id": "hard.tile_platformer",
+    "setup": {
+      "files": {
+        "res://art/tiles.png": {
+          "fixture": "tiles.png"
+        },
+        "res://art/hero_walk.png": {
+          "fixture": "tiles.png"
+        }
+      }
+    },
+    "prompt": [
+      "Make a small platformer level in the main scene (the screen is 640x360). The floor is a TileMapLayer built from",
+      "the 32x32 tile sheet res://art/tiles.png: a full row of tiles along the bottom of the screen that a character can stand on.",
+      "The player is a CharacterBody2D starting at (100, 200) that falls onto the floor, walks left and right with the arrow keys",
+      "and jumps with Space. It shows an AnimatedSprite2D with a \"walk\" animation made of the two 32x32 frames in",
+      "res://art/hero_walk.png at 8 frames per second."
+    ],
+    "max_turns": 80,
+    "checks": [
+      {
+        "type": "node_count",
+        "class": "TileMapLayer",
+        "min": 1
+      },
+      {
+        "type": "expression",
+        "code": "helper.find(root, \"TileMapLayer\")[0].tile_set != null and helper.find(root, \"TileMapLayer\")[0].tile_set.get_physics_layers_count() > 0 and helper.find(root, \"TileMapLayer\")[0].get_used_cells().size() >= 20"
+      },
+      {
+        "type": "node_count",
+        "class": "CharacterBody2D",
+        "min": 1
+      },
+      {
+        "type": "expression",
+        "code": "helper.find(helper.find(root, \"CharacterBody2D\")[0], \"AnimatedSprite2D\").size() > 0 and helper.find(helper.find(root, \"CharacterBody2D\")[0], \"AnimatedSprite2D\")[0].sprite_frames != null and helper.find(helper.find(root, \"CharacterBody2D\")[0], \"AnimatedSprite2D\")[0].sprite_frames.get_frame_count(\"walk\") == 2"
+      },
+      {
+        "type": "expression",
+        "code": "is_equal_approx(helper.find(helper.find(root, \"CharacterBody2D\")[0], \"AnimatedSprite2D\")[0].sprite_frames.get_animation_speed(\"walk\"), 8.0)"
+      },
+      {
+        "type": "runs_clean"
+      },
+      {
+        "type": "play",
+        "steps": [
+          {
+            "find": {
+              "class": "CharacterBody2D"
+            },
+            "as": "player"
+          },
+          {
+            "wait": 2.0
+          },
+          {
+            "get": "player",
+            "property": "global_position",
+            "index": 1,
+            "as": "y1"
+          },
+          {
+            "wait": 0.5
+          },
+          {
+            "get": "player",
+            "property": "global_position",
+            "index": 1,
+            "as": "y2"
+          },
+          {
+            "expect": {
+              "left": "$y2",
+              "op": "==",
+              "right": "$y1"
+            },
+            "why": "it has landed and stays put"
+          },
+          {
+            "expect": {
+              "left": "$y1",
+              "op": ">",
+              "right": 200
+            },
+            "why": "it fell from where it started"
+          },
+          {
+            "expect": {
+              "left": "$y1",
+              "op": "<",
+              "right": 360
+            },
+            "why": "onto the floor, not through it"
+          }
+        ]
+      },
+      {
+        "type": "game",
+        "class": "CharacterBody2D",
+        "actions_any": [
+          "jump",
+          "player_jump",
+          "ui_accept",
+          "ui_up",
+          "move_up",
+          "up"
+        ],
+        "hold": 0.15,
+        "after": 0.3,
+        "expect": "rises",
+        "min": 20
+      },
+      {
+        "type": "game",
+        "class": "CharacterBody2D",
+        "actions_any": [
+          "move_right",
+          "right",
+          "ui_right",
+          "player_right",
+          "walk_right",
+          "run_right"
+        ],
+        "hold": 0.6,
+        "after": 0.1,
+        "expect": "moves_right",
+        "min": 20
+      },
+      {
+        "type": "transcript_lacks",
+        "pattern": "\\b(gd|gdcli)(\\.exe)?\\s+eval\\b|\"(command|name)\":\"eval\""
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "project_input_map_set",
+        "--args",
+        "{\"action\": \"move_left\", \"events\": [{\"key\": \"Left\"}]}",
+        "--yes"
+      ],
+      [
+        "command",
+        "project_input_map_set",
+        "--args",
+        "{\"action\": \"move_right\", \"events\": [{\"key\": \"Right\"}]}",
+        "--yes"
+      ],
+      [
+        "command",
+        "project_input_map_set",
+        "--args",
+        "{\"action\": \"jump\", \"events\": [{\"key\": \"Space\"}]}",
+        "--yes"
+      ],
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"TileMapLayer\", \"name\": \"Floor\", \"parent\": \".\"}"
+      ],
+      [
+        "command",
+        "tileset_add_atlas",
+        "--args",
+        "{\"layer\": \"Floor\", \"texture\": \"res://art/tiles.png\", \"tile_size\": [32, 32], \"collision\": true}"
+      ],
+      [
+        "command",
+        "tilemap_set_cells",
+        "--args",
+        "{\"layer\": \"Floor\", \"rect\": [0, 10, 20, 1], \"atlas\": [0, 0]}"
+      ],
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"CharacterBody2D\", \"name\": \"Player\", \"parent\": \".\", \"properties\": {\"position\": [100, 200]}}"
+      ],
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"CollisionShape2D\", \"name\": \"Shape\", \"parent\": \"Player\", \"properties\": {\"shape\": {\"$new\": \"RectangleShape2D\", \"properties\": {\"size\": [24, 30]}}}}"
+      ],
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"AnimatedSprite2D\", \"name\": \"Sprite\", \"parent\": \"Player\"}"
+      ],
+      [
+        "command",
+        "sprite_frames_create",
+        "--args",
+        "{\"node\": \"Player/Sprite\", \"autoplay\": \"walk\", \"animations\": [{\"name\": \"walk\", \"sheet\": \"res://art/hero_walk.png\", \"hframes\": 2, \"fps\": 8, \"loop\": true}]}"
+      ],
+      [
+        "command",
+        "fs_write_text",
+        "--args",
+        "{\"path\": \"res://player.gd\", \"text\": \"extends CharacterBody2D\\n\\n@export var speed := 220.0\\n@export var jump_velocity := -420.0\\n\\nvar gravity: float = ProjectSettings.get_setting(\\\"physics/2d/default_gravity\\\")\\n\\n\\nfunc _physics_process(delta: float) -> void:\\n\\tif not is_on_floor():\\n\\t\\tvelocity.y += gravity * delta\\n\\tif Input.is_action_just_pressed(\\\"jump\\\") and is_on_floor():\\n\\t\\tvelocity.y = jump_velocity\\n\\tvelocity.x = Input.get_axis(\\\"move_left\\\", \\\"move_right\\\") * speed\\n\\tmove_and_slide()\\n\", \"overwrite\": true}",
+        "--yes"
+      ],
+      [
+        "command",
+        "node_attach_script",
+        "--args",
+        "{\"path\": \"Player\", \"script\": \"res://player.gd\"}"
+      ],
+      [
+        "command",
+        "scene_save"
+      ]
+    ]
+  },
+  {
     "id": "hard.spawner_cap",
     "prompt": "Make the main scene spawn coins: every 0.5 seconds add a new Area2D coin, in the group \"coins\", at a random position inside the 640x360 screen, but never have more than 5 coins at once.",
     "checks": [
@@ -209,7 +428,8 @@
           },
           {
             "count": {
-              "group": "coins"
+              "group": "coins",
+              "class": "Area2D"
             },
             "as": "n1"
           },
@@ -226,7 +446,8 @@
           },
           {
             "count": {
-              "group": "coins"
+              "group": "coins",
+              "class": "Area2D"
             },
             "as": "n2"
           },
@@ -307,10 +528,10 @@
           },
           {
             "find": {
-              "name": "Level1",
-              "timeout": 10
+              "name": "Level1"
             },
-            "as": "level"
+            "as": "level",
+            "timeout": 10
           }
         ]
       },
@@ -323,10 +544,10 @@
           },
           {
             "find": {
-              "name": "Level1",
-              "timeout": 10
+              "name": "Level1"
             },
-            "as": "level"
+            "as": "level",
+            "timeout": 10
           }
         ]
       }
@@ -1196,6 +1417,10 @@
           "bus": "Music",
           "autoplay": true
         }
+      },
+      {
+        "type": "expression",
+        "code": "root.get_node(\"Music\").stream != null and root.get_node(\"Music\").stream.resource_path == \"res://audio/theme.wav\""
       },
       {
         "type": "expression",

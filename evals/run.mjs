@@ -9,7 +9,7 @@
 //          --max-turns <n> --keep --plugin-dir <folder> --verbose
 import { spawn, spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -64,6 +64,9 @@ function parseOptions(argv) {
     throw new Error("--agent is replay, idle or claude");
   }
   options.jobs ||= options.agent === "claude" ? 1 : 2;
+  if (!Number.isInteger(options.repeat) || options.repeat < 1) {
+    throw new Error("--repeat takes a whole number from 1");
+  }
   return options;
 }
 
@@ -198,8 +201,9 @@ function claude(task, env, project, options) {
       }
       const notes = final.isError ? [`the session ended in an error${stderr === "" ? "" : `: ${stderr.slice(-300)}`}`] : [];
       // A session that never got going (signed out, out of quota, no network) says nothing about the task.
-      const said = `${stderr}\n${final.finalText}`;
-      const infra = (final.isError && final.turns === 0 && transcript.length === 0) || NOT_RUNNING.test(said);
+      // What the session said counts only when it did nothing: a model may well write "rate limit" in an answer.
+      const idle = transcript.length === 0 && final.turns <= 1;
+      const infra = (final.isError && final.turns === 0 && transcript.length === 0) || (idle && NOT_RUNNING.test(`${stderr}\n${final.finalText}`));
       resolvePromise({ notes, transcript, finalText: final.finalText, turns: final.turns, costUsd: final.costUsd, infra });
     });
   });
@@ -298,6 +302,18 @@ function shellWriteTargets(command) {
   return targets.filter((target) => target !== "/dev/null" && target.toLowerCase() !== "$null");
 }
 
+/** An interpreter given code on the command line, or PowerShell's file writers: writes that name no target plainly. */
+const INLINE_WRITER = /\b(?:python3?|py|node|deno|bun|ruby|perl|php|bash|sh|zsh|pwsh|powershell)(?:\.exe)?\b[^\n]*?(?:\s-(?:c|e|Command|EncodedCommand)\b|\s-(?=\s|$)|<<)|\beval\b|\[(?:System\.)?IO\.File\]|\b(?:Set-Content|Add-Content|Out-File|New-Item)\b/iu;
+
+/** The folder the last `cd <absolute folder>` of a line moves to, else the project. */
+function lastCd(command, project) {
+  let base = project;
+  for (const match of command.matchAll(/(?:^|[;&|\n])\s*(?:cd|Set-Location|pushd|Push-Location)\s+(["']?)([^\s"';&|]+)\1/giu)) {
+    base = resolve(base, match[2].replace(/^~(?=[\\/]|$)/u, homedir()));
+  }
+  return base;
+}
+
 function inputsText(transcript) {
   return transcript.map((entry) => `${entry.tool} ${JSON.stringify(entry.input)}`);
 }
@@ -355,10 +371,16 @@ function fileOrRunCheck(check, project, env, outcome, agent) {
           if (!pattern.test(command) || !shellParts(command).some((part) => pattern.test(part) && !isPlainGd(part))) {
             return false;
           }
-          // A draft written outside the project is what the skills ask for; anything
-          // else with the content (a target in the project, or none recognised) counts.
+          // A draft written outside the project is what the skills ask for. What
+          // counts: a write into the project, or content handed to an inline
+          // interpreter, whose writes cannot be read off the line. A line that only
+          // reads (grep "@tool") or names gd's own write (the text on later lines) does not.
           const targets = shellWriteTargets(command);
-          return targets.length === 0 || targets.some((target) => insideProject(project, target.replace(/^~(?=\/)/u, homedir())));
+          if (targets.length === 0) {
+            return INLINE_WRITER.test(command);
+          }
+          const base = lastCd(command, project);
+          return targets.some((target) => !/^[$%]/u.test(target) && insideProject(project, resolve(base, target.replace(/^~(?=[\\/])/u, homedir()))));
         }
         return false;
       });
@@ -982,9 +1004,15 @@ async function main() {
   // Replay proves every task can pass; idle that none passes without work (the
   // refusal task excepted: doing nothing is not working around anything).
   // A live run fails only on regressions.
-  const idleExpected = tasks.filter((task) => task.passes_idle === true).length;
+  const passesIdle = new Set(tasks.filter((task) => task.passes_idle === true).map((task) => task.id));
+  const idleWrong = results.filter((result) => !result.infra && result.passed !== passesIdle.has(result.id));
+  for (const result of idleWrong) {
+    if (options.agent === "idle") {
+      process.stdout.write(`idle: ${result.id} ${result.passed ? "passed without any work" : "failed, though doing nothing should pass it"}\n`);
+    }
+  }
   process.exitCode =
-    options.agent === "replay" ? (summary.passed === summary.runs ? 0 : 1) : options.agent === "idle" ? (summary.passed === idleExpected * options.repeat ? 0 : 1) : broken > 0 ? 1 : 0;
+    options.agent === "replay" ? (summary.passed === summary.runs && summary.runs > 0 ? 0 : 1) : options.agent === "idle" ? (idleWrong.length === 0 && summary.runs > 0 ? 0 : 1) : broken > 0 ? 1 : 0;
 }
 
 main().catch((error) => {
