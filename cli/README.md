@@ -12,7 +12,7 @@ npm install -g @spardanviro/gdcli
 
 装好后有两个同样的命令：`gd` 和 `gdcli`。如果 `gd` 被别名占用（oh-my-zsh 的 git 插件把它设成了 `git diff`），用 `gdcli`，或者在 shell 配置里 `unalias gd`。
 
-`gd` 按这个顺序找 Godot：`--godot <路径>`、环境变量 `GODOT_BIN`、`~/.gdcli/config.json` 里的 `godot_bin`、PATH 上的 `godot`。`gd doctor` 告诉你找到了哪个、还缺什么。
+`gd` 按这个顺序找 Godot：`--godot <路径>`、环境变量 `GODOT_BIN`、`~/.gdcli/config.json` 里的 `godot_bin`、PATH 上的 `godot`，再是 `godot4`。`gd doctor` 告诉你找到了哪个、还缺什么。
 
 ## 开始
 

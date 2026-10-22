@@ -89,6 +89,10 @@ export function readInstances(home: string, platform: NodeJS.Platform): readonly
 }
 
 function isRunning(pid: number): boolean {
+  // 0 (no pid in the file) would ask about this process's own group and always answer yes.
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return false;
+  }
   try {
     process.kill(pid, 0);
     return true;

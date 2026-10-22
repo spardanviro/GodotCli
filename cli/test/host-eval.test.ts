@@ -1,4 +1,4 @@
-import { existsSync, utimesSync } from "node:fs";
+import { existsSync, readFileSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
@@ -124,7 +124,9 @@ describe("gd host", () => {
     const project = projectWithBridge(home);
     const godot = writeFile(join(home, "godot-bin"), "");
     const OTHER_GD = 777;
-    const processes = { ...fakeProcesses(), isAlive: (pid: number) => pid !== OTHER_GD };
+    const EDITOR = 4242;
+    // The editor it starts dies too, so nothing is left to hold the lock.
+    const processes = { ...fakeProcesses(), isAlive: (pid: number) => pid !== OTHER_GD && pid !== EDITOR };
     const gd = harness({ homeDir: home, cwd: project, processes, env: { GODOT_BIN: godot } });
     const lock = writeFile(hostLockPath(gd.context, project), JSON.stringify({ pid: OTHER_GD }));
 
@@ -132,6 +134,35 @@ describe("gd host", () => {
 
     expect(processes.detached).toHaveLength(1);
     expect(existsSync(lock)).toBe(false);
+  });
+
+  test("an editor still starting after the wait keeps the lock, so a second start waits for it", async () => {
+    const home = tempDir();
+    const project = projectWithBridge(home);
+    const { gd, processes } = hostHarness(home, project);
+
+    const first = await gd.json("host", "start", "--wait", "0.1");
+    const second = await gd.json("host", "start", "--wait", "0.1");
+
+    expect(first.envelope.errors[0]?.code).toBe("TIMEOUT");
+    expect(second.envelope.errors[0]?.code).toBe("TIMEOUT");
+    expect(processes.detached).toHaveLength(1);
+    expect(JSON.parse(readFileSync(hostLockPath(gd.context, project), "utf8"))).toMatchObject({ editor: 4242 });
+  });
+
+  test("while waiting for another start, an editor that is still importing is waited out", async () => {
+    const home = tempDir();
+    const project = projectWithBridge(home);
+    const { gd, processes } = hostHarness(home, project);
+    writeFile(hostLockPath(gd.context, project), JSON.stringify({ pid: 777 }));
+
+    const starting = gd.json("host", "start", "--wait", "1.5");
+    await new Promise((done) => setTimeout(done, 300));
+    await fakeBridge({ home, project, silent: true });
+    const { envelope } = await starting;
+
+    expect(processes.detached).toEqual([]);
+    expect(envelope.errors[0]?.code).toBe("TIMEOUT");
   });
 
   test("an unreadable lock is believed only while it is fresh", async () => {

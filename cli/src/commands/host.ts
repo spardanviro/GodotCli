@@ -6,7 +6,7 @@ import { resolveInstance } from "../client.js";
 import type { CommandHandler, CommandResult, Context, GlobalOptions } from "../context.js";
 import { errorOf, isEnvelopeError, success } from "../envelope.js";
 import { requireGodot } from "../godot.js";
-import { acquireHostLock } from "../host-lock.js";
+import { acquireHostLock, hostEditorAlive, recordHostEditor } from "../host-lock.js";
 import { PROJECT_FILE, findProject } from "../project.js";
 import { ADDON_RELATIVE_DIR, isPluginEnabled, readPluginVersion } from "./bridge.js";
 import { invokeBridge } from "./live.js";
@@ -108,12 +108,14 @@ async function waitForHost(context: Context, globals: GlobalOptions, deadline: n
   }
 }
 
-async function findRunning(context: Context, globals: GlobalOptions): Promise<CommandResult | undefined> {
+/** The editor already answering, or undefined when there is none; `busyIsMissing` also waits out one still importing. */
+async function findRunning(context: Context, globals: GlobalOptions, busyIsMissing = false): Promise<CommandResult | undefined> {
   const already = await resolveInstance(context, globals);
   if (!isEnvelopeError(already)) {
     return { envelope: success("host", describe(already.instance, false)), human: "an editor is already running for this project\n" };
   }
-  return already.code === "NO_EDITOR" ? undefined : fail("host", already);
+  const missing = already.code === "NO_EDITOR" || (busyIsMissing && already.code === "EDITOR_BUSY");
+  return missing ? undefined : fail("host", already);
 }
 
 interface Launch {
@@ -133,6 +135,7 @@ async function launch(context: Context, globals: GlobalOptions, plan: Launch): P
   if (pid === undefined) {
     return fail("host", errorOf("GODOT_NOT_FOUND", "Godot could not be started.", undefined, { path: plan.godot }));
   }
+  recordHostEditor(context, plan.project, context.pid, pid);
   return waitForHost(context, globals, plan.deadline, pid);
 }
 
@@ -159,14 +162,26 @@ async function start(context: Context, globals: GlobalOptions, waitMs: number): 
   for (;;) {
     const release = acquireHostLock(context, project, context.pid, maxLockAgeMs);
     if (release !== undefined) {
+      let result: CommandResult | undefined;
       try {
-        return await launch(context, globals, { project, godot: plan.godot, args: plan.args, deadline });
+        result = await launch(context, globals, { project, godot: plan.godot, args: plan.args, deadline });
+        return result;
       } finally {
-        release();
+        // Given up on an editor that is still starting: the lock stays with it
+        // (it names its process), so the next host start waits for it instead
+        // of starting a second one.
+        const gaveUp = result?.envelope.errors[0]?.code === TIMED_OUT.code;
+        if (!gaveUp || !hostEditorAlive(context, project)) {
+          release();
+        }
       }
     }
-    // Another gd is starting the host. When it is done (or gone) the lock
-    // becomes free; taking it then shows the editor it started.
+    // Another gd, or an editor still starting, holds the lock. Once that
+    // editor answers it is the one to report.
+    const appeared = await findRunning(context, globals, true);
+    if (appeared !== undefined) {
+      return appeared;
+    }
     if (Date.now() >= deadline) {
       return fail("host", TIMED_OUT);
     }

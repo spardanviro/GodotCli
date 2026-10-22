@@ -6,7 +6,7 @@ import { errorOf, isEnvelopeError, success } from "../envelope.js";
 import { GODOT_ENV, locateGodot } from "../godot.js";
 import { serveMcp } from "../mcp/server.js";
 import { findProject, nonEmpty } from "../project.js";
-import { mergeToml } from "./mcp-toml.js";
+import { mergeToml, tomlKeysDropped } from "./mcp-toml.js";
 import { fail, parseCommandArgs, usage } from "./shared.js";
 
 export const SERVER_NAME = "gdcli";
@@ -48,7 +48,11 @@ function mergeJson(old: string, key: string, value: unknown): string | Error {
   if (servers !== undefined && (typeof servers !== "object" || servers === null || Array.isArray(servers))) {
     return new Error(`"${key}" in the existing file is not an object.`);
   }
-  const merged = { ...(root as Record<string, unknown>), [key]: { ...(servers as Record<string, unknown> | undefined), [SERVER_NAME]: value } };
+  // The user's own settings in an existing entry (env, a timeout) stay; gd's fields are replaced.
+  const existing = (servers as Record<string, unknown> | undefined)?.[SERVER_NAME];
+  const kept = existing !== null && typeof existing === "object" && !Array.isArray(existing) ? (existing as Record<string, unknown>) : {};
+  const entry = { ...kept, ...(value as Record<string, unknown>) };
+  const merged = { ...(root as Record<string, unknown>), [key]: { ...(servers as Record<string, unknown> | undefined), [SERVER_NAME]: entry } };
   return `${JSON.stringify(merged, null, JSON_INDENT)}\n`;
 }
 
@@ -87,8 +91,13 @@ export const MCP_CLIENTS = Object.keys(CLIENTS);
  * and script), so it works whether or not gd is on the PATH the client sees;
  * --command gd writes the bare name instead, for a file shared with others.
  */
-function entryFor(context: Context, project: string, bareName: boolean, godot: string | undefined): ServerEntry {
-  const own = ["mcp", "--project", project, ...(godot === undefined ? [] : ["--godot", godot])];
+function entryFor(context: Context, project: string, bareName: boolean, godot: string | undefined, userScope: boolean): ServerEntry {
+  // A shared project file (--command gd) names no path of this machine, not
+  // even the project's: gd finds the project from the folder the client starts
+  // it in. A user-level file is not shared and serves every project, so it
+  // keeps naming this one.
+  const projectArgs = bareName && !userScope ? [] : ["--project", project];
+  const own = ["mcp", ...projectArgs, ...(godot === undefined ? [] : ["--godot", godot])];
   if (bareName || context.launcher === undefined || context.launcher.length === 0) {
     return { command: "gd", args: own };
   }
@@ -184,7 +193,7 @@ async function configure(context: Context, globals: GlobalOptions, args: readonl
   // A shared file (--command gd) names no path of this machine.
   const { godot, warning } = bare === "gd" ? {} : godotFor(context, globals);
   const warnings = warning === undefined ? [] : [warning];
-  const entry = entryFor(context, project, bare === "gd", godot);
+  const entry = entryFor(context, project, bare === "gd", godot, format.userScope);
   let old = "";
   let mode = format.userScope ? OWNER_ONLY : NEW_FILE;
   if (existsSync(file)) {
@@ -196,6 +205,11 @@ async function configure(context: Context, globals: GlobalOptions, args: readonl
     }
   }
   const text = format.write(old, entry);
+  // Codex's table is written anew: say what of the user's own goes with the old one.
+  const dropped = format.userScope ? tomlKeysDropped(old, SERVER_NAME) : [];
+  if (dropped.length > 0) {
+    warnings.push(`The existing ${SERVER_NAME} entry's own settings are replaced and not kept: ${dropped.join(", ")}. Add them again after writing.`);
+  }
   if (text instanceof Error) {
     return fail("mcp", errorOf("PRECONDITION_FAILED", text.message, "Change the file by hand, or move it aside and run this again.", { file }));
   }

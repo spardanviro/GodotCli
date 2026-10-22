@@ -6,7 +6,7 @@ import type { CommandHandler } from "../context.js";
 import { isEnvelopeError, success } from "../envelope.js";
 import { requireGodot } from "../godot.js";
 import { readInstances } from "../instances.js";
-import { PROJECT_FILE, findProject, gdcliHome, samePath } from "../project.js";
+import { PROJECT_FILE, findProject, gdcliHome, sameLocation } from "../project.js";
 import { sanitize } from "../text.js";
 import { ADDON_RELATIVE_DIR, isPluginEnabled, readPluginVersion } from "./bridge.js";
 
@@ -46,7 +46,7 @@ export const doctorCommand: CommandHandler = async (context, globals) => {
     });
 
     const instances = readInstances(gdcliHome(context), context.platform).filter((instance) =>
-      samePath(instance.projectPath, project, context.platform),
+      sameLocation(instance.projectPath, project, context.platform),
     );
     const states = [];
     for (const instance of instances) {

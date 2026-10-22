@@ -49,6 +49,8 @@ export interface Context {
   readonly readVersion: () => string;
   /** The program and arguments that start this gd (node and its script), for configuration files that start it again. */
   readonly launcher?: readonly string[];
+  /** Work to do before gd exits on SIGINT or SIGTERM (a few seconds at most). */
+  readonly onInterrupt?: (cleanup: () => Promise<void>) => void;
 }
 
 export type OutputFormat = "human" | "json";

@@ -6,7 +6,7 @@ import { type EnvelopeError, errorOf, failureWithData, isEnvelopeError, success 
 import { type Godot, preferGuiBinary, projectHasBeenImported, requireGodot, runGodot } from "../godot.js";
 import { type Diagnostic, countBySeverity, formatDiagnostic, parseGodotOutput } from "../output-parser.js";
 import { readInstances } from "../instances.js";
-import { findProject, gdcliHome, samePath, toResPath } from "../project.js";
+import { findProject, gdcliHome, sameLocation, toResPath } from "../project.js";
 import { sanitize } from "../text.js";
 import { fail, numberOption, parseCommandArgs, usage } from "./shared.js";
 
@@ -82,7 +82,7 @@ function spawnFailure(command: string, reason: string): CommandResult {
  * whether there is any; so it says so whenever an editor has the project open.
  */
 function openEditorWarning(context: Context, project: string): readonly string[] {
-  const open = readInstances(gdcliHome(context), context.platform).some((instance) => samePath(instance.projectPath, project, context.platform));
+  const open = readInstances(gdcliHome(context), context.platform).some((instance) => sameLocation(instance.projectPath, project, context.platform));
   return open ? ["An editor has this project open: this run uses the files on disk, so save the scene first (scene_save) if it has changes."] : [];
 }
 

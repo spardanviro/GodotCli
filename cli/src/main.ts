@@ -9,12 +9,16 @@ import { createProcessRunner } from "./process-runner.js";
 
 const processes = createProcessRunner(process.platform);
 const EXIT_INTERRUPTED = 130;
+const CLEANUP_MS = 3000;
+const cleanups: Array<() => Promise<void>> = [];
 
-// An agent's own timeout or Ctrl-C must not leave an export or a game running.
+// An agent's own timeout or Ctrl-C must not leave an export, a game or a
+// headless editor (gd mcp) running.
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  process.on(signal, () => {
+  process.once(signal, () => {
     processes.stopAll();
-    process.exit(EXIT_INTERRUPTED);
+    const done = Promise.all(cleanups.map((cleanup) => cleanup().catch(() => undefined)));
+    void Promise.race([done, new Promise((resolve) => setTimeout(resolve, CLEANUP_MS))]).then(() => process.exit(EXIT_INTERRUPTED));
   });
 }
 
@@ -35,4 +39,5 @@ process.exitCode = await run(process.argv.slice(2), {
   processes,
   readVersion: readCliVersion,
   launcher: [process.execPath, fileURLToPath(import.meta.url)],
+  onInterrupt: (cleanup) => cleanups.push(cleanup),
 });

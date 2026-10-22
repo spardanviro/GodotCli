@@ -5,7 +5,7 @@ import { DEFAULT_TIMEOUT_MS, callCommand, fetchCommands, handshake, resolveInsta
 import type { CommandHandler, CommandResult, Context, GlobalOptions } from "../context.js";
 import { type Envelope, type EnvelopeError, errorOf, isEnvelopeError, success } from "../envelope.js";
 import { type Instance, readInstances, removeStale } from "../instances.js";
-import { findProject, gdcliHome, samePath } from "../project.js";
+import { findProject, gdcliHome, sameLocation } from "../project.js";
 import { sanitize } from "../text.js";
 import { dataAsText, fail, parseCommandArgs, usage } from "./shared.js";
 
@@ -45,11 +45,14 @@ function publicView(instance: Instance, state: string): Record<string, unknown> 
 export const statusCommand: CommandHandler = async (context, globals) => {
   const project = findProject(context, globals);
   const scoped = typeof project === "string";
-  if (!scoped && globals.project !== undefined) {
+  // A project that was named (--project or GDCLI_PROJECT) and is not there is an error, not "every editor".
+  if (!scoped && (globals.project !== undefined || (context.io.env["GDCLI_PROJECT"] ?? "") !== "")) {
     return fail("status", project);
   }
   const instances = readInstances(gdcliHome(context), context.platform).filter(
-    (instance) => !scoped || samePath(instance.projectPath, project, context.platform),
+    (instance) =>
+      (!scoped || sameLocation(instance.projectPath, project, context.platform)) &&
+      (globals.instance === undefined || instance.instanceId === globals.instance),
   );
   const editors = [];
   for (const instance of instances) {

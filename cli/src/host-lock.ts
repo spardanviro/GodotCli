@@ -21,16 +21,22 @@ export function hostLockPath(context: Context, project: string): string {
   return join(gdcliHome(context), HOST_LOCKS_DIR_NAME, `${name}.lock`);
 }
 
-function ownerPid(path: string): number | undefined {
+function lockField(path: string, field: "pid" | "editor"): number | undefined {
   try {
-    const pid: unknown = (JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>)["pid"];
+    const pid: unknown = (JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>)[field];
     return typeof pid === "number" && Number.isInteger(pid) && pid > 0 ? pid : undefined;
   } catch {
     return undefined;
   }
 }
 
-/** A lock is stale when the gd that took it is gone, or when it is older than any start may last. */
+const ownerPid = (path: string): number | undefined => lockField(path, "pid");
+
+/**
+ * A lock is stale when the gd that took it is gone and so is the editor it
+ * started (a gd that stopped waiting leaves the lock to the editor that is
+ * still starting), or when it is older than any start may last.
+ */
 function isStale(context: Context, path: string, maxAgeMs: number): boolean {
   let ageMs: number;
   try {
@@ -46,7 +52,8 @@ function isStale(context: Context, path: string, maxAgeMs: number): boolean {
   if (pid === undefined) {
     return ageMs > WRITE_GRACE_MS;
   }
-  return !context.processes.isAlive(pid);
+  const editor = lockField(path, "editor");
+  return !context.processes.isAlive(pid) && (editor === undefined || !context.processes.isAlive(editor));
 }
 
 /**
@@ -62,6 +69,25 @@ function clearStale(path: string, pid: number): void {
   } catch {
     // Another gd cleared it first; the next attempt competes for the lock.
   }
+}
+
+/** Notes in the lock this gd holds which editor it started. */
+export function recordHostEditor(context: Context, project: string, pid: number, editor: number): void {
+  const path = hostLockPath(context, project);
+  if (ownerPid(path) !== pid) {
+    return;
+  }
+  try {
+    writeFileSync(path, JSON.stringify({ pid, editor }), { mode: PRIVATE_FILE_MODE });
+  } catch {
+    // The lock still names this gd; only the hand-over to the editor is lost.
+  }
+}
+
+/** Whether the lock names an editor that is still running. */
+export function hostEditorAlive(context: Context, project: string): boolean {
+  const editor = lockField(hostLockPath(context, project), "editor");
+  return editor !== undefined && context.processes.isAlive(editor);
 }
 
 function release(path: string, pid: number): void {

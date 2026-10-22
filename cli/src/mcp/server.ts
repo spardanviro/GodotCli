@@ -111,8 +111,8 @@ function isOfferable(descriptor: Descriptor): boolean {
   return TOOL_NAME.test(descriptor.name) && !descriptor.name.startsWith(OWN_PREFIX);
 }
 
-function cleanText(text: string | undefined, limit: number): string | undefined {
-  if (text === undefined) {
+function cleanText(text: unknown, limit: number): string | undefined {
+  if (typeof text !== "string") {
     return undefined;
   }
   const clean = sanitize(text);
@@ -124,20 +124,36 @@ function cleanText(text: string | undefined, limit: number): string | undefined 
  * as instructions. Text the project wrote (its own commands) is cleaned, cut
  * short and marked as coming from the project.
  */
+/** The risks gd knows; anything else is shown to the model as destructive. */
+const KNOWN_RISKS: ReadonlySet<unknown> = new Set(["read", "write", "destructive", "exec"]);
+
 function cleanDescriptor(descriptor: Descriptor): Descriptor {
   const limit = descriptor.custom === true ? MAX_PROJECT_TEXT : Number.MAX_SAFE_INTEGER;
+  const given: unknown = descriptor.params?.properties;
   const properties = Object.fromEntries(
-    Object.entries(descriptor.params?.properties ?? {}).map(([key, parameter]) => [
-      sanitize(key),
-      { ...parameter, ...(parameter.description === undefined ? {} : { description: cleanText(parameter.description, limit) }) },
-    ]),
+    Object.entries(given !== null && typeof given === "object" ? given : {})
+      .filter(([, parameter]) => parameter !== null && typeof parameter === "object")
+      .map(([key, parameter]: [string, Record<string, unknown>]) => {
+        const description = cleanText(parameter["description"], limit);
+        const rest = Object.fromEntries(
+          Object.entries(parameter)
+            .filter(([field]) => field !== "description")
+            // Enumerated values are words a model reads too.
+            .map(([field, value]) => [field, field === "enum" && Array.isArray(value) ? value.map((entry) => (typeof entry === "string" ? (cleanText(entry, limit) ?? "") : entry)) : value]),
+        );
+        return [sanitize(key), { ...rest, ...(description === undefined ? {} : { description }) }];
+      }),
   );
+  // What a command needs, as words a model reads: only strings, cleaned.
+  const requires = Array.isArray(descriptor.requires) ? descriptor.requires.filter((entry): entry is string => typeof entry === "string").map((entry) => cleanText(entry, limit) ?? "") : undefined;
   const summary = cleanText(descriptor.summary, limit);
   const returns = cleanText(descriptor.returns, limit);
   return {
     ...descriptor,
+    ...(descriptor.risk === undefined || KNOWN_RISKS.has(descriptor.risk) ? {} : { risk: "destructive" }),
     ...(summary === undefined ? {} : { summary: descriptor.custom === true ? `(From this project, not from gd.) ${summary}` : summary }),
-    ...(returns === undefined ? {} : { returns }),
+    ...(returns === undefined ? { returns: undefined } : { returns }),
+    ...(requires === undefined ? { requires: undefined } : { requires }),
     ...(descriptor.params === undefined ? {} : { params: { ...descriptor.params, properties } }),
   };
 }
@@ -263,7 +279,14 @@ export class McpServer {
     const listing = await fetchCommands(resolved.instance, LIST_TIMEOUT_MS);
     const commands = (listing.data as { commands?: unknown } | null)?.commands;
     if (listing.success && Array.isArray(commands)) {
-      const descriptors = commands.filter(isDescriptor).filter(isOfferable).map(cleanDescriptor);
+      // One malformed descriptor (a project's own command) must not take the whole list down.
+      const descriptors = commands.filter(isDescriptor).filter(isOfferable).flatMap((descriptor) => {
+        try {
+          return [cleanDescriptor(descriptor)];
+        } catch {
+          return [];
+        }
+      });
       if (descriptors.length > 0) {
         this.commands = descriptors;
       }
@@ -350,6 +373,7 @@ export class McpServer {
  */
 export async function serveMcp(options: McpServerOptions): Promise<void> {
   const server = new McpServer(options);
+  options.context.onInterrupt?.(() => server.close());
   const pending = new Set<Promise<void>>();
   let gone = false;
   const send = (message: string): void => {

@@ -154,7 +154,7 @@ export const OFFLINE_TOOLS: readonly OfflineTool[] = [
     "Run the project (or one scene) in a separate Godot process for some seconds and report the errors and warnings it printed, with file and line. Saves nothing; the editor's unsaved changes are not seen.",
     {
       scene: { type: "string", description: "res:// path of a scene; default: the main scene" },
-      seconds: { type: "number", description: "How long to let it run (default 5)", minimum: 0.1, maximum: 600 },
+      seconds: { type: "number", description: "How long to let it run, in seconds, at least 1 (default 10)", minimum: 1, maximum: 600 },
       headless: { type: "boolean", description: "No window (default true)" },
     },
     [],

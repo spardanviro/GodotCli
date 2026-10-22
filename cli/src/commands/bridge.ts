@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { CommandHandler, CommandResult, Context, GlobalOptions } from "../context.js";
 import { errorOf, success } from "../envelope.js";
 import { readInstances } from "../instances.js";
-import { PROJECT_FILE, findProject, gdcliHome, samePath } from "../project.js";
+import { PROJECT_FILE, findProject, gdcliHome, sameLocation } from "../project.js";
 import { fail, parseCommandArgs, usage } from "./shared.js";
 
 export const ADDON_RELATIVE_DIR = join("addons", "gdcli");
@@ -110,7 +110,7 @@ interface BridgeState {
 function inspect(context: Context, project: string): BridgeState {
   const projectText = readFileSync(join(project, PROJECT_FILE), "utf8");
   const running = readInstances(gdcliHome(context), context.platform).some((instance) =>
-    samePath(instance.projectPath, project, context.platform),
+    sameLocation(instance.projectPath, project, context.platform),
   );
   return {
     project,

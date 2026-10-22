@@ -106,6 +106,31 @@ function tomlString(value: string): string {
 }
 
 /**
+ * The keys and sub-tables of the server's existing table other than command
+ * and args: what writing the entry anew drops. Read line by line, for the
+ * preview only (mergeToml decides what is safe to change).
+ */
+export function tomlKeysDropped(old: string, name: string): string[] {
+  const dropped: string[] = [];
+  let table: string[] = [];
+  for (const line of old.split(/\r?\n/u)) {
+    const code = withoutComment(line).trim();
+    if (code.startsWith("[") && !code.startsWith("[[")) {
+      table = keyParts(code.replace(/^\[/u, "").replace(/\]$/u, ""));
+      if (table.length > 2 && isServer(table, name)) {
+        dropped.push(`[${table.join(".")}]`);
+      }
+    } else if (table.length === 2 && isServer(table, name) && code.includes("=")) {
+      const key = code.slice(0, code.indexOf("=")).trim().replace(/^["']|["']$/gu, "");
+      if (key !== "command" && key !== "args") {
+        dropped.push(key);
+      }
+    }
+  }
+  return dropped;
+}
+
+/**
  * Replaces (or adds) the [mcp_servers.<name>] table and its sub-tables, leaving
  * every other line as it was. Returns an Error when the server is already in
  * the file in a form that is not such a table.
