@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -31,6 +31,53 @@ function workspace({ bridge = true } = {}) {
   }
   return { root, project };
 }
+
+describe("what the phase review found the guard let through", () => {
+  test("a whole guarded folder removed or moved, and a nested .git", () => {
+    const { root, project } = workspace();
+
+    for (const command of ["rm -rf addons", "rm -rf addons/", "mv addons ../aside", "Remove-Item -Recurse gdcli_commands", "rm -rf .godot", "echo x > .git/hooks/pre-commit", "echo x > sub/.gitmodules"]) {
+      assert.equal(commandWrites(command, project), true, command);
+    }
+    assert.equal(commandWrites(`mv ${join(root, "scratch")} ${join(root, "elsewhere")}`, project), false, "folders outside the project");
+  });
+
+  test("PowerShell writers with parameters before the file", () => {
+    const { project } = workspace();
+
+    assert.equal(commandWrites('"x" | Out-File -Encoding utf8 scripts/player.gd', project), true);
+    assert.equal(commandWrites("Set-Content -Value 'x' scripts/player.gd", project), true);
+    assert.equal(commandWrites("Set-Content -Force -Value 'x' notes.txt", project), false, "an ordinary file");
+  });
+
+  test("the home folder however a shell spells it", () => {
+    const { project } = workspace();
+    const home = homedir().replaceAll("\\", "/");
+    const inside = project.replaceAll("\\", "/");
+    if (!inside.toLowerCase().startsWith(`${home.toLowerCase()}/`)) {
+      return; // The temporary folder is not under the home folder here.
+    }
+    const below = inside.slice(home.length);
+    for (const prefix of ["~", "$HOME", "$env:USERPROFILE"]) {
+      assert.equal(commandWrites(`echo x > ${prefix}${below}/scripts/player.gd`, project), true, prefix);
+    }
+  });
+
+  test("Git Bash's drive paths on Windows", { skip: process.platform !== "win32" }, () => {
+    const { project } = workspace();
+    const posix = project.replaceAll("\\", "/").replace(/^([A-Za-z]):/u, (_whole, drive) => `/${drive.toLowerCase()}`);
+
+    assert.equal(commandWrites(`echo x > ${posix}/scripts/player.gd`, project), true);
+  });
+
+  test("git restore --staged only unstages; Push-Location moves where relative paths land", () => {
+    const { root, project } = workspace();
+
+    assert.equal(commandWrites("git restore --staged scripts/player.gd", project), false);
+    assert.equal(commandWrites("git restore scripts/player.gd", project), true);
+    assert.equal(commandWrites(`Push-Location ${join(root, "scratch")}; Set-Content player.gd 'x'`, project), false);
+  });
+});
 
 describe("parse", () => {
   test("splits commands and sets redirection targets apart", () => {

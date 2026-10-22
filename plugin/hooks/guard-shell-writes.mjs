@@ -12,6 +12,7 @@
 // instructions, not by habit. The hard limit is the sandbox of Claude Code
 // (plugin/README.md).
 
+import { homedir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -54,9 +55,11 @@ const SHELLS = new Set(["bash", "sh", "zsh", "dash", "pwsh", "powershell", "cmd"
 const INTERPRETERS = new Set(["python", "python3", "py", "node", "deno", "bun", "perl", "ruby", "php"]);
 const INLINE_CODE_FLAG = /^(-[a-z]*[ce]|-command|-encodedcommand|\/c|--eval|-r|-p)$/iu;
 const DESTINATION_FLAGS = new Set(["-destination", "-t", "--target-directory"]);
-const CHANGES_DIRECTORY = new Set(["cd", "pushd", "set-location", "sl", "chdir"]);
+const CHANGES_DIRECTORY = new Set(["cd", "pushd", "set-location", "sl", "chdir", "push-location"]);
+// PowerShell switches: parameters that take no value, so the word after them is not theirs.
+const POWERSHELL_SWITCHES = new Set(["-force", "-nonewline", "-append", "-noclobber", "-confirm", "-whatif", "-passthru", "-asbytestream", "-usetransaction", "-verbose", "-debug", "-recurse", "-raw"]);
 // What a guarded file looks like inside code, where its path cannot be resolved.
-const GUARDED_IN_TEXT = /\.(?:gd|tscn|tres|scn|res|cs|import|gdextension|csproj|sln|props|targets)\b|project\.godot|override\.cfg|export_presets\.cfg|(?:^|[\\/"'\s])(?:addons|gdcli_commands|\.godot)[\\/]/iu;
+const GUARDED_IN_TEXT = /\.(?:gd|tscn|tres|escn|scn|res|cs|import|gdextension|csproj|fsproj|vbproj|proj|sln|slnx|slnf|props|targets|rsp)\b|\.csproj\.user\b|project\.godot|override\.cfg|export_presets\.cfg|nuget\.config|global\.json|dotnet-tools\.json|\.gitmodules|\.gitattributes|(?:^|[\\/"'\s])(?:addons|gdcli_commands|\.godot|\.git)[\\/]/iu;
 const WRITES_IN_TEXT = /\bopen\s*\([^)]{0,300},\s*["'][wax+]|["']\s*>|write|unlink|rename|remove|copy|move|shutil|Set-Content|Add-Content|Out-File|New-Item|truncate|touch/iu;
 // Code longer than this is judged by its beginning.
 const MAX_CODE_LENGTH = 20000;
@@ -212,9 +215,27 @@ function slashed(word) {
   return word.replaceAll("\\", "/");
 }
 
+const HOME_PREFIX = /^(?:~|\$HOME|\$\{HOME\}|\$env:USERPROFILE|\$env:HOME|%USERPROFILE%)(?=[\\/]|$)/iu;
+
+/**
+ * A word as the path it names, or null when it cannot be read as one: the
+ * home folder however a shell spells it, and on Windows Git Bash's /c/... for
+ * C:/... (Node would read it as C:\c\...). Other variables are not guessed at.
+ */
+function asPath(word) {
+  if (word === "" || word.startsWith("-") || word.includes("://")) {
+    return null;
+  }
+  let path = slashed(word).replace(HOME_PREFIX, () => slashed(homedir()));
+  if (process.platform === "win32") {
+    path = path.replace(/^\/([a-zA-Z])(?=\/|$)/u, (_whole, drive) => `${drive.toUpperCase()}:`);
+  }
+  return /[$`%]/u.test(path) ? null : path;
+}
+
 /** Whether a word can be read as a path at all. */
 function isPathLike(word) {
-  return word !== "" && !word.startsWith("-") && !word.includes("://") && !/[$`%]/u.test(word) && !word.startsWith("~");
+  return asPath(word) !== null;
 }
 
 /** Whether inline code names a guarded file and something that writes. */
@@ -255,7 +276,10 @@ function withoutWrappers(words) {
  * @returns {boolean}
  */
 function segmentWrites(segment, cwd) {
-  const guarded = (word) => isPathLike(word) && isGuardedWrite(slashed(word), cwd);
+  const guarded = (word) => {
+    const path = asPath(word);
+    return path !== null && isGuardedWrite(path, cwd);
+  };
   if (segment.redirects.some(guarded)) {
     return true;
   }
@@ -272,7 +296,16 @@ function segmentWrites(segment, cwd) {
   }
   if (WRITES_FIRST.has(verb)) {
     const named = rest.findIndex((word) => /^-(path|filepath|literalpath)$/iu.test(word));
-    const target = named === -1 ? paths[0] : rest[named + 1];
+    // Otherwise the first word that is not a parameter's value (-Encoding utf8, -Value 'x').
+    let target = named === -1 ? undefined : rest[named + 1];
+    for (let index = 0; target === undefined && index < rest.length; index += 1) {
+      const word = rest[index] ?? "";
+      if (word.startsWith("-")) {
+        index += POWERSHELL_SWITCHES.has(word.toLowerCase().split(":")[0] ?? "") || word.includes(":") ? 0 : 1;
+      } else {
+        target = word;
+      }
+    }
     return target !== undefined && guarded(target);
   }
   if (COPIES.has(verb) || MOVES.has(verb) || verb === "robocopy") {
@@ -342,14 +375,18 @@ function gitWrites(rest, cwd) {
     if (word === "-C" && rest[index + 1] !== undefined) {
       index += 1;
       if (isPathLike(rest[index] ?? "")) {
-        directory = resolve(directory, slashed(rest[index] ?? ""));
+        directory = resolve(directory, asPath(rest[index] ?? "") ?? "");
       }
     } else {
       words.push(word);
     }
   }
   const subcommand = words.find((word) => !word.startsWith("-"));
-  return subcommand !== undefined && GIT_WRITES.has(subcommand) && words.some((word) => isPathLike(word) && isGuardedWrite(slashed(word), directory));
+  // restore --staged alone changes the index, not the files.
+  if (subcommand === "restore" && words.some((word) => word === "--staged" || word === "-S") && !words.some((word) => word === "--worktree" || word === "-W")) {
+    return false;
+  }
+  return subcommand !== undefined && GIT_WRITES.has(subcommand) && words.some((word) => isPathLike(word) && isGuardedWrite(asPath(word) ?? "", directory));
 }
 
 /**
@@ -375,8 +412,9 @@ export function commandWrites(command, cwd) {
       return true;
     }
     const [first, target] = segment.words;
-    if (first !== undefined && CHANGES_DIRECTORY.has(verbOf(first)) && target !== undefined && isPathLike(target)) {
-      current = isAbsolute(slashed(target)) ? resolve(slashed(target)) : resolve(current, slashed(target));
+    const where = target === undefined ? null : asPath(target);
+    if (first !== undefined && CHANGES_DIRECTORY.has(verbOf(first)) && where !== null) {
+      current = isAbsolute(where) ? resolve(where) : resolve(current, where);
     }
   }
   return false;

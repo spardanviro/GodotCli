@@ -40,6 +40,8 @@ gd command node_set --path Player --properties '{"position": [200, 100], "scale"
 gd command fs_write_text --path res://scripts/player.gd --text-file /tmp/player.gd
 ```
 
+- `/tmp/...` in these examples is any scratch folder outside the project. On Windows give a real path
+  (`$env:TEMP\player.gd` in PowerShell): `gd` does not see Git Bash's `/tmp`.
 - Arguments are `--name value`. A dash in a name stands for an underscore (`--root-type` is `root_type`).
 - An object or array argument is JSON in single quotes. `--args '{...}'` or `--args-file <file>` gives all arguments
   as one JSON object.
@@ -82,7 +84,8 @@ Things worth knowing before you use them:
 - `node_create` takes the properties in the same call. Set what the Inspector shows (position, size, text, colours,
   shapes, textures) there or with `node_set`, not in a script's `_ready()`.
 - Values: JSON where JSON can say it, `[x, y]` or `"Vector2(x, y)"` for vectors, `"#rrggbb"` for colours, the
-  constant's name for an enum (`"MOUSE_FILTER_IGNORE"`), `{"$res": "res://..."}` for a file,
+  the Inspector's label or the constant's name for an enum (`"Ignore"`, `"MOUSE_FILTER_IGNORE"`; global enums
+  take only the label or number), `{"$res": "res://..."}` for a file,
   `{"$new": "RectangleShape2D", "properties": {...}}` for a new sub-resource, `{"$node": "Path"}` for a node.
   The full table is in `references/values.md`.
 - `node_get` without `--properties` lists what the Inspector shows; any other property (`global_position`, a

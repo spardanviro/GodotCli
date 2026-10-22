@@ -15,7 +15,7 @@ Engine types are converted to the type of the property they are assigned to, so 
 | `Basis`, `Transform3D`, `Projection` | column vectors in constructor order (`Transform3D` is `[x, y, z, origin]`), or the same numbers as one flat array |
 | `Packed*Array` | an array, each element in the element's form: `[[0, 0], [16, 0], [16, 16]]` for a `PackedVector2Array` |
 | `NodePath`, `StringName` | a string |
-| an enum | the number, the constant's name as a script writes it (`"MOUSE_FILTER_IGNORE"`, `"Control.MOUSE_FILTER_IGNORE"`), or the Inspector's label (`"Ignore"`) |
+| an enum | the number, or the Inspector's label (`"Ignore"`, `"Center"`); for an enum of the node's own class also the constant's name as a script writes it (`"MOUSE_FILTER_IGNORE"`, `"Control.MOUSE_FILTER_IGNORE"`). Global enums such as `horizontal_alignment` do not take their constant's name (`HORIZONTAL_ALIGNMENT_CENTER`): use the label or the number |
 | a resource | `{"$res": "res://art/player.png"}` loads a file; `{"$new": "RectangleShape2D", "properties": {"size": [32, 32]}}` makes a new one inside the scene |
 | a node | `{"$node": "World/Spawn"}`, a path from the scene root |
 
@@ -61,7 +61,8 @@ Some properties exist only after another one is set: `surface_material_override/
   first property in one call and the dependent one in the next.
 
 Properties that are another way of writing a stored one can be set too: `rotation_degrees`, `global_position`,
-`global_rotation`, `global_transform`, `quaternion`, `basis`.
+`global_rotation`, `global_rotation_degrees`, `global_scale`, `global_skew`, `global_transform`, `global_basis`,
+`transform`, `basis`, `quaternion`.
 
 ## What cannot be written
 

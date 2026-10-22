@@ -121,9 +121,10 @@ stops with the rest when `get_tree().paused` is true.
 
 ## Input and focus
 
-- A control that should not swallow clicks (an overlay, a decorative `ColorRect`, a label on top of a button) gets
+- A control that should not swallow clicks (an overlay, a decorative `ColorRect` or `TextureRect` on top of a button) gets
   `mouse_filter` ignore: `{"mouse_filter": "MOUSE_FILTER_IGNORE"}`. A full-rect control with the default filter
-  blocks every click behind it; this is the usual reason "the button does nothing".
+  blocks every click behind it; this is the usual reason "the button does nothing". (A `Label` already ignores
+  the mouse.)
 - Keyboard and gamepad navigation needs a focused control: call `grab_focus()` on the first button when a menu
   opens.
 - UI gets input before the game. Game input in `_unhandled_input` does not fire for events the UI used.

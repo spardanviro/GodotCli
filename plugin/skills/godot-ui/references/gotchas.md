@@ -44,12 +44,12 @@ Controls like Label, Button, and RichTextLabel automatically call `tr()` on thei
 
 
 <!-- keywords: Localization, Default, Latin, Cyrillic -->
-### Localization: Default project font only supports Latin-1 — CJK/Cyrillic will show blank
-Godot's built-in default font (the editor font) only covers the Latin-1 character set. If you're localizing to Russian, Chinese, Japanese, Korean, Arabic, etc., characters will appear as blank boxes (tofu) unless you:
+### Localization: the default font lacks most scripts — fine on your desktop, boxes elsewhere
+Godot's built-in default font covers only a few scripts. On desktop, missing glyphs (Chinese, Japanese, Korean, Arabic, ...) are borrowed from a system font, so the text looks right on the developer's machine and shows as boxes (tofu) in a web export or on a machine without such a font. Ship a font that has the glyphs:
 1. Download a multilingual font (e.g., Noto Fonts from google.com/get/noto)
 2. Import the TTF file as a FontFile resource
 3. Set it as a custom font on your Control nodes (or globally in Theme)
-Also: the resource remapping system for localized assets **doesn't work for DynamicFonts**. For font-per-language scenarios, use the DynamicFont fallback system instead.
+For several scripts, prefer one font with fallbacks (the FontFile's `fallbacks` list, one font per script) over remapping a different font per language.
 
 
 <!-- keywords: Control, Containers, MarginContainer, Node, UI, theme, Theme, Container, VBoxContainer, HBoxContainer -->

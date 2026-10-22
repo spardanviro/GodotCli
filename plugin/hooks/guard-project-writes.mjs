@@ -25,10 +25,14 @@ const GUARDED_FOLDERS = new Set(["addons", "gdcli_commands", ".godot"]);
 // sensitive paths: project and solution files, imported props and targets, a
 // project's .user file, response files, package sources, the SDK version).
 const GUARDED_EXTENSIONS = new Set([
-  ".gd", ".cs", ".tscn", ".tres", ".scn", ".res", ".import", ".gdextension",
+  ".gd", ".cs", ".tscn", ".tres", ".escn", ".scn", ".res", ".import", ".gdextension",
   ".csproj", ".fsproj", ".vbproj", ".proj", ".sln", ".slnx", ".slnf", ".props", ".targets", ".user", ".rsp",
 ]);
-const GUARDED_NAMES = new Set(["nuget.config", "global.json", "dotnet-tools.json"]);
+// Read by name wherever they are: package sources and the SDK version for a
+// .NET build, and what git itself acts on (a submodule URL, a filter command).
+const GUARDED_NAMES = new Set(["nuget.config", "global.json", "dotnet-tools.json", ".gitmodules", ".gitattributes"]);
+// A repository anywhere in the project: its hooks and config are run by git.
+const GIT_FOLDER = ".git";
 
 const REASON = [
   "This file belongs to a Godot project that is driven through gdcli, and it decides what code the editor runs.",
@@ -101,6 +105,13 @@ export function isGuardedRelativePath(relativePath) {
   const folded = segments.map((segment) => (segment.toLowerCase().split(":")[0] ?? "").replace(/[. ]+$/u, ""));
   const name = folded.at(-1) ?? "";
   if (folded.length === 1 && GUARDED_ROOT_FILES.has(name)) {
+    return true;
+  }
+  // The folder itself too: removing or moving addons/ removes everything in it.
+  if (folded.length === 1 && GUARDED_FOLDERS.has(name)) {
+    return true;
+  }
+  if (folded.includes(GIT_FOLDER)) {
     return true;
   }
   if (folded.length > 1 && GUARDED_FOLDERS.has(folded[0] ?? "")) {

@@ -58,7 +58,8 @@ fallback is used for a language the game does not have; it defaults to `en`.
 - **In scripts**: `tr("TITLE")`. Values go in named placeholders, so translators can move them:
   `tr("COINS").format({"n": coins})`. `%s`/`%d` work but fix the order.
 - **Plurals**: `tr_n("ONE_COIN", "MANY_COINS", count)`; never `if count > 1` (other languages have more than two
-  forms). Since Godot 4.6 a CSV can hold plural forms in a `?plural` column.
+  forms). Plural forms need a CSV with a `?plural` column (Godot 4.6+) or gettext `.po` files; before 4.6 a CSV
+  gives `tr_n` the singular every time, so on 4.5 and older use `.po` files for text with a count.
 - **The same word with two meanings**: `tr("Close", "Actions")` (a context); in a CSV, a `?context` column (4.6+).
 - **A Label set from code** is translated when its text is a key; text built from translated pieces is not looked
   up again.

@@ -27,7 +27,7 @@ claude plugin marketplace update gdcli
 claude plugin update godot@gdcli
 ```
 
-Claude Code 按 `plugin.json` 里的版本号判断有没有新版本，所以每次改动插件都要提升版本号（`npm run check:versions` 保证它与命令行、桥接的版本一致）。这条安装路径在 WSL 的 Claude Code 2.1 上实测过：装上后显示 8 个技能和钩子。
+Claude Code 按 `plugin.json` 里的版本号判断有没有新版本，所以每次改动插件都要提升版本号（`npm run check:versions` 保证它与命令行、桥接的版本一致）。这条安装路径在 WSL 的 Claude Code 2.1 上实测过：装上后技能和钩子都在（当时 8 个技能，现在 13 个）。
 
 从本地源码试用：
 
@@ -45,7 +45,6 @@ claude --plugin-dir /path/to/gdcli/plugin
 | `godot-ui` | Control、锚点、容器、主题覆盖、HUD 和菜单的常见部件、输入与焦点、分辨率适配 |
 | `godot-3d-rendering` | 3D 场景、材质、灯光、三种渲染器的差别、着色器、模型和贴图导入、画面不对时怎么查 |
 | `godot-animation-audio` | AnimationPlayer、补间、动画树、粒子、音频 |
-
 | `godot-new-project` | 按任务切的技能：从零开始一个项目。先定下以后难改的几件事（2D 还是 3D、渲染器、分辨率、是否像素风），再 `gd new`、打开编辑器、建出能运行的第一个场景 |
 | `godot-troubleshooting` | 按任务切的技能：从症状找原因（掉出地面、不动、信号不触发、按钮没反应、黑屏、动画不播、空引用报错、改了不生效、导出后不对），先读运行中的值再改代码 |
 | `godot-tilemap` | 按任务切的技能：从一张图建瓦片集、画关卡、给瓦片加碰撞（含斜坡和单向平台）、地形自动拼接、分层 |
@@ -87,9 +86,11 @@ GDCLI_UPDATE_PLUGIN=1 GODOT_BIN=/path/to/godot node scripts/bridge-test.mjs
 
 `hooks/guard-project-writes.mjs` 在 Claude 调用 Write、Edit、MultiEdit、NotebookEdit 之前检查目标路径，命中下面任何一条就拒绝，并告诉它改用 `gd command fs_write_text`：
 
-- 项目里的 `.gd`、`.cs`、`.tscn`、`.tres`、`.scn`、`.res`、`.import`、`.gdextension`、`.csproj`、`.sln`、`.props`、`.targets`
+- 项目里的 `.gd`、`.cs`、`.tscn`、`.tres`、`.escn`、`.scn`、`.res`、`.import`、`.gdextension`
+- .NET 构建和还原会读的：`.csproj`、`.fsproj`、`.vbproj`、`.proj`、`.sln`、`.slnx`、`.slnf`、`.props`、`.targets`、`.user`、`.rsp`，以及 `NuGet.Config`、`global.json`、`dotnet-tools.json`
+- 任何位置的 `.gitmodules`、`.gitattributes`，和任何位置的 `.git/` 里的文件
 - 项目根目录的 `project.godot`、`project.binary`、`override.cfg`、`export_presets.cfg`
-- `addons/`、`gdcli_commands/`、`.godot/` 下的任何文件
+- `addons/`、`gdcli_commands/`、`.godot/` 这几个文件夹本身（整个删掉或移走）和里面的任何文件
 
 只对**装了桥接的项目**生效（存在 `addons/gdcli/plugin.cfg`）；没装桥接的 Godot 项目和项目外的文件不受影响。子文件夹里另放一个 `project.godot` 不会让外层项目失去保护。读文件不受限制，Markdown、JSON、着色器、图片等照常直接写。
 
@@ -97,7 +98,7 @@ GDCLI_UPDATE_PLUGIN=1 GODOT_BIN=/path/to/godot node scripts/bridge-test.mjs
 
 **它管不住的**，要说清楚：
 
-- **shell 命令只能按文本检查。** 第二个钩子 `hooks/guard-shell-writes.mjs` 在 Bash 和 PowerShell 命令执行前读命令文本，拦住常见的写法：重定向到这些文件、`cp`/`mv`/`rm`/`tee`/`touch`/`sed -i`、`Set-Content`/`Out-File`/`Copy-Item`/`Remove-Item` 等、`git checkout`/`git restore` 指定这些文件、一行脚本（`python -c`、`node -e`、`bash -c`）里写这些文件。读文件、把文件复制到项目外、`gd` 命令都放行。它挡不住变量拼出来的路径、先写一个脚本文件再运行、没列进去的工具。这是护栏，不是沙箱。
+- **shell 命令只能按文本检查。** 第二个钩子 `hooks/guard-shell-writes.mjs` 在 Bash 和 PowerShell 命令执行前读命令文本，拦住常见的写法：重定向到这些文件、`cp`/`mv`/`rm`/`tee`/`touch`/`sed -i`、`Set-Content`/`Out-File`/`Copy-Item`/`Remove-Item` 等（`-Encoding`、`-Value` 这类参数写在文件名前面也认得）、`git checkout`/`git restore` 指定这些文件、一行脚本（`python -c`、`node -e`、`bash -c`）里写这些文件。路径写成 `~/...`、`$HOME/...`、`$env:USERPROFILE\...`、`%USERPROFILE%\...`，或者 Windows 上 Git Bash 的 `/c/...`，都会还原成真实路径再判断。读文件、把文件复制到项目外、`git restore --staged`（只取消暂存）、`gd` 命令都放行。它挡不住其他变量拼出来的路径、先写一个脚本文件再运行、没列进去的工具（比如 `curl -o`、`tar`、`unzip -d`、`patch`、`[IO.File]::WriteAllText`）。这个钩子出错时放行（文件工具的钩子出错时拦下）。这是护栏，不是沙箱。
 - **硬约束要靠 Claude Code 的沙箱**（见下一节，已在 WSL2 上实测），而沙箱不支持原生 Windows。
 - C#：桥接一侧凡是写入 `.cs`、改名成 `.cs`、挂上 C# 脚本都要人批准，因为在 .NET 版编辑器上实测，普通类的字段初始化也会在编辑器里运行（`scripts/dotnet-probe.mjs`）。所以无头编辑器里不能经由桥接写 C#。
 - Claude Code 自己的配置不归它管：项目里的 `.claude/settings.json` 可以设置环境变量或关掉全部钩子。克隆来的仓库如果自带这样的配置，这个钩子可能根本不运行。

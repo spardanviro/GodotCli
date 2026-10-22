@@ -124,8 +124,8 @@ For a character with many animations: a state machine (idle, run, jump, fall) or
 
 ## Particles
 
-`GPUParticles2D/3D` are the default; `CPUParticles2D/3D` are for the Compatibility renderer, old devices, or when a
-script must read particle positions. GPU particles need a process material, or nothing appears:
+`GPUParticles2D/3D` are the default, also in the Compatibility renderer (since Godot 4.2); `CPUParticles2D/3D` are
+for old or weak devices where GPU particles are slow, or when a script must read particle positions. GPU particles need a process material, or nothing appears:
 
 ```bash
 gd command node_create --type GPUParticles2D --name Dust --properties '{

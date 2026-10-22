@@ -612,7 +612,7 @@ When you set a custom certificate bundle in Project Settings > Network > TLS:
 <!-- keywords: Export, export -->
 ### Export path in --export-release CLI is relative to project.godot directory, NOT current working directory
 Command line gotchas:
-- `godot --export-release preset_name ./build/game.exe`: the `./build/` path is relative to the folder containing `project.godot`, not your shell's CWD
+- `godot --export-release preset_name ./build/game.exe`: the `./build/` path is relative to the folder containing `project.godot`, not your shell's CWD (`gd export` resolves the path from the current folder itself and hands Godot an absolute one)
 - Unknown/invalid command line arguments are SILENTLY IGNORED — no warning, no error
 - On macOS: must run `Godot.app/Contents/MacOS/Godot`, not just `Godot` (it's a bundle/directory)
 - `--recovery-mode` silently disables tool scripts, editor plugins, and GDExtension addons
