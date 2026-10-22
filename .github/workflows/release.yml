@@ -4,7 +4,8 @@ name: Release
 # the bridge as a zip for the Godot Asset Library to the GitHub release
 # (made as a draft when there is none yet), and publish the CLI to npm.
 #
-# Every job works on the commit the check job resolved the tag to, so a tag
+# A tag is released only when its commit is on main and CI passed on it
+# (the check job waits for that run). Every job works on the commit the check job resolved the tag to, so a tag
 # moved in the meantime changes nothing. The npm package is packed and tested
 # in the check job; the publishing job, the only one that can get an npm
 # token, installs and runs nothing of the repository's: it uploads that file.
@@ -36,7 +37,10 @@ env:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
     outputs:
       version: ${{ steps.version.outputs.version }}
       sha: ${{ steps.version.outputs.sha }}
@@ -51,6 +55,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: refs/tags/${{ env.TAG }}
+          # The whole history: whether the tag is on main is asked below.
+          fetch-depth: 0
+          # npm ci and the checks run the repository's scripts; they get no token.
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -66,6 +74,33 @@ jobs:
           fi
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
           echo "sha=$(git rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
+      - name: The tagged commit is on main and CI passed on it
+        env:
+          # Only this step has it; the later ones run the repository's code.
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.version.outputs.sha }}
+        run: |
+          set -euo pipefail
+          if ! git merge-base --is-ancestor "${SHA}" origin/main; then
+            echo "::error title=release::${TAG} (${SHA}) is not on main; push it to main first"
+            exit 1
+          fi
+          # CI runs on every push to main; a tag pushed with its commit waits for that run.
+          for _ in $(seq 1 90); do
+            run="$(gh run list --repo "${GITHUB_REPOSITORY}" --workflow ci.yml --commit "${SHA}" --event push --limit 1 --json status,conclusion,url --jq '.[0] // empty')"
+            if [ -n "${run}" ] && [ "$(jq -r .status <<<"${run}")" = "completed" ]; then
+              conclusion="$(jq -r .conclusion <<<"${run}")"
+              if [ "${conclusion}" = "success" ]; then
+                echo "CI passed: $(jq -r .url <<<"${run}")"
+                exit 0
+              fi
+              echo "::error title=release::CI on ${SHA} ended ${conclusion}: $(jq -r .url <<<"${run}"). Re-run it, then re-run this release."
+              exit 1
+            fi
+            sleep 30
+          done
+          echo "::error title=release::no finished CI run on ${SHA} after 45 minutes"
+          exit 1
       - run: npm ci
       - run: npm run verify
       - run: npm run test:package
@@ -111,7 +146,10 @@ jobs:
         run: |
           set -euo pipefail
           if ! gh release view "${TAG}" >/dev/null 2>&1; then
-            gh release create "${TAG}" --draft --verify-tag --title "${TAG}" --notes "Release notes to be written."
+            # A version with a suffix (0.4.0-rc.1) is marked as a pre-release.
+            prerelease=()
+            case "${VERSION}" in *-*) prerelease=(--prerelease) ;; esac
+            gh release create "${TAG}" --draft --verify-tag "${prerelease[@]}" --title "${TAG}" --notes "Release notes to be written."
           fi
           # A published release's zip is what the Asset Library downloads: never replaced.
           draft="$(gh release view "${TAG}" --json isDraft --jq .isDraft)"

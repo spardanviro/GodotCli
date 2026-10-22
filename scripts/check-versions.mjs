@@ -1,5 +1,6 @@
-// Fails when the three packages disagree on the release version or the
-// protocol number. They ship together, so the numbers must match.
+// Fails when the CLI, the plugin and the bridge (and the lockfile's entry for
+// the CLI) disagree on the release version, or the CLI, the bridge and the
+// protocol document on the protocol number. They ship together.
 import { readFileSync } from "node:fs";
 
 const root = new URL("../", import.meta.url);
@@ -42,6 +43,7 @@ function disagreements(label, found) {
 function main() {
   const versions = {
     "cli/package.json": JSON.parse(read("cli/package.json")).version,
+    "package-lock.json (cli)": JSON.parse(read("package-lock.json")).packages?.cli?.version ?? "missing",
     "plugin/.claude-plugin/plugin.json": JSON.parse(read("plugin/.claude-plugin/plugin.json")).version,
     "bridge/addons/gdcli/plugin.cfg": extract("bridge/addons/gdcli/plugin.cfg", /^version="([^"]+)"/m),
     "bridge/addons/gdcli/plugin.gd": extract(

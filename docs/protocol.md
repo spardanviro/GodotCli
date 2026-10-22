@@ -1,6 +1,6 @@
-# gdcli 协议（protocol 1，草案）
+# gdcli 协议（protocol 1）
 
-状态：草案，待评审。评审通过后，改动本文件必须同时改 `cli/src/protocol.ts` 和 `bridge/addons/gdcli/plugin.gd` 里的协议号，并由 `scripts/check-versions.mjs` 校验。
+状态：已实现（0.3 起）。改动协议时必须同时改 `cli/src/protocol.ts` 和 `bridge/addons/gdcli/plugin.gd` 里的协议号，并由 `scripts/check-versions.mjs` 校验。
 
 本文定义三件事：
 
@@ -29,7 +29,7 @@ Godot 自带的命令行是"一次性进程"模型：每条命令启动一个新
 |---|---|---|
 | `gd doctor` | `godot --version`，外加环境检查 | 全部 |
 | `gd open [场景]` | `godot --editor --path <项目> [场景]` | 编辑器 |
-| `gd run [场景] [--seconds N] [--headless]` | `godot --path <项目> [场景] --debug [--headless]`，由 `gd` 计时并结束进程 | 全部（`--path` 为扩展） |
+| `gd run [场景] [--seconds N] [--headless]` | `godot --path <项目> [场景] [--headless]`，由 `gd` 计时并结束进程 | 全部（`--path` 为扩展） |
 | `gd check <脚本>…` | `godot --headless --path <项目> --check-only --script <脚本>` | 扩展 |
 | `gd exec <脚本> [-- 参数]` | `godot --headless --path <项目> --script <脚本> -- 参数` | 扩展 |
 | `gd import` | `godot --headless --path <项目> --import` | 编辑器 |
@@ -83,7 +83,7 @@ Godot 可执行文件的查找顺序：`--godot <路径>` 参数 → 环境变�
 - 目录：环境变量 `GDCLI_HOME`，未设置时为 `~/.gdcli`。锁文件在其下的 `instances/<instance_id>.json`。
 - 选用户目录而不是项目目录的原因：令牌不会被误提交到版本库；用户目录默认只有本人可读；`gd status` 在任何目录都能列出所有实例。
 - 写入顺序：先开始监听端口；再创建临时文件并把权限收紧到 `0600`（目录 `0700`）；然后写入内容；最后改名成正式文件名（原子替换）。令牌不会出现在权限尚未收紧的文件里。
-- Windows 上依赖用户目录继承的访问控制。`GDCLI_HOME` 指向用户目录之外时，由用户自己保证该目录只有本人可读，`gd doctor` 给出提示。
+- Windows 上依赖用户目录继承的访问控制。`GDCLI_HOME` 指向用户目录之外时，由用户自己保证该目录只有本人可读（`gd doctor` 不检查这一点）。
 
 ```json
 {
@@ -157,7 +157,7 @@ HTTP 解析是手写的，所以把它能接受的东西限定得很窄，其余
 
 | 方法与路径 | 作用 |
 |---|---|
-| `GET /v1/ping?nonce=<十六进制>` | 握手（第 2.1 节）。不带令牌，只返回身份信息和 `proof` |
+| `GET /v1/ping?nonce=<十六进制>` | 握手（第 2.1 节）。不带令牌，只返回身份信息、`proof` 和桥接启动时的警告（自定义命令没能加载、项目里的 gdcli 设置被忽略这类提示，可能带 `gdcli_commands/` 下的文件名） |
 | `GET /v1/commands` | 返回命令注册表（见第 6 节） |
 | `POST /v1/commands/<名字>` | 执行一条命令 |
 
@@ -651,7 +651,7 @@ gd ──HTTP──▶ 桥接（编辑器进程）──调试器消息 gdcli:re
 - **结果**：`content` 里是信封的 JSON 文本，`structuredContent` 里是同一个信封，`isError` 等于 `!success`。
 - **顺序与并发**：修改类调用按到达顺序依次送到编辑器；只读调用和 `ping` 立刻处理。启动 Godot 进程的 `gd_*` 工具同时最多两个，再多返回 `EDITOR_BUSY`。客户端取消的请求不再应答（已经开始的改动照常完成）。
 - **生命周期**：标准输入关闭即结束；本次会话用 `gd_host_start` 启动的无头编辑器随之停止。单行超过 32 MB 的消息不读。
-- **配置**：`gd mcp configure <claude|codex|cursor|vscode|gemini>` 把这个服务器加进对应客户端的配置文件（Claude Code 的 `.mcp.json`、Codex 的 `~/.codex/config.toml`、`.cursor/mcp.json`、`.vscode/mcp.json`、`.gemini/settings.json`）。默认只显示要加的条目，带 `--yes` 才写；只改 `gdcli` 这一项，其余内容不动；不经符号链接写入；Codex 的文件里若已有写法认不出的 `gdcli` 条目（点号键、内联表），拒绝而不是写出第二份定义。条目里默认是这个 `gd` 的绝对路径（不依赖客户端看到的 PATH），`--command gd` 改写成裸命令名，Windows 上不提供（`cmd` 会先在项目目录里找 `gd`）。条目里同时写上 `gd` 此刻找到的 Godot（`--godot <路径>`，不论来自 `--godot`、`GODOT_BIN`、用户配置还是 PATH）：客户端启动服务器时用自己的环境（Codex 只转发少数几个变量），`GODOT_BIN` 传不过去。每次运行都重写整个条目，找不到 Godot 时条目里就不带它，并给出警告；Godot 升级或移动后要重新运行一次。`--command gd` 时不写本机路径。Codex 的 TOML 写不出半个代理对的字符，路径里有这种字符时拒绝写入。
+- **配置**：`gd mcp configure <claude|codex|cursor|vscode|gemini>` 把这个服务器加进对应客户端的配置文件（Claude Code 的 `.mcp.json`、Codex 的 `~/.codex/config.toml`、`.cursor/mcp.json`、`.vscode/mcp.json`、`.gemini/settings.json`）。默认只显示要加的条目，带 `--yes` 才写；只改 `gdcli` 这一项，其余内容不动；不经符号链接写入；Codex 的文件里若已有写法认不出的 `gdcli` 条目（点号键、内联表），拒绝而不是写出第二份定义。条目里默认是这个 `gd` 的绝对路径（不依赖客户端看到的 PATH），`--command gd` 改写成裸命令名，Windows 上不提供（`cmd` 会先在项目目录里找 `gd`）。条目里同时写上 `gd` 此刻找到的 Godot（`--godot <路径>`，不论来自 `--godot`、`GODOT_BIN`、用户配置还是 PATH）：客户端启动服务器时用自己的环境（Codex 只转发少数几个变量），`GODOT_BIN` 传不过去。每次运行都重写整个条目，找不到 Godot 时条目里就不带它，并给出警告；Godot 升级或移动后要重新运行一次。`--command gd` 时不写本机路径：项目级的文件里连项目路径也不写，`gd` 从客户端启动它的文件夹找项目；Codex 的配置在用户目录、对所有项目生效，仍写项目路径。Codex 的 TOML 写不出半个代理对的字符，路径里有这种字符时拒绝写入。
 
 ---
 
@@ -659,7 +659,7 @@ gd ──HTTP──▶ 桥接（编辑器进程）──调试器消息 gdcli:re
 
 - `protocol` 是整数。只在出现破坏性变更时加一：删除或改名命令、字段，改变已有字段的含义，改变认证或发现方式。
 - 新增命令、新增可选参数、新增响应字段不改协议号。调用方必须忽略不认识的字段。
-- 命令行声明自己支持的协议范围。握手返回的协议号不在范围内时返回 `PROTOCOL_MISMATCH`，`hint` 指明该升级哪一边（`gd bridge upgrade` 或升级命令行）。
+- 命令行声明自己支持的协议范围。握手返回的协议号不在范围内时返回 `PROTOCOL_MISMATCH`，`hint` 指明该升级哪一边（`gd bridge install --force` 或升级命令行）。
 - 桥接版本、命令行版本、Claude 插件版本保持一致，一起发布。
 
 ---

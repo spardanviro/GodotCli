@@ -10,7 +10,7 @@
    - `bridge/addons/gdcli/plugin.cfg`
    - `bridge/addons/gdcli/plugin.gd` 的 `BRIDGE_VERSION`
 
-   另外 `package-lock.json` 里 `cli` 那一项的版本也改掉（或运行一次 `npm install`）。
+   `package-lock.json` 里 `cli` 那一项的版本也要一致（改完 `cli/package.json` 后运行一次 `npm install` 即可），它也在核对之列。
 2. 本地验证：`npm run verify`、`npm run test:package`，有 Godot 时再跑 `npm run test:bridge` 和 `npm run test:e2e`。
 3. 提交，打标签，推送：
 
@@ -20,8 +20,8 @@
    ```
 
 4. 标签触发 `.github/workflows/release.yml`，它会做这些事：
-   - 核对标签与版本号一致，重跑验证和打包检查。
-   - 把桥接打成 `gdcli-bridge-<版本>.zip`，挂到这个标签的 GitHub Release 上。还没有 Release 时，先建一个草稿。已经发布的 Release 上如果已有这个 zip，不会覆盖它，因为资源库下载的就是它。
+   - 核对标签与版本号一致；标签指向的提交必须已在 main 上，而且这个提交上的 CI 通过了（CI 还在跑就等它，最多 45 分钟；CI 失败或被取消就停下，重跑 CI 后再重跑发布）。然后重跑验证和打包检查。
+   - 把桥接打成 `gdcli-bridge-<版本>.zip`，挂到这个标签的 GitHub Release 上。还没有 Release 时，先建一个草稿（版本号带后缀的，比如 0.4.0-rc.1，标成预发布）。已经发布的 Release 上如果已有这个 zip，不会覆盖它，因为资源库下载的就是它。
    - 打开了 npm 自动发布的话（见下文），把命令行发布到 npm。发布的就是核对任务里打包并测试过的那个文件；发布任务本身不安装依赖、不运行仓库里的任何代码。
 5. 在 GitHub 上写好 Release 的说明，然后发布（草稿要点 Publish）。
 6. 资源库：在资源页面 <https://godotengine.org/asset-library/asset/5539> 上点 Edit，把 Version 和 Download Commit（新 zip 的地址）改掉，提交后等审核。
