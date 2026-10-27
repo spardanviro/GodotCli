@@ -21,3 +21,4 @@ bridge/tests/tmp/
 /plugin/*.zip
 /*.zip
 .package-test/
+godot-download/

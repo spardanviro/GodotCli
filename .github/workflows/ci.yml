@@ -70,12 +70,23 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+          # npm ci from the cache: a network hiccup there failed whole runs.
+          cache: npm
+      # The Godot download, once per version and build; still checked against its sums below.
+      - uses: actions/cache@v4
+        with:
+          path: godot-download
+          key: godot-${{ matrix.godot }}-${{ matrix.archive }}
       - name: Download Godot from the official release
         run: |
           set -euo pipefail
           base="https://github.com/godotengine/godot/releases/download/${GODOT_TAG}"
           archive="Godot_v${GODOT_TAG}_${ARCHIVE_SUFFIX}"
-          curl -fsSL --retry 3 -o "${archive}" "${base}/${archive}"
+          mkdir -p godot-download
+          if [ ! -f "godot-download/${archive}" ]; then
+            curl -fsSL --retry 3 -o "godot-download/${archive}" "${base}/${archive}"
+          fi
+          cp "godot-download/${archive}" "${archive}"
           curl -fsSL --retry 3 -o SHA512-SUMS.txt "${base}/SHA512-SUMS.txt"
           # Same origin as the archive, so this catches a bad download, not a compromised release.
           line="$(grep " ${archive}\$" SHA512-SUMS.txt)"

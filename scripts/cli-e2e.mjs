@@ -327,6 +327,71 @@ const ENEMY_SCRIPT = "extends CharacterBody2D\n\n\nfunc _ready() -> void:\n\tvar
  * a script, undo a step, save, then run it and get the script's error back.
  * The editor is a headless host that gd starts and stops itself.
  */
+/**
+ * Sends JSON-RPC messages to `gd mcp`, one per line, and collects the
+ * answers until every request is answered; then closes its input.
+ * @param {readonly Record<string, unknown>[]} messages
+ */
+function mcpSession(messages, timeoutMs = 60_000) {
+  return new Promise((resolveSession) => {
+    const child = spawn(process.execPath, [GD, "mcp"], { cwd: project, env, stdio: ["pipe", "pipe", "pipe"] });
+    const answers = new Map();
+    const wanted = messages.filter((message) => message.id !== undefined).length;
+    let buffer = "";
+    const finish = () => {
+      clearTimeout(timer);
+      child.stdin.end();
+      resolveSession(answers);
+    };
+    const timer = setTimeout(finish, timeoutMs);
+    child.stdout.on("data", (chunk) => {
+      buffer += String(chunk);
+      for (let end = buffer.indexOf("\n"); end !== -1; end = buffer.indexOf("\n")) {
+        const line = buffer.slice(0, end).trim();
+        buffer = buffer.slice(end + 1);
+        if (line === "") {
+          continue;
+        }
+        const answer = JSON.parse(line);
+        if (answer.id !== undefined) {
+          answers.set(answer.id, answer);
+        }
+        if (answers.size === wanted) {
+          finish();
+        }
+      }
+    });
+    // One at a time, as a client sends them: a change waits for the one before.
+    for (const message of messages) {
+      child.stdin.write(`${JSON.stringify(message)}\n`);
+    }
+  });
+}
+
+/** gd mcp against the real headless editor: the tools a client sees, and the calls it makes. */
+async function mcpAgainstTheHost() {
+  const call = (id, name, args) => ({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const envelopeOf = (answer) => JSON.parse(answer?.result?.content?.[0]?.text ?? "null");
+  const answers = await mcpSession([
+    { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "e2e", version: "1" } } },
+    { jsonrpc: "2.0", method: "notifications/initialized" },
+    { jsonrpc: "2.0", id: 2, method: "tools/list" },
+    call(3, "node_create", { type: "Node2D", name: "FromMcp" }),
+    call(4, "fs_write_text", { path: "res://mcp_note.txt", text: "from gd mcp\n" }),
+    call(5, "fs_delete", { path: "res://mcp_note.txt" }),
+    call(6, "fs_delete", { path: "res://mcp_note.txt", confirm: true }),
+  ]);
+  const tools = answers.get(2)?.result?.tools ?? [];
+  const deleteTool = tools.find((tool) => tool.name === "fs_delete");
+  check(answers.get(1)?.result?.serverInfo?.name === "gdcli", "gd mcp: initialize", answers.get(1));
+  check(tools.some((tool) => tool.name === "node_create") && tools.some((tool) => tool.name === "gd_run"), "gd mcp: the editor's commands and gd's own tools are listed", tools.length);
+  check(deleteTool?.annotations?.destructiveHint === true && "confirm" in (deleteTool?.inputSchema?.properties ?? {}), "gd mcp: a destructive command is marked and takes confirm", deleteTool);
+  check(envelopeOf(answers.get(3))?.success === true && envelopeOf(answers.get(4))?.success === true, "gd mcp: tool calls reach the editor", [answers.get(3), answers.get(4)]);
+  check(answers.get(5)?.result?.isError === true && envelopeOf(answers.get(5))?.errors?.[0]?.code === "CONFIRMATION_REQUIRED", "gd mcp: without confirm a destructive call is refused", answers.get(5));
+  check(envelopeOf(answers.get(6))?.success === true && !existsSync(join(project, "mcp_note.txt")), "gd mcp: with confirm it runs", answers.get(6));
+  gd(["command", "node_delete", "--path", "FromMcp"]);
+}
+
 async function buildSceneFromTheCommandLine() {
   let hostPid;
   try {
@@ -372,6 +437,8 @@ async function buildSceneFromTheCommandLine() {
 
     const evaluated = gd(["eval", "return 1", "--yes"]);
     check(evaluated.status === 4 && evaluated.envelope?.errors?.[0]?.code === "EVAL_DISABLED", "eval is off unless enabled", evaluated.envelope?.errors);
+
+    await mcpAgainstTheHost();
 
     const stopped = gd(["host", "stop"]);
     check(stopped.status === 0 && stopped.envelope?.data?.quitting === true, "host stop", stopped.envelope);

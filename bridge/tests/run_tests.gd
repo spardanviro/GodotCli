@@ -19,13 +19,15 @@ func _initialize() -> void:
 			failed += 1
 			total += 1
 			continue
-		var suite: RefCounted = script.new()
-		for method in suite.get_method_list():
-			var name: String = method["name"]
-			if not name.begins_with("test_"):
-				continue
+		var names: Array[String] = []
+		var listing: RefCounted = script.new()
+		for method in listing.get_method_list():
+			if str(method["name"]).begins_with("test_"):
+				names.append(method["name"])
+		for name in names:
 			total += 1
-			suite.failures.clear()
+			# A fresh suite for every test: nothing one test leaves behind reaches the next.
+			var suite: RefCounted = script.new()
 			suite.call(name)
 			suite.cleanup()
 			if not suite.failures.is_empty():

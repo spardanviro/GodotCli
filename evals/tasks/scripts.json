@@ -14,6 +14,10 @@
         "text": "Hello"
       },
       {
+        "type": "expression",
+        "code": "helper.code_contains(\"res://main.gd\", \"print(\") and helper.code_contains(\"res://main.gd\", \"Hello\")"
+      },
+      {
         "type": "script_compiles",
         "file": "res://main.gd"
       },
@@ -171,18 +175,12 @@
         "file": "res://legacy.gd"
       },
       {
-        "type": "file_contains",
-        "file": "res://legacy.gd",
-        "any": [
-          "@onready"
-        ]
+        "type": "expression",
+        "code": "helper.code_contains(\"res://legacy.gd\", \"@onready\") and helper.code_contains(\"res://legacy.gd\", \"await\")"
       },
       {
-        "type": "file_contains",
-        "file": "res://legacy.gd",
-        "any": [
-          "await"
-        ]
+        "type": "expression",
+        "code": "helper.code_contains(\"res://legacy.gd\", \"extends CharacterBody2D\") and helper.code_contains(\"res://legacy.gd\", \"@export\") and helper.code_contains(\"res://legacy.gd\", \"move_and_slide(\")"
       }
     ],
     "reference": [
@@ -232,6 +230,35 @@
       {
         "type": "script_compiles",
         "file": "res://main.gd"
+      },
+      {
+        "type": "node",
+        "path": ".",
+        "script": true
+      },
+      {
+        "type": "play",
+        "steps": [
+          {
+            "find": {
+              "class": "Label"
+            },
+            "as": "label"
+          },
+          {
+            "get": "label",
+            "property": "text",
+            "as": "shown"
+          },
+          {
+            "expect": {
+              "left": "$shown",
+              "op": "==",
+              "right": "Score: 0"
+            },
+            "why": "the label shows the score"
+          }
+        ]
       }
     ],
     "reference": [

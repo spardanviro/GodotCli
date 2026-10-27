@@ -16,9 +16,10 @@
     "check:versions": "node scripts/check-versions.mjs",
     "check:plugin": "node scripts/check-plugin.mjs",
     "test:plugin": "node --test \"plugin/test/*.test.mjs\"",
+    "test:evals": "node --test \"evals/test/*.test.mjs\"",
     "test:bridge": "node scripts/bridge-test.mjs",
     "test:e2e": "npm run build && node scripts/cli-e2e.mjs",
     "test:package": "node scripts/package-test.mjs",
-    "verify": "npm run check:versions && npm run check:plugin && npm run test:plugin && npm run typecheck && npm run lint && npm run test && npm run build"
+    "verify": "npm run check:versions && npm run check:plugin && npm run test:plugin && npm run test:evals && npm run typecheck && npm run lint && npm run test && npm run build"
   }
 }

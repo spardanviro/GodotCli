@@ -126,6 +126,7 @@ tasks["scripts"] = [
         "checks": [
             check("node", path=".", script=True),
             check("file_contains", file="res://main.gd", text="Hello"),
+            check("expression", code='helper.code_contains("res://main.gd", "print(") and helper.code_contains("res://main.gd", "Hello")'),
             check("script_compiles", file="res://main.gd"),
             check("runs_clean"),
         ],
@@ -169,7 +170,12 @@ tasks["scripts"] = [
         "id": "script.godot3_to_4",
         "setup": {"files": {"res://legacy.gd": LEGACY}},
         "prompt": "res://legacy.gd was written for Godot 3 and does not compile any more. Port it to Godot 4, keeping what it does.",
-        "checks": [check("script_compiles", file="res://legacy.gd"), check("file_contains", file="res://legacy.gd", any=["@onready"]), check("file_contains", file="res://legacy.gd", any=["await"])],
+        "checks": [
+            check("script_compiles", file="res://legacy.gd"),
+            # In the code, not in a comment; and what the script was is kept: a body that moves, a property to tune.
+            check("expression", code='helper.code_contains("res://legacy.gd", "@onready") and helper.code_contains("res://legacy.gd", "await")'),
+            check("expression", code='helper.code_contains("res://legacy.gd", "extends CharacterBody2D") and helper.code_contains("res://legacy.gd", "@export") and helper.code_contains("res://legacy.gd", "move_and_slide(")'),
+        ],
         "reference": [write_script("res://legacy.gd", [
             "extends CharacterBody2D", "", "@export var speed := 200.0", "@onready var sprite: Sprite2D = $Sprite", "", "",
             "func _physics_process(_delta: float) -> void:",
@@ -184,7 +190,17 @@ tasks["scripts"] = [
             "commands": [cmd("node_attach_script", {"path": ".", "script": "res://main.gd"}), node("Score", "Label")],
         },
         "prompt": "The game prints an error as soon as it starts. Find out why and fix it.",
-        "checks": [check("runs_clean"), check("script_compiles", file="res://main.gd")],
+        "checks": [
+            check("runs_clean"),
+            check("script_compiles", file="res://main.gd"),
+            # Fixed, not silenced: the script is still on the root and the score is shown.
+            check("node", path=".", script=True),
+            check("play", steps=[
+                find("label", **{"class": "Label"}),
+                {"get": "label", "property": "text", "as": "shown"},
+                expect("$shown", "==", "Score: 0", why="the label shows the score"),
+            ]),
+        ],
         "reference": [cmd("node_rename", {"path": "Score", "name": "ScoreLabel"}), SAVE],
     },
 ]

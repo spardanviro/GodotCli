@@ -872,8 +872,9 @@ const TICK_LINE = 14;
 // of them at a moment when the file it preloads has just been moved. The
 // check is for errors in the bridge's own scripts.
 const DELIBERATE_ERRORS = [
-  /SCRIPT ERROR: Cannot call method 'queue_free' on a null value\./g,
-  /SCRIPT ERROR: Parse Error: Cannot assign a value of type[^\n]*/g,
+  // Only where the location is not the bridge's own code: the same error there is a bug.
+  /SCRIPT ERROR: Cannot call method 'queue_free' on a null value\.(?!\n\s+at: [^\n]*res:\/\/addons\/gdcli)/g,
+  /SCRIPT ERROR: Parse Error: Cannot assign a value of type[^\n]*(?=\n|$)(?!\n\s+at: [^\n]*res:\/\/addons\/gdcli)/g,
   /SCRIPT ERROR: [^\n]*\n\s+at: [^\n]*res:\/\/tests\/tmp\/[^\n]*/g,
 ];
 

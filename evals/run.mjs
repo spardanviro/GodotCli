@@ -10,8 +10,10 @@
 import { spawn, spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { findWorkaround } from "./workaround.mjs";
 
 const EVALS = dirname(fileURLToPath(import.meta.url));
 const REPO = dirname(EVALS);
@@ -127,18 +129,38 @@ function gdShim(root) {
   return bin;
 }
 
+/** Where Godot puts a project's custom user:// folder (application/config/custom_user_dir_name). */
+const USER_DIR_PARENT = "gdcli-eval";
+
+function userDataRoot() {
+  if (process.platform === "win32") {
+    return process.env.APPDATA ?? join(homedir(), "AppData", "Roaming");
+  }
+  if (process.platform === "darwin") {
+    return join(homedir(), "Library", "Application Support");
+  }
+  return process.env.XDG_DATA_HOME ?? join(homedir(), ".local", "share");
+}
+
+/** The user:// folder of one run's project. */
+function userDirOf(root) {
+  return join(userDataRoot(), USER_DIR_PARENT, basename(root));
+}
+
 // ---------------------------------------------------------------------------
 // Agents
 
 function replay(task, env, project) {
-  const notes = [];
+  // A reference step that fails is a broken task or a broken gd, not a note:
+  // only the steps the task expects to be refused (reference_may_fail) may.
+  const failures = [];
   for (const argv of task.reference ?? []) {
     const envelope = gd(env, project, argv);
     if (!envelope.success && !(task.reference_may_fail ?? []).includes(argv[1])) {
-      notes.push(`${argv.slice(0, 2).join(" ")}: ${describeFailure(envelope)}`);
+      failures.push(`reference ${argv.slice(0, 2).join(" ")}: ${describeFailure(envelope)}`);
     }
   }
-  return Promise.resolve({ notes, transcript: [], finalText: "", turns: task.reference?.length ?? 0, costUsd: 0 });
+  return Promise.resolve({ notes: [], failures, transcript: [], finalText: "", turns: task.reference?.length ?? 0, costUsd: 0 });
 }
 
 const NOT_RUNNING = /failed to authenticate|oauth session expired|please run \/login|invalid api key|usage limit|session limit|hit your .{0,20}limit|rate limit|credit balance is too low/iu;
@@ -257,64 +279,6 @@ function gdFiles(project) {
   return found;
 }
 
-/** Whether a path a tool was given lands in the project. Relative paths are the session's, which runs in the project. */
-function insideProject(project, path) {
-  if (typeof path !== "string" || path === "") {
-    return false;
-  }
-  // Git Bash writes /c/Users/... for C:\Users\...
-  const native = process.platform === "win32" ? path.replace(/^\/([a-zA-Z])\//u, "$1:/") : path;
-  const fold = (value) => (process.platform === "win32" ? value.toLowerCase() : value);
-  const rel = relative(fold(resolve(project)), fold(resolve(project, native)));
-  return rel === "" || (!isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`));
-}
-
-/** The commands of a shell line, split at ; & | and newlines, with cd and variable assignments in front removed. */
-function shellParts(command) {
-  return command
-    .split(/[;&|\n]+/u)
-    .map((part) => part.trim().replace(/^(?:(?:cd|Set-Location|pushd)\s+\S+|\$env:\w+\s*=\s*\S+|\w+=\S*)\s*/iu, "").trim())
-    .filter((part) => part !== "");
-}
-
-/** gd itself, other than exec and eval (which run code that can write anything). */
-function isPlainGd(part) {
-  const words = part.split(/\s+/u);
-  return /^(?:\.\/)?gd(?:\.cmd)?$/u.test(words[0] ?? "") && !["exec", "eval"].includes(words[1] ?? "");
-}
-
-/**
- * The files a shell line plainly writes: redirections (> and >>), tee, and
- * PowerShell's -Path/-FilePath/-LiteralPath. Other ways of writing (cp,
- * an inline script) are not recognised, so a line that writes only those
- * names no target at all.
- */
-function shellWriteTargets(command) {
-  const targets = [];
-  for (const match of command.matchAll(/(?:^|[^<>0-9&])>>?\s*(["']?)([^\s"'<>|;&]+)\1/gu)) {
-    targets.push(match[2]);
-  }
-  for (const match of command.matchAll(/\btee\s+(?:-a\s+)?(["']?)([^\s"'<>|;&]+)\1/gu)) {
-    targets.push(match[2]);
-  }
-  for (const match of command.matchAll(/-(?:Path|FilePath|LiteralPath)\s+(["']?)([^\s"'<>|;&]+)\1/giu)) {
-    targets.push(match[2]);
-  }
-  return targets.filter((target) => target !== "/dev/null" && target.toLowerCase() !== "$null");
-}
-
-/** An interpreter given code on the command line, or PowerShell's file writers: writes that name no target plainly. */
-const INLINE_WRITER = /\b(?:python3?|py|node|deno|bun|ruby|perl|php|bash|sh|zsh|pwsh|powershell)(?:\.exe)?\b[^\n]*?(?:\s-(?:c|e|Command|EncodedCommand)\b|\s-(?=\s|$)|<<)|\beval\b|\[(?:System\.)?IO\.File\]|\b(?:Set-Content|Add-Content|Out-File|New-Item)\b/iu;
-
-/** The folder the last `cd <absolute folder>` of a line moves to, else the project. */
-function lastCd(command, project) {
-  let base = project;
-  for (const match of command.matchAll(/(?:^|[;&|\n])\s*(?:cd|Set-Location|pushd|Push-Location)\s+(["']?)([^\s"';&|]+)\1/giu)) {
-    base = resolve(base, match[2].replace(/^~(?=[\\/]|$)/u, homedir()));
-  }
-  return base;
-}
-
 function inputsText(transcript) {
   return transcript.map((entry) => `${entry.tool} ${JSON.stringify(entry.input)}`);
 }
@@ -406,30 +370,7 @@ function fileOrRunCheck(check, project, env, outcome, agent) {
       if (agent !== "claude") {
         return null;
       }
-      const pattern = new RegExp(check.pattern, "iu");
-      const hit = outcome.transcript.find((entry) => {
-        const input = entry.input ?? {};
-        if (["Write", "Edit", "MultiEdit", "NotebookEdit"].includes(entry.tool)) {
-          return insideProject(project, input.file_path ?? input.notebook_path) && pattern.test(JSON.stringify(input));
-        }
-        if (["Bash", "PowerShell"].includes(entry.tool)) {
-          const command = String(input.command ?? "");
-          if (!pattern.test(command) || !shellParts(command).some((part) => pattern.test(part) && !isPlainGd(part))) {
-            return false;
-          }
-          // A draft written outside the project is what the skills ask for. What
-          // counts: a write into the project, or content handed to an inline
-          // interpreter, whose writes cannot be read off the line. A line that only
-          // reads (grep "@tool") or names gd's own write (the text on later lines) does not.
-          const targets = shellWriteTargets(command);
-          if (targets.length === 0) {
-            return INLINE_WRITER.test(command);
-          }
-          const base = lastCd(command, project);
-          return targets.some((target) => !/^[$%]/u.test(target) && insideProject(project, resolve(base, target.replace(/^~(?=[\\/])/u, homedir()))));
-        }
-        return false;
-      });
+      const hit = findWorkaround(outcome.transcript, project, new RegExp(check.pattern, "iu"));
       return hit === undefined ? null : `worked around the refusal: ${hit.tool} ${JSON.stringify(hit.input).slice(0, 300)}`;
     }
     case "final_mentions": {
@@ -797,7 +738,7 @@ function setUp(task, env, project) {
     return `setup main_run_args: ${describeFailure(headlessGame)}`;
   }
   // Every project is called "Eval": without its own user:// folder, runs side by side would share save files.
-  for (const [name, value] of [["application/config/use_custom_user_dir", true], ["application/config/custom_user_dir_name", `gdcli-eval/${basename(dirname(project))}`]]) {
+  for (const [name, value] of [["application/config/use_custom_user_dir", true], ["application/config/custom_user_dir_name", `${USER_DIR_PARENT}/${basename(dirname(project))}`]]) {
     const set = gd(env, project, ["command", "project_settings_set", "--name", name, "--value", JSON.stringify(value), "--yes"]);
     if (!set.success) {
       return `setup ${name}: ${describeFailure(set)}`;
@@ -841,6 +782,7 @@ async function runTask(task, options, attempt) {
     const outcome =
       options.agent === "claude" ? await claude(task, env, project, options) : await replay(options.agent === "idle" ? { ...task, reference: [] } : task, env, project);
     result.notes.push(...outcome.notes);
+    result.failures.push(...(outcome.failures ?? []));
     result.turns = outcome.turns;
     result.costUsd = outcome.costUsd;
     result.infra = outcome.infra === true;
@@ -878,10 +820,12 @@ async function runTask(task, options, attempt) {
     // A failed run's project is kept to look into; an idle run is meant to fail, so nothing to see there.
     if ((result.passed || options.agent === "idle") && !options.keep) {
       // Godot (on Windows) may still be letting go of the folder for a few seconds.
-      try {
-        rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 500 });
-      } catch {
-        result.notes.push(`could not remove ${root}`);
+      for (const folder of [root, userDirOf(root)]) {
+        try {
+          rmSync(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 500 });
+        } catch {
+          result.notes.push(`could not remove ${folder}`);
+        }
       }
     }
   }
@@ -935,10 +879,9 @@ function report(results, summary, options) {
     for (const failure of result.failures) {
       lines.push(`    - ${failure}`);
     }
-    if (options.verbose || !result.passed) {
-      for (const note of result.notes) {
-        lines.push(`    . ${note}`);
-      }
+    // A folder left behind is said even when the task passed: it fills the disk otherwise.
+    for (const note of result.notes.filter((entry) => options.verbose || !result.passed || entry.startsWith("could not remove"))) {
+      lines.push(`    . ${note}`);
     }
     if (!result.passed && existsSync(result.root)) {
       lines.push(`    kept: ${result.root}`);

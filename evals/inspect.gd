@@ -134,6 +134,32 @@ func bus_effects(bus_name: String) -> PackedStringArray:
 
 
 ## For expressions: every node below (and including) root of a class.
+## Whether a script's code (its comments left out) contains the text: a word
+## written only in a comment does not count as done.
+func code_contains(path: String, text: String) -> bool:
+	var code := PackedStringArray()
+	for line in FileAccess.get_file_as_string(path).split("\n"):
+		code.append(_without_comment(line))
+	return "\n".join(code).contains(text)
+
+
+# The line up to a # that is not inside a string.
+static func _without_comment(line: String) -> String:
+	var quote := ""
+	for index in line.length():
+		var character := line[index]
+		if quote != "":
+			if character == "\\":
+				continue
+			if character == quote and (index == 0 or line[index - 1] != "\\"):
+				quote = ""
+		elif character == "\"" or character == "'":
+			quote = character
+		elif character == "#":
+			return line.substr(0, index)
+	return line
+
+
 func find(root: Node, class_name_text: String) -> Array:
 	return _find(root, class_name_text)
 
