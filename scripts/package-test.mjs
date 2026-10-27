@@ -1,8 +1,11 @@
 // Packs the CLI as npm would publish it, installs the tarball into an empty
 // prefix, and checks that what a user gets works: both commands, the bridge
 // and the skills that ship inside it, and gd mcp. No Godot needed.
+//
+// --keep-tarball <folder> copies the tested tarball there: the release
+// publishes that very file, not a second pack.
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,6 +15,11 @@ const cliDir = join(root, "cli");
 const isWindows = process.platform === "win32";
 const version = JSON.parse(readFileSync(join(cliDir, "package.json"), "utf8")).version;
 const MCP_TIMEOUT_MS = 20_000;
+const keepAt = process.argv.indexOf("--keep-tarball");
+const keepTarball = keepAt === -1 ? undefined : process.argv[keepAt + 1];
+if (keepAt !== -1 && (keepTarball === undefined || keepTarball.startsWith("--"))) {
+  throw new Error("--keep-tarball needs a folder");
+}
 const MIN_TOOLS = 60;
 
 const failures = [];
@@ -42,13 +50,27 @@ function run(command, args, options = {}) {
   return result;
 }
 
-const work = mkdtempSync(join(tmpdir(), "gdcli-package-"));
+// cmd expands %...% and ! even inside quotes: a temporary folder spelled with
+// those (or a quote) would break the command lines, so one under the
+// repository is used instead.
+const base = isWindows && /[%!"^]/u.test(tmpdir()) ? join(root, ".package-test") : tmpdir();
+mkdirSync(base, { recursive: true });
+const work = mkdtempSync(join(base, "gdcli-package-"));
 try {
   // 1. The tarball, built the way npm publish builds it (prepack).
   const packed = run("npm", ["pack", "--json", "--pack-destination", work], { cwd: cliDir });
   check(packed.status === 0, "npm pack");
   // prepack's build prints first; the report is the JSON array that starts the last such line.
-  const report = JSON.parse(packed.stdout.slice(packed.stdout.lastIndexOf("\n[") + 1))[0];
+  let report;
+  try {
+    report = JSON.parse(packed.stdout.slice(packed.stdout.lastIndexOf("\n[") + 1))[0];
+  } catch {
+    report = undefined;
+  }
+  check(report !== undefined, "npm pack reports what it packed");
+  if (report === undefined) {
+    throw new Error(`npm pack gave no report:\n${packed.stderr}`);
+  }
   const files = new Set(report.files.map((file) => file.path));
   for (const file of ["LICENSE", "README.md", "package.json", "dist/main.js", "addon/plugin.cfg", "skills/godot-cli/SKILL.md"]) {
     check(files.has(file), `the package holds ${file}`);
@@ -84,6 +106,14 @@ try {
   // 4. gd mcp answers a client: initialize, then the tool list.
   const tools = await mcpToolCount(gd, project);
   check(tools >= MIN_TOOLS, `gd mcp lists the tools (${tools})`);
+
+  if (keepTarball !== undefined && failures.length === 0) {
+    mkdirSync(keepTarball, { recursive: true });
+    copyFileSync(join(work, report.filename), join(keepTarball, report.filename));
+    process.stdout.write(`kept ${report.filename} in ${keepTarball}\n`);
+  }
+} catch (error) {
+  failures.push(error instanceof Error ? error.message : String(error));
 } finally {
   rmSync(work, { recursive: true, force: true });
 }

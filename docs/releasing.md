@@ -22,13 +22,13 @@
 4. 标签触发 `.github/workflows/release.yml`，它会做这些事：
    - 核对标签与版本号一致；标签指向的提交必须已在 main 上，而且这个提交上的 CI 通过了（CI 还在跑就等它，最多 45 分钟；CI 失败或被取消就停下，重跑 CI 后再重跑发布）。然后重跑验证和打包检查。
    - 把桥接打成 `gdcli-bridge-<版本>.zip`，挂到这个标签的 GitHub Release 上。还没有 Release 时，先建一个草稿（版本号带后缀的，比如 0.4.0-rc.1，标成预发布）。已经发布的 Release 上如果已有这个 zip，不会覆盖它，因为资源库下载的就是它。
-   - 打开了 npm 自动发布的话（见下文），把命令行发布到 npm。发布的就是核对任务里打包并测试过的那个文件；发布任务本身不安装依赖、不运行仓库里的任何代码。
+   - 打开了 npm 自动发布的话（见下文），把命令行发布到 npm。打包文件保留 90 天，这期间可以只重跑 npm 任务。发布的就是核对任务里打包并测试过的那个文件；发布任务本身不安装依赖、不运行仓库里的任何代码。
 5. 在 GitHub 上写好 Release 的说明，然后发布（草稿要点 Publish）。
 6. 资源库：在资源页面 <https://godotengine.org/asset-library/asset/5539> 上点 Edit，把 Version 和 Download Commit（新 zip 的地址）改掉，提交后等审核。
 
 Claude 插件不需要另外发布：用户运行 `claude plugin marketplace update gdcli` 和 `claude plugin update godot@gdcli` 时，会读到 main 上的新版本号。
 
-工作流也可以从 Actions 页面手动运行（Run workflow，填一个已有的标签），用来补做某个标签的桥接 zip。手动运行是从 main 分支发起的，而 `npm` 环境只允许 `v*` 标签，所以这样**发不了 npm**。某个标签的 npm 发布失败了（比如 0.3.2 第一次运行时工作流有 bug），而标签又受规则保护不能挪动，就在 `cli/` 里手动发：`npm publish --access public --auth-type=web`，在浏览器里确认。
+工作流也可以从 Actions 页面手动运行（Run workflow，填一个已有的标签），用来补做某个标签的桥接 zip。手动运行是从 main 分支发起的，而 `npm` 环境只允许 `v*` 标签，所以这样**发不了 npm**（npm 任务会被跳过）。某个标签的 npm 发布失败了（比如 0.3.2 第一次运行时工作流有 bug），而标签又受规则保护不能挪动，就在 `cli/` 里手动发：`npm publish --access public --auth-type=web`，在浏览器里确认。
 
 ## 第一次发布到 npm（只做一次）
 
@@ -83,3 +83,7 @@ Custom 这种方式在资源库的源码里（`getComputedDownloadUrl`）：Down
 描述可以用这一段：
 
 > The editor side of gdcli. With it enabled, the `gd` command line (npm: @spardanviro/gdcli) and coding agents (Claude Code, Codex, Cursor and other MCP clients) can read and change the open scene through the editor's undo stack, run and inspect the game, and query the engine. It listens on 127.0.0.1 only, with a per-session token kept in your home folder. Changes that would run code inside the editor (tool scripts, addons, autoloads, eval) wait for you to approve them in a dialog. Install the command line with `npm install -g @spardanviro/gdcli`; `gd bridge install` also installs this plugin into a project.
+
+## npm 上的 `0.0.0-stage`
+
+包的版本列表里有一个 `0.0.0-stage`。这是 npm 分阶段发布（staged publishing）留下的占位版本，不是 gdcli 发的，`npm install @spardanviro/gdcli` 不会装到它（`latest` 指向真正的版本）。不用处理；要删的话只能由包的所有者在 npm 网站上操作。

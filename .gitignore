@@ -20,3 +20,4 @@ bridge/tests/tmp/
 /plugin/Godot/
 /plugin/*.zip
 /*.zip
+.package-test/

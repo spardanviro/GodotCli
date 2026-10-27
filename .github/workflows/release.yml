@@ -52,14 +52,14 @@ jobs:
             echo "::error title=release::${TAG} is not a version tag (v1.2.3)"
             exit 1
           fi
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: refs/tags/${{ env.TAG }}
           # The whole history: whether the tag is on main is asked below.
           fetch-depth: 0
           # npm ci and the checks run the repository's scripts; they get no token.
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
@@ -103,20 +103,15 @@ jobs:
           exit 1
       - run: npm ci
       - run: npm run verify
-      - run: npm run test:package
-      - name: Pack the npm package
-        working-directory: cli
-        run: |
-          set -euo pipefail
-          # npm pack does not create the folder it writes into.
-          mkdir -p "${RUNNER_TEMP}/package"
-          npm pack --pack-destination "${RUNNER_TEMP}/package"
-      - uses: actions/upload-artifact@v4
+      # Packs, installs and checks the package, and keeps that very tarball for the npm job.
+      - run: npm run test:package -- --keep-tarball "${RUNNER_TEMP}/package"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: npm-package
           path: ${{ runner.temp }}/package/*.tgz
           if-no-files-found: error
-          retention-days: 7
+          # Long enough to re-run only the npm job weeks later.
+          retention-days: 90
 
   bridge-zip:
     needs: check
@@ -128,7 +123,7 @@ jobs:
       VERSION: ${{ needs.check.outputs.version }}
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ needs.check.outputs.sha }}
       - name: Zip the bridge the way the Asset Library installs it
@@ -162,7 +157,11 @@ jobs:
 
   npm:
     needs: check
-    if: vars.NPM_PUBLISH == 'true'
+    # Only for a tag: the npm environment admits nothing else, so a manual run
+    # from a branch skips this job instead of failing it.
+    # And only for the tag the run started from: a manual run on tag A asked to
+    # rebuild tag B must not publish B under A's workflow and environment.
+    if: vars.NPM_PUBLISH == 'true' && startsWith(github.ref, 'refs/tags/') && (github.event.inputs.tag || github.ref_name) == github.ref_name
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # Its protection rules (who may approve, which tags) are set in the repository's settings.
@@ -173,7 +172,8 @@ jobs:
     env:
       VERSION: ${{ needs.check.outputs.version }}
     steps:
-      - uses: actions/setup-node@v4
+      # Pinned to commits, like every action here: what builds and publishes must not change under a moved tag.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
@@ -182,7 +182,7 @@ jobs:
           set -euo pipefail
           npm --version
           node -e 'const [a,b,c]=process.argv[1].split(".").map(Number);process.exit(a>11||(a===11&&(b>5||(b===5&&c>=1)))?0:1)' "$(npm --version)"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: npm-package
           path: package

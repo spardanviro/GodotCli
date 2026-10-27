@@ -5,7 +5,7 @@
 // Usage: npm run build && GODOT_BIN=/path/to/godot node scripts/cli-e2e.mjs
 // On Windows pass the *_console.exe binary.
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -412,6 +412,25 @@ async function buildSceneFromTheCommandLine() {
   }
 }
 
+/**
+ * Interrupted (Ctrl-C, a CI timeout): every editor this test started is
+ * stopped before it exits. Each editor writes its pid into the test's own
+ * GDCLI_HOME, so those files name them all, including gd host start's.
+ */
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.once(signal, () => {
+    const folder = join(home, "instances");
+    for (const name of existsSync(folder) ? readdirSync(folder) : []) {
+      try {
+        killTree(JSON.parse(readFileSync(join(folder, name), "utf8")).pid);
+      } catch {
+        // Not a lock file, or already gone.
+      }
+    }
+    process.exit(130);
+  });
+}
+
 /** @param {number | undefined} pid */
 function killTree(pid) {
   if (pid === undefined) {
@@ -518,8 +537,8 @@ async function severalEditors() {
     check(single.status === 0, "once it is gone, the project has one editor again", single.envelope);
 
     for (const folder of [project, other]) {
-      const stopped = gd(["host", "stop", "--project", folder]);
-      check(stopped.status === 0, `host stop in ${folder}`, stopped.envelope);
+      const quit = gd(["host", "stop", "--project", folder]);
+      check(quit.status === 0, `host stop in ${folder}`, quit.envelope);
     }
     const none = await waitFor(["status"], (result) => result.envelope?.errors?.[0]?.code === "NO_EDITOR", 30_000);
     check(none.envelope?.errors?.[0]?.code === "NO_EDITOR", "both hosts are gone", none.envelope);
