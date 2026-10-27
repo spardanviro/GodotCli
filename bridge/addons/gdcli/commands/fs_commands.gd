@@ -13,6 +13,7 @@ const MAX_DEPTH := 64
 const DEFAULT_READ_BYTES := 262144
 const MAX_READ_BYTES := 2097152
 const _NUL := 0
+static var _BOM := PackedByteArray([0xEF, 0xBB, 0xBF])
 
 
 func register(registry: RefCounted) -> void:
@@ -145,6 +146,10 @@ func _read_text(args: Dictionary) -> Dictionary:
 	var size := file.get_length()
 	var bytes := file.get_buffer(mini(size, args["max_bytes"]))
 	file.close()
+	# Written by some Windows editors; the engine reads past it, and so does this.
+	var had_bom := bytes.size() >= _BOM.size() and bytes.slice(0, _BOM.size()) == _BOM
+	if had_bom:
+		bytes = bytes.slice(_BOM.size())
 	# A cut inside a character would end the text in a replacement character.
 	if size > bytes.size():
 		bytes = bytes.slice(0, _utf8_boundary(bytes))
@@ -152,11 +157,14 @@ func _read_text(args: Dictionary) -> Dictionary:
 	if bytes.has(_NUL) or not _is_utf8(bytes):
 		return Reply.fail("COMMAND_FAILED", "The file is not a text file.", "", {"path": _clean(path)})
 	var warnings := []
-	if bytes.is_empty() and size > 0:
+	if bytes.is_empty() and size > (_BOM.size() if had_bom else 0):
 		warnings.append("max_bytes is smaller than the file's first character: nothing could be returned.")
-	return Reply.ok({
+	var data := {
 		"path": _clean(path),
 		"text": bytes.get_string_from_utf8(),
 		"size": size,
-		"truncated": size > bytes.size(),
-	}, warnings)
+		"truncated": size > bytes.size() + (_BOM.size() if had_bom else 0),
+	}
+	if had_bom:
+		data["bom"] = true
+	return Reply.ok(data, warnings)

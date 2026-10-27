@@ -37,6 +37,58 @@ static func runs_in_editor(text: String, extension: String = "") -> bool:
 		_tool_regex = RegEx.create_from_string(_TOOL_PATTERN)
 	return _tool_regex.search(text) != null
 const NOT_UNDOABLE := "This change is not on the editor's undo stack."
+# ClassDB.APIType.API_CORE (the method that tells it is newer than 4.3).
+const _API_CORE := 0
+# ClassDB.APIType.API_EXTENSION: node classes of a GDExtension the game ships.
+const _API_EXTENSION := 2
+const ACTIVE_EXPRESSIONS := "an active animation tree evaluates its transitions' expressions in the editor too"
+# State machines and blend trees nest; deeper than this no tree goes.
+const _MAX_TREE_DEPTH := 16
+
+
+## A built-in node class a game scene can hold. Editor classes (EditorPlugin,
+## EditorInspector, ...) can be made inside the editor, but a scene saved with
+## one does not load in the exported game.
+static func is_game_node_class(type: String) -> bool:
+	if not (ClassDB.class_exists(type) and ClassDB.is_parent_class(type, "Node") and ClassDB.can_instantiate(type)):
+		return false
+	if ClassDB.has_method("class_get_api_type"):
+		return ClassDB.call("class_get_api_type", type) in [_API_CORE, _API_EXTENSION]
+	return not type.begins_with("Editor")
+
+
+## The transition expressions anywhere in an animation tree (nested state
+## machines and blend trees included). Each is code evaluated by the tree.
+static func animation_expressions(root: Object, depth: int = 0) -> PackedStringArray:
+	var found := PackedStringArray()
+	if root == null:
+		return found
+	# Deeper than can be looked at: taken as holding an expression, never as clean.
+	if depth > _MAX_TREE_DEPTH:
+		found.append("(nested deeper than can be checked)")
+		return found
+	if root is AnimationNodeStateMachine:
+		for index in root.get_transition_count():
+			var expression: String = root.get_transition(index).advance_expression
+			if expression != "":
+				found.append(expression)
+	for property in root.get_property_list():
+		var value: Variant = root.get(property["name"])
+		if value is AnimationRootNode and value != root:
+			found.append_array(animation_expressions(value, depth + 1))
+	return found
+
+
+## For a node about to be (or become) an active animation tree with
+## expressions: a person allows it. {} when the change may go on.
+static func expression_gate(context: RefCounted, options: Dictionary, active: bool, root: Variant, target: String, retry: Callable, command: String) -> Dictionary:
+	if not active or not root is Object:
+		return {}
+	var expressions := animation_expressions(root)
+	if expressions.is_empty():
+		return {}
+	var what := {"command": command, "reason": ACTIVE_EXPRESSIONS, "target": target, "preview": "\n".join(expressions)}
+	return person_gate(context, options, what, retry)
 
 
 ## The reply to a dry run: what the command would do, with nothing done.

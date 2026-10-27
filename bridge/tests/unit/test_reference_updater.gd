@@ -100,3 +100,21 @@ func test_file_move_saves_open_scenes_one_step_per_poll_before_moving() -> void:
 	check(replies.size() > 3, "the steps are spread over several polls")
 	equal(replies[-1]["error"]["code"], "COMMAND_FAILED", "a file that cannot be moved is reported")
 	equal(context.reloaded, [] as Array[String], "and nothing is loaded again")
+
+
+func test_reference_updater_reports_a_file_too_large_to_search() -> void:
+	var big := "res://tests/tmp/huge_level.tscn"
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://tests/tmp"))
+	var file := FileAccess.open(big, FileAccess.WRITE)
+	file.store_string('[ext_resource type="Texture2D" path="%s" id="1"]\n' % FROM)
+	var filler := PackedByteArray()
+	filler.resize(ReferenceUpdater.MAX_FILE_BYTES)
+	filler.fill(0x20)
+	file.store_buffer(filler)
+	file.close()
+
+	var found: Dictionary = _file_move().find()
+
+	check(found["too_large"].has(big), "a file past the limit is listed, not left out without a word")
+	check(not found["files"].has(big), "and not counted as searched")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(big))

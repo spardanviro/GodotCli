@@ -239,7 +239,12 @@ func _create(args: Dictionary, options: Dictionary) -> Dictionary:
 	# An active tree runs in the editor as well, and would evaluate the
 	# expressions there: text of the caller, run in the editor unasked.
 	var active := not _has_expression(machine)
-	for change in [["anim_player", tree.get_path_to(player)], ["tree_root", machine], ["active", active]]:
+	# Expressions are evaluated on advance_expression_base_node, by default the
+	# tree itself; the parent (the character) is the node they are written for.
+	var changes := [["anim_player", tree.get_path_to(player)], ["tree_root", machine], ["active", active]]
+	if tree.get_parent() != null and tree != _root() and tree.advance_expression_base_node == NodePath("."):
+		changes.append(["advance_expression_base_node", NodePath("..")])
+	for change in changes:
 		undo.add_do_property(tree, change[0], change[1])
 		undo.add_undo_property(tree, change[0], tree.get(change[0]))
 	undo.commit_action()

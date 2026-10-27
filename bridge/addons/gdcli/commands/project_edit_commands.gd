@@ -131,12 +131,20 @@ func _event_from(spec: Variant) -> InputEvent:
 	if not spec is Dictionary:
 		return null
 	if spec.get("key") is String:
-		var keycode := OS.find_keycode_from_string(spec["key"])
+		# "Ctrl+S" comes back as S with the Ctrl bit set: the bits are modifiers,
+		# the rest the key. Modifiers alone ("Ctrl+Foo" leaves only Ctrl) name no key.
+		var found := OS.find_keycode_from_string(spec["key"])
+		var keycode: int = found & KEY_CODE_MASK
 		if keycode == KEY_NONE:
 			return null
 		var key := InputEventKey.new()
 		# Physical: the same position on every keyboard layout.
-		key.physical_keycode = keycode
+		key.physical_keycode = keycode as Key
+		key.shift_pressed = found & KEY_MASK_SHIFT != 0
+		key.alt_pressed = found & KEY_MASK_ALT != 0
+		key.meta_pressed = found & KEY_MASK_META != 0
+		key.ctrl_pressed = found & KEY_MASK_CTRL != 0
+		key.command_or_control_autoremap = found & KEY_MASK_CMD_OR_CTRL != 0
 		return key
 	if _is_index(spec.get("mouse_button")):
 		var button := InputEventMouseButton.new()

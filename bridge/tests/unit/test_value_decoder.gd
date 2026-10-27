@@ -312,3 +312,40 @@ func test_value_decoder_reads_back_the_tagged_text_the_codec_writes() -> void:
 	check(_fails({"$type": "int", "value": "12a"}, TYPE_INT), "text that is no integer still fails")
 	check(_fails({"$type": "int", "value": "9223372036854775808"}, TYPE_INT), "one past the largest 64-bit integer fails instead of clamping")
 	equal(_value({"$type": "int", "value": "-9223372036854775808"}, TYPE_INT), -9223372036854775807 - 1, "the smallest one fits")
+
+
+func test_value_decoder_a_node_does_not_go_where_a_resource_is_taken() -> void:
+	var scene := Node2D.new()
+	var world := Node.new()
+	world.name = "World"
+	scene.add_child(world)
+	var sprite := Sprite2D.new()
+	scene.add_child(sprite)
+	_nodes.append(scene)
+
+	var decoded := ValueDecoder.new(scene).decode_properties(sprite, {"texture": {"$node": "World"}})
+
+	equal(decoded["ok"], false, "refused instead of setting the texture to nothing")
+	equal(decoded["error"]["code"], "TYPE_MISMATCH", "as a type mismatch")
+
+
+func test_value_decoder_a_node_with_a_script_class_fits_a_property_of_that_class() -> void:
+	var scene := Node2D.new()
+	var enemy := Node2D.new()
+	enemy.name = "Enemy1"
+	var script := GDScript.new()
+	script.source_code = "extends Node2D\n"
+	script.reload()
+	enemy.set_script(script)
+	scene.add_child(enemy)
+	_nodes.append(scene)
+	var decoder := ValueDecoder.new(scene)
+
+	# A class the project does not have (a plugin that is not loaded): not held against the value.
+	var unknown := decoder.decode({"$node": "Enemy1"}, TYPE_OBJECT, {"hint": PROPERTY_HINT_NODE_TYPE, "hint_string": "SomeoneElsesEnemy"})
+	var engine_class := decoder.decode({"$node": "Enemy1"}, TYPE_OBJECT, {"hint": PROPERTY_HINT_NODE_TYPE, "hint_string": "Node2D"})
+	var wrong_engine_class := decoder.decode({"$node": "Enemy1"}, TYPE_OBJECT, {"hint": PROPERTY_HINT_NODE_TYPE, "hint_string": "Camera2D"})
+
+	equal(unknown["ok"], true, "an unknown class name lets the node through")
+	equal(engine_class["ok"], true, "a node of the engine class fits")
+	equal(wrong_engine_class["ok"], false, "a node of another engine class does not")

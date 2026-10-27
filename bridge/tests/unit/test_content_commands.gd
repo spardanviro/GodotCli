@@ -276,6 +276,7 @@ func test_animation_state_machine_create_builds_states_and_transitions() -> void
 	check(is_equal_approx(to_run.xfade_time, 0.1), "with its cross-fade")
 	equal([tree.anim_player, tree.active, reply["data"]["active"]], [NodePath("../Anim"), false, false], "the tree points at the player; with an expression it stays inactive in the editor")
 	equal(reply["warnings"].size(), 1, "and says so")
+	equal(tree.advance_expression_base_node, NodePath(".."), "expressions read the tree's parent, as the skills say")
 
 	_context.undo.undo()
 	check(tree.tree_root == null, "undo")

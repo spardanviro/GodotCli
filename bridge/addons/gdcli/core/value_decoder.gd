@@ -450,11 +450,20 @@ func _decode_object(value: Variant, info: Dictionary, depth: int) -> Dictionary:
 		return _ok(null)
 	if not value is Dictionary:
 		return _mismatch("Expected null, {\"$res\": path}, {\"$new\": class} or {\"$node\": path}.", "", "an object reference")
+	var hint: int = info.get("hint", PROPERTY_HINT_NONE)
 	if value.has("$node"):
+		# Set on a resource property, a node is dropped by the engine without a word.
+		if hint == PROPERTY_HINT_RESOURCE_TYPE:
+			return _mismatch("A node cannot go where a resource is taken.", "", "{\"$res\": path} or {\"$new\": class}")
 		var node := NodeRef.resolve(_scene_root, str(value["$node"]))
 		if node == null:
 			return Reply.fail("NODE_NOT_FOUND", "The referenced node does not exist.", "", {"path": str(value["$node"])})
+		var wanted_node: String = info.get("hint_string", "") if hint == PROPERTY_HINT_NODE_TYPE else ""
+		if wanted_node != "" and not _is_one_of(node, wanted_node):
+			return _mismatch("The node is not of the class this property takes.", "", wanted_node)
 		return _ok(node)
+	if hint == PROPERTY_HINT_NODE_TYPE:
+		return _mismatch("A resource cannot go where a node is taken.", "", "{\"$node\": path}")
 	var decoded := _load_resource(str(value["$res"])) if value.has("$res") else _new_resource(value, depth)
 	if not decoded["ok"]:
 		return decoded
@@ -500,9 +509,23 @@ func _new_resource(value: Dictionary, depth: int) -> Dictionary:
 	return _ok(resource)
 
 
+## Whether the object is one of the classes a property names. A name can be
+## an engine class or a script's class_name; a name neither knows (a class of
+## a plugin not loaded) is not held against the value.
 func _is_one_of(object: Object, class_list: String) -> bool:
-	for name in class_list.split(","):
-		if object.is_class(name.strip_edges()):
+	var script_classes := {}
+	for entry in ProjectSettings.get_global_class_list():
+		script_classes[str(entry.get("class", ""))] = true
+	for raw in class_list.split(","):
+		var name := raw.strip_edges()
+		if object.is_class(name):
+			return true
+		var script: Script = object.get_script() as Script
+		while script != null:
+			if str(script.get_global_name()) == name:
+				return true
+			script = script.get_base_script()
+		if not ClassDB.class_exists(name) and not script_classes.has(name):
 			return true
 	return false
 

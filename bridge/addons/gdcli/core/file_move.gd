@@ -175,6 +175,7 @@ func _move() -> bool:
 			"settings": TextSanitizer.clean_lines(settings),
 			"reloaded_scenes": TextSanitizer.clean_lines(reloaded),
 			"not_rewritten": TextSanitizer.clean_lines(outcome["failed"]),
+			"not_searched": TextSanitizer.clean_lines(_references.get("too_large", [])),
 			"sensitive_rewritten": TextSanitizer.clean_lines(sensitive),
 		},
 	}
@@ -252,6 +253,8 @@ func _add_warnings(outcome: Dictionary) -> Array:
 		_warnings.append("Files in sensitive locations were rewritten: see references_updated.sensitive_rewritten.")
 	if not _references["settings"].is_empty():
 		_warnings.append("project.godot was saved with the new path.")
+	if not _references.get("too_large", []).is_empty():
+		_warnings.append("Some files were too large to search for references: see references_updated.not_searched.")
 	if _references["truncated"]:
 		_warnings.append("The project has too many files to search them all; some references may remain.")
 	if _note_untouched:

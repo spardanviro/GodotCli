@@ -378,6 +378,7 @@ func _move(args: Dictionary, options: Dictionary, approved_text: Variant = null)
 				"possible_dynamic_references": references["dynamic"],
 				"sensitive_files": TextSanitizer.clean_lines(references["sensitive"]),
 				"search_incomplete": references["truncated"],
+				"not_searched": TextSanitizer.clean_lines(references.get("too_large", [])),
 				"settings": TextSanitizer.clean_lines(references["settings"]),
 				"open_scenes_saved_and_reloaded": TextSanitizer.clean_lines(open_scenes),
 			},
@@ -459,6 +460,13 @@ func _resource_set(args: Dictionary, options: Dictionary) -> Dictionary:
 	var resource := ResourceLoader.load(path)
 	if resource == null or resource is Script or resource is PackedScene:
 		return Reply.fail("TYPE_MISMATCH", "This file is not a plain resource.", "Scripts are written with fs_write_text; scenes are edited with the node commands.", {"path": path})
+	# A state machine or blend tree may be the tree_root of an active
+	# AnimationTree: expressions put into it would run in the editor.
+	if resource is AnimationRootNode and (args["properties"].has("transitions") or not Edit.animation_expressions(resource).is_empty()):
+		var tree_what := {"command": "resource_set", "reason": Edit.ACTIVE_EXPRESSIONS, "target": path, "preview": JSON.stringify(args, "  ")}
+		var tree_gate := Edit.person_gate(_context, options, tree_what, _resource_set.bind(args, Edit.approved(options)))
+		if not tree_gate.is_empty():
+			return tree_gate
 	if checked["sensitive"]:
 		var what := {"command": "resource_set", "reason": _SENSITIVE, "target": path, "preview": JSON.stringify(args, "  ")}
 		var gate := Edit.person_gate(_context, options, what, _resource_set.bind(args, Edit.approved(options)))

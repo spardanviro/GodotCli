@@ -20,10 +20,13 @@ const _ANCHORS_AND_OFFSETS: Array[String] = [
 	"anchor_left", "anchor_top", "anchor_right", "anchor_bottom", "offset_left", "offset_top", "offset_right", "offset_bottom",
 ]
 # Class, the property that says where a node is on screen, and the local one.
+# [class, what keeps the place on screen, the stored values undo puts back].
+# A Node2D is saved as position, rotation, scale and skew: put back from a
+# matrix they would come out a little off (0.99999994), so each is put back.
 const _PLACEMENT := [
-	["Node2D", "global_transform", "transform"],
-	["Node3D", "global_transform", "transform"],
-	["Control", "global_position", "position"],
+	["Node2D", "global_transform", ["position", "rotation", "scale", "skew"]],
+	["Node3D", "global_transform", ["transform"]],
+	["Control", "global_position", ["position"]],
 ]
 
 var _context: RefCounted
@@ -145,7 +148,7 @@ func _create(args: Dictionary, options: Dictionary) -> Dictionary:
 		return _missing(args["parent"])
 	var type: String = args["type"]
 	# Built-in classes only: a script class would run project code right here.
-	if not (ClassDB.class_exists(type) and ClassDB.is_parent_class(type, "Node") and ClassDB.can_instantiate(type)):
+	if not Edit.is_game_node_class(type):
 		return Reply.fail(
 			"INVALID_ARGS", "Not a built-in node class that can be created.",
 			"For a scripted class, create its base class and use node_attach_script.", {"type": TextSanitizer.clean_line(type)},
@@ -159,6 +162,13 @@ func _create(args: Dictionary, options: Dictionary) -> Dictionary:
 	# Set on the new node one by one, so that a property which another one
 	# brings into being can be given too; they are set again in the tree.
 	var decoded: Dictionary = ValueDecoder.new(_root()).set_in_order(node, args.get("properties", {}))
+	if decoded["ok"]:
+		var gate := {}
+		if node is AnimationTree:
+			gate = Edit.expression_gate(_context, options, node.active, node.tree_root, name, _create.bind(args, Edit.approved(options)), "node_create")
+		if not gate.is_empty():
+			node.free()
+			return gate
 	if not decoded["ok"] or options["dry_run"]:
 		node.free()
 		return decoded if not decoded["ok"] else Edit.planned({"create": type, "under": args["parent"], "name": name})
@@ -243,6 +253,10 @@ func _set_properties(args: Dictionary, options: Dictionary) -> Dictionary:
 	var decoded: Dictionary = ValueDecoder.new(_root()).decode_properties(node, properties)
 	if not decoded["ok"]:
 		return decoded
+	if node is AnimationTree:
+		var gate := _expression_gate_after(node, decoded["values"], options, _set_properties.bind(args, Edit.approved(options)))
+		if not gate.is_empty():
+			return gate
 	if options["dry_run"]:
 		return Edit.planned({"set": properties.keys(), "on": _describe(node)["path"]})
 
@@ -262,6 +276,13 @@ func _set_properties(args: Dictionary, options: Dictionary) -> Dictionary:
 	var described := _describe(node)
 	described["set"] = properties.keys()
 	return Edit.done(described, action)
+
+
+# The tree as node_set would leave it: active and holding expressions needs a person.
+func _expression_gate_after(tree: AnimationTree, values: Dictionary, options: Dictionary, retry: Callable) -> Dictionary:
+	var active: bool = values.get("active", tree.active)
+	var root: Variant = values.get("tree_root", tree.tree_root)
+	return Edit.expression_gate(_context, options, active, root, str(tree.name), retry, "node_set")
 
 
 func _rename(args: Dictionary, options: Dictionary) -> Dictionary:
@@ -330,7 +351,8 @@ func _keep_in_place(undo: Object, node: Node) -> void:
 	for pair in _PLACEMENT:
 		if node.is_class(pair[0]):
 			undo.add_do_property(node, pair[1], node.get(pair[1]))
-			undo.add_undo_property(node, pair[2], node.get(pair[2]))
+			for stored in pair[2]:
+				undo.add_undo_property(node, stored, node.get(stored))
 			return
 
 

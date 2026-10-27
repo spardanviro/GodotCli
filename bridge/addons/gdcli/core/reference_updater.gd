@@ -15,7 +15,9 @@ const PathPolicy = preload("path_policy.gd")
 const TextSanitizer = preload("text_sanitizer.gd")
 
 const TEXT_EXTENSIONS: Array[String] = ["tscn", "tres", "gd", "gdshader", "gdshaderinc"]
-const MAX_FILE_BYTES := 2 * 1024 * 1024
+# Big TileMap scenes run to a few megabytes; a larger file is reported, not skipped silently.
+const MAX_FILE_BYTES := 16 * 1024 * 1024
+const MAX_LISTED_TOO_LARGE := 50
 const MAX_FILES_SCANNED := 20000
 # The search runs on the editor's main thread; this bounds how long it can take.
 const MAX_BYTES_SCANNED := 256 * 1024 * 1024
@@ -47,7 +49,7 @@ func _init(from: String, to: String, is_folder: bool) -> void:
 
 
 static func nothing() -> Dictionary:
-	return {"files": [], "sensitive": [], "settings": [], "dynamic": [], "truncated": false}
+	return {"files": [], "sensitive": [], "settings": [], "dynamic": [], "too_large": [], "truncated": false}
 
 
 ## `text` with every reference to the old path replaced by the new one.
@@ -150,7 +152,11 @@ func moved_path(path: String) -> String:
 func _look_at(path: String, found: Dictionary, budget: Dictionary) -> void:
 	var checked := PathPolicy.check_text(path, PathPolicy.ACCESS_WRITE)
 	var file := FileAccess.open(path, FileAccess.READ) if checked["ok"] else null
-	if file == null or file.get_length() > MAX_FILE_BYTES:
+	if file == null:
+		return
+	if file.get_length() > MAX_FILE_BYTES:
+		if found["too_large"].size() < MAX_LISTED_TOO_LARGE:
+			found["too_large"].append(path)
 		return
 	budget["bytes"] -= file.get_length()
 	var text := file.get_as_text()

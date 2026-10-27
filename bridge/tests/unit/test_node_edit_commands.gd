@@ -448,3 +448,52 @@ func test_node_attach_script_dry_run_does_not_load_a_tool_script() -> void:
 	equal(plan["data"]["would"].get("runs_in_editor"), true, "and says the script runs in the editor")
 	check(not ResourceLoader.has_cached(path), "without loading it, which would run its static code")
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+
+func test_node_set_asks_before_an_animation_tree_with_expressions_becomes_active() -> void:
+	_scene()
+	var tree := AnimationTree.new()
+	tree.name = "Tree"
+	_add(_root, tree)
+	var inner := AnimationNodeStateMachine.new()
+	inner.add_node("A", AnimationNodeAnimation.new())
+	inner.add_node("B", AnimationNodeAnimation.new())
+	var sly := AnimationNodeStateMachineTransition.new()
+	sly.advance_expression = "get_tree().quit()"
+	inner.add_transition("A", "B", sly)
+	var outer := AnimationNodeStateMachine.new()
+	outer.add_node("Inner", inner)
+	tree.tree_root = outer
+	tree.active = false
+
+	var asked := _call("node_set", {"path": "Tree", "properties": {"active": true}})
+	var plain := _code("node_set", {"path": "Tree", "properties": {"callback_mode_process": 1}})
+
+	check(asked.has("later"), "an expression in a nested state machine is found: the change waits for a person")
+	equal(str(_context.questions[-1].what.get("preview", "")), "get_tree().quit()", "who is shown the expression")
+	equal(tree.active, false, "the tree stayed inactive")
+	equal(plain, "", "other properties of such a tree are set as usual")
+
+
+func test_node_move_undo_puts_back_the_exact_stored_values() -> void:
+	_scene()
+	var player: Node2D = _root.get_node("Player")
+	player.rotation_degrees = 10.0
+	var turned := Node2D.new()
+	turned.name = "Turned"
+	turned.rotation_degrees = 20.0
+	turned.scale = Vector2(1.5, 1.5)
+	_add(_root, turned)
+	var before := [player.position, player.rotation, player.scale, player.skew]
+
+	_call("node_move", {"path": "Player", "parent": "Turned"})
+	_context.undo.undo()
+
+	equal([player.position, player.rotation, player.scale, player.skew], before, "no 0.99999994 left behind")
+
+
+func test_node_create_refuses_editor_only_classes() -> void:
+	_scene()
+
+	equal(_code("node_create", {"parent": ".", "type": "EditorPlugin"}), "INVALID_ARGS", "an editor plugin is no node of a game scene")
+	equal(_code("node_create", {"parent": ".", "type": "Sprite2D"}), "", "an ordinary node is created")

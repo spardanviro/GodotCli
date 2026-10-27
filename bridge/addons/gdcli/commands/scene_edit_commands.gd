@@ -100,7 +100,7 @@ func _new(args: Dictionary, options: Dictionary) -> Dictionary:
 		if not gate.is_empty():
 			return gate
 	var type: String = args["root_type"]
-	if not (ClassDB.class_exists(type) and ClassDB.is_parent_class(type, "Node") and ClassDB.can_instantiate(type)):
+	if not Edit.is_game_node_class(type):
 		return Reply.fail("INVALID_ARGS", "Not a built-in node class that can be created.", "", {"root_type": TextSanitizer.clean_line(type)})
 	var root_name: String = args.get("root_name", path.get_file().get_basename().to_pascal_case())
 	if root_name == "" or root_name.validate_node_name() != root_name:

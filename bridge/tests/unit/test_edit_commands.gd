@@ -734,3 +734,29 @@ func test_text_that_uses_outside_files_cannot_become_a_resource_by_a_rename_or_a
 	equal(material, "PATH_NOT_ALLOWED", "so is writing it under a resource extension the list does not name")
 	check(not FileAccess.file_exists("res://tests/tmp/innocent.tres"), "nothing was moved")
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(notes))
+
+
+func test_project_input_map_set_reads_modifiers_as_modifiers() -> void:
+	_setup()
+	var commands := ProjectEditCommands.new(_context)
+
+	var save: InputEventKey = commands._event_from({"key": "Ctrl+S"})
+	var nothing: Variant = commands._event_from({"key": "Ctrl+Foo"})
+	var plain: InputEventKey = commands._event_from({"key": "Space"})
+
+	equal([save.physical_keycode, save.ctrl_pressed], [KEY_S, true], "S with Ctrl held, not one key code with the Ctrl bit in it")
+	equal(nothing, null, "modifiers alone name no key")
+	equal([plain.physical_keycode, plain.ctrl_pressed], [KEY_SPACE, false], "a plain key is unchanged")
+
+
+func test_resource_set_on_a_state_machine_resource_asks_a_person() -> void:
+	_setup()
+	var machine := AnimationNodeStateMachine.new()
+	var path := "res://tests/tmp/machine.tres"
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://tests/tmp"))
+	ResourceSaver.save(machine, path)
+
+	var reply := _code("resource_set", {"path": path, "properties": {"transitions": []}})
+
+	equal(reply, "NOT_APPROVED", "it may be an active tree's root: a person decides")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))

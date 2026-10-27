@@ -126,3 +126,16 @@ func test_fs_commands_utf8_checks_reject_overlong_and_surrogate_forms() -> void:
 	check(not FsCommands._is_utf8(PackedByteArray([0xF4, 0x90, 0x80, 0x80])), "past U+10FFFF")
 	equal(FsCommands._utf8_boundary(PackedByteArray([0x61, 0xE4, 0xB8])), 1, "a cut three-byte character goes")
 	equal(FsCommands._utf8_boundary(PackedByteArray([0x61, 0xE4, 0xB8, 0xAD])), 4, "a whole one stays")
+
+
+func test_fs_read_text_reads_past_a_byte_order_mark() -> void:
+	_setup()
+	var path := FOLDER.path_join("bom.gd")
+	_write(path, PackedByteArray([0xEF, 0xBB, 0xBF]) + "extends Node\n".to_utf8_buffer())
+
+	var reply := _call("fs_read_text", {"path": path})
+
+	equal(reply["data"]["text"], "extends Node\n", "the text without the mark")
+	equal(reply["data"].get("bom"), true, "and it says the mark was there")
+	equal(reply["data"]["truncated"], false, "the whole file was read")
+	_remove_tree(FOLDER)
