@@ -6,7 +6,7 @@ import { resolveInstance } from "../client.js";
 import type { CommandHandler, CommandResult, Context, GlobalOptions } from "../context.js";
 import { errorOf, isEnvelopeError, success } from "../envelope.js";
 import { requireGodot } from "../godot.js";
-import { acquireHostLock, hostEditorAlive, recordHostEditor } from "../host-lock.js";
+import { type HostLock, hostLock } from "../host-lock.js";
 import { PROJECT_FILE, findProject } from "../project.js";
 import { ADDON_RELATIVE_DIR, isPluginEnabled, readPluginVersion } from "./bridge.js";
 import { invokeBridge } from "./live.js";
@@ -123,6 +123,8 @@ interface Launch {
   readonly godot: string;
   readonly args: readonly string[];
   readonly deadline: number;
+  /** This gd's turn, handed to the editor once it is started. */
+  readonly lock: HostLock;
 }
 
 /** With the start lock held: start the editor unless another gd just did. */
@@ -135,7 +137,7 @@ async function launch(context: Context, globals: GlobalOptions, plan: Launch): P
   if (pid === undefined) {
     return fail("host", errorOf("GODOT_NOT_FOUND", "Godot could not be started.", undefined, { path: plan.godot }));
   }
-  recordHostEditor(context, plan.project, context.pid, pid);
+  plan.lock.recordEditor(pid);
   return waitForHost(context, globals, plan.deadline, pid);
 }
 
@@ -159,33 +161,33 @@ async function start(context: Context, globals: GlobalOptions, waitMs: number): 
 
   const deadline = Date.now() + waitMs;
   const maxLockAgeMs = (MAX_WAIT_SECONDS + LOCK_MARGIN_SECONDS) * MS_PER_SECOND;
-  for (;;) {
-    const release = acquireHostLock(context, project, context.pid, maxLockAgeMs);
-    if (release !== undefined) {
-      let result: CommandResult | undefined;
-      try {
-        result = await launch(context, globals, { project, godot: plan.godot, args: plan.args, deadline });
+  const lock = hostLock(context, project, context.pid, maxLockAgeMs);
+  let keep = false;
+  try {
+    for (;;) {
+      if (lock.tryAcquire()) {
+        const result = await launch(context, globals, { project, godot: plan.godot, args: plan.args, deadline, lock });
+        // Given up on an editor that is still starting: the turn stays with it
+        // (the place names its process), so the next host start waits for it
+        // instead of starting a second one.
+        keep = result.envelope.errors[0]?.code === TIMED_OUT.code && lock.editorAlive();
         return result;
-      } finally {
-        // Given up on an editor that is still starting: the lock stays with it
-        // (it names its process), so the next host start waits for it instead
-        // of starting a second one.
-        const gaveUp = result?.envelope.errors[0]?.code === TIMED_OUT.code;
-        if (!gaveUp || !hostEditorAlive(context, project)) {
-          release();
-        }
       }
+      // Another gd, or an editor still starting, is ahead. Once that editor
+      // answers it is the one to report.
+      const appeared = await findRunning(context, globals, true);
+      if (appeared !== undefined) {
+        return appeared;
+      }
+      if (Date.now() >= deadline) {
+        return fail("host", TIMED_OUT);
+      }
+      await sleep(Math.min(POLL_INTERVAL_MS, Math.max(deadline - Date.now(), 1)));
     }
-    // Another gd, or an editor still starting, holds the lock. Once that
-    // editor answers it is the one to report.
-    const appeared = await findRunning(context, globals, true);
-    if (appeared !== undefined) {
-      return appeared;
+  } finally {
+    if (!keep) {
+      lock.release();
     }
-    if (Date.now() >= deadline) {
-      return fail("host", TIMED_OUT);
-    }
-    await sleep(Math.min(POLL_INTERVAL_MS, Math.max(deadline - Date.now(), 1)));
   }
 }
 

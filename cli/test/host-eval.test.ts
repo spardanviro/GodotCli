@@ -1,10 +1,10 @@
-import { existsSync, readFileSync, utimesSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
 import { buildArgs } from "../src/commands/live.js";
-import { clearStale, hostLockPath } from "../src/host-lock.js";
+import { hostLock, hostLockDir } from "../src/host-lock.js";
 import { ExitCode } from "../src/protocol.js";
 import { type FakeProcesses, errorEnvelope, fakeBridge, fakeProcesses, harness, makeProject, okEnvelope, tempDir, writeFile } from "./helpers.js";
 
@@ -63,6 +63,11 @@ describe("gd eval", () => {
   });
 });
 
+/** Another gd's place in a project's queue: a ticket file, as that gd would write it. */
+function otherTicket(context: Parameters<typeof hostLockDir>[0], project: string, fields: Record<string, unknown>, text?: string): string {
+  return writeFile(join(hostLockDir(context, project), `${String(fields["pid"] ?? 0)}-aaaaaaaaaaaa.ticket`), text ?? JSON.stringify(fields));
+}
+
 describe("gd host", () => {
   function hostHarness(home: string, project: string): { gd: ReturnType<typeof harness>; processes: FakeProcesses; godot: string } {
     const godot = writeFile(join(home, "godot-bin"), "");
@@ -108,15 +113,16 @@ describe("gd host", () => {
     const home = tempDir();
     const project = projectWithBridge(home);
     const { gd, processes } = hostHarness(home, project);
-    const lock = writeFile(hostLockPath(gd.context, project), JSON.stringify({ pid: 777 }));
+    const lock = otherTicket(gd.context, project, { number: 1, pid: 777 });
 
     const { exitCode, envelope } = await gd.json("host", "start", "--wait", "0.2");
 
     expect(processes.detached).toEqual([]);
     expect(exitCode).toBe(ExitCode.Transient);
     expect(envelope.errors[0]?.code).toBe("TIMEOUT");
-    // The lock belongs to the other gd and is left alone.
+    // The place belongs to the other gd and is left alone; this gd left the queue.
     expect(existsSync(lock)).toBe(true);
+    expect(readdirSync(hostLockDir(gd.context, project))).toEqual([lock.split(/[\\/]/u).at(-1)]);
   });
 
   test("takes over the lock of a gd that is gone, and releases its own", async () => {
@@ -128,12 +134,13 @@ describe("gd host", () => {
     // The editor it starts dies too, so nothing is left to hold the lock.
     const processes = { ...fakeProcesses(), isAlive: (pid: number) => pid !== OTHER_GD && pid !== EDITOR };
     const gd = harness({ homeDir: home, cwd: project, processes, env: { GODOT_BIN: godot } });
-    const lock = writeFile(hostLockPath(gd.context, project), JSON.stringify({ pid: OTHER_GD }));
+    const lock = otherTicket(gd.context, project, { number: 1, pid: OTHER_GD });
 
     await gd.json("host", "start", "--wait", "0.2");
 
     expect(processes.detached).toHaveLength(1);
     expect(existsSync(lock)).toBe(false);
+    expect(readdirSync(hostLockDir(gd.context, project))).toEqual([]);
   });
 
   test("an editor still starting after the wait keeps the lock, so a second start waits for it", async () => {
@@ -147,14 +154,15 @@ describe("gd host", () => {
     expect(first.envelope.errors[0]?.code).toBe("TIMEOUT");
     expect(second.envelope.errors[0]?.code).toBe("TIMEOUT");
     expect(processes.detached).toHaveLength(1);
-    expect(JSON.parse(readFileSync(hostLockPath(gd.context, project), "utf8"))).toMatchObject({ editor: 4242 });
+    const [kept] = readdirSync(hostLockDir(gd.context, project));
+    expect(JSON.parse(readFileSync(join(hostLockDir(gd.context, project), kept ?? ""), "utf8"))).toMatchObject({ editor: 4242 });
   });
 
   test("while waiting for another start, an editor that is still importing is waited out", async () => {
     const home = tempDir();
     const project = projectWithBridge(home);
     const { gd, processes } = hostHarness(home, project);
-    writeFile(hostLockPath(gd.context, project), JSON.stringify({ pid: 777 }));
+    otherTicket(gd.context, project, { number: 1, pid: 777 });
 
     const starting = gd.json("host", "start", "--wait", "1.5");
     await new Promise((done) => setTimeout(done, 300));
@@ -165,31 +173,108 @@ describe("gd host", () => {
     expect(envelope.errors[0]?.code).toBe("TIMEOUT");
   });
 
-  test("a lock replaced after it was judged stale is put back, not removed", () => {
-    const lock = writeFile(join(tempDir(), "x.lock"), JSON.stringify({ pid: 2, fresh: true }));
+  test("the queue: one turn at a time, in the order the numbers were taken", () => {
+    const { gd } = hostHarness(tempDir(), tempDir());
+    const project = "/games/demo";
+    const [a, b, c] = [101, 102, 103].map((pid) => hostLock(gd.context, project, pid, 60_000));
 
-    clearStale(lock, 1, JSON.stringify({ pid: 777 }));
-    const kept = readFileSync(lock, "utf8");
-    clearStale(lock, 1, kept);
+    const aFirst = a?.tryAcquire();
+    const bWhileA = b?.tryAcquire();
+    const cWhileA = c?.tryAcquire();
+    a?.release();
+    const afterA = [b?.tryAcquire(), c?.tryAcquire()];
+    b?.release();
+    const cLast = c?.tryAcquire();
+    c?.release();
 
-    expect(kept).toBe(JSON.stringify({ pid: 2, fresh: true }));
-    expect(existsSync(lock)).toBe(false);
-    expect(existsSync(`${lock}.1.stale`)).toBe(false);
+    expect([aFirst, bWhileA, cWhileA]).toEqual([true, false, false]);
+    expect(afterA).toEqual([true, false]); // Exactly one: the lower number.
+    expect(cLast).toBe(true);
+    expect(readdirSync(hostLockDir(gd.context, project))).toEqual([]);
+  });
+
+  test("the queue: a gd still choosing its number is waited for; places of the gone are cleared", () => {
+    const GONE = 666;
+    const processes = { ...fakeProcesses(), isAlive: (pid: number) => pid !== GONE };
+    const gd = harness({ homeDir: tempDir(), processes });
+    const project = "/games/demo";
+    const choosing = writeFile(join(hostLockDir(gd.context, project), "555-bbbbbbbbbbbb.choosing"), JSON.stringify({ pid: 555 }));
+    const gone = otherTicket(gd.context, project, { number: 1, pid: GONE });
+    const lock = hostLock(gd.context, project, 101, 60_000);
+
+    const whileChoosing = lock.tryAcquire();
+    const goneCleared = !existsSync(gone);
+    unlinkSync(choosing);
+    const afterwards = lock.tryAcquire();
+    lock.release();
+
+    expect(whileChoosing).toBe(false);
+    expect(goneCleared).toBe(true);
+    expect(afterwards).toBe(true);
+  });
+
+  test("the queue: the race that a take-over lock could lose is no race here", () => {
+    // A gone holder and two newcomers: with a lock that is taken over when
+    // stale, both newcomers could end up believing they hold it.
+    const GONE = 666;
+    const processes = { ...fakeProcesses(), isAlive: (pid: number) => pid !== GONE };
+    const gd = harness({ homeDir: tempDir(), processes });
+    const project = "/games/demo";
+    otherTicket(gd.context, project, { number: 7, pid: GONE });
+    const [b, c] = [102, 103].map((pid) => hostLock(gd.context, project, pid, 60_000));
+
+    const turns = [b?.tryAcquire(), c?.tryAcquire(), b?.tryAcquire(), c?.tryAcquire()];
+
+    expect(turns.filter((turn) => turn === true).length).toBe(2); // b twice, c never
+    expect(turns).toEqual([true, false, true, false]);
+  });
+
+  test("the queue: a place that cannot be read right now is held, not taken for gone", () => {
+    const { gd } = hostHarness(tempDir(), tempDir());
+    const project = "/games/demo";
+    // A name that cannot be read as a file (here a folder; on Windows, a file another process has open).
+    const unreadable = join(hostLockDir(gd.context, project), "999-cccccccccccc.ticket");
+    mkdirSync(unreadable, { recursive: true });
+    const lock = hostLock(gd.context, project, 101, 60_000);
+
+    const turn = lock.tryAcquire();
+    lock.release();
+
+    expect(turn).toBe(false);
+    expect(existsSync(unreadable)).toBe(true);
+  });
+
+  test("the queue: a gd whose place was removed takes a new number instead of assuming its turn", () => {
+    const { gd } = hostHarness(tempDir(), tempDir());
+    const project = "/games/demo";
+    const a = hostLock(gd.context, project, 101, 60_000);
+    const b = hostLock(gd.context, project, 102, 60_000);
+
+    const aFirst = a.tryAcquire();
+    for (const name of readdirSync(hostLockDir(gd.context, project))) {
+      unlinkSync(join(hostLockDir(gd.context, project), name));
+    }
+    const bThen = b.tryAcquire();
+    const aAgain = a.tryAcquire();
+    a.release();
+    b.release();
+
+    expect([aFirst, bThen, aAgain]).toEqual([true, true, false]);
   });
 
   test("on macOS, as on Windows, two spellings of a project share one lock", () => {
     const mac = harness({ homeDir: tempDir(), platform: "darwin" });
     const linux = harness({ homeDir: tempDir(), platform: "linux" });
 
-    expect(hostLockPath(mac.context, "/Games/Demo")).toBe(hostLockPath(mac.context, "/games/demo"));
-    expect(hostLockPath(linux.context, "/Games/Demo")).not.toBe(hostLockPath(linux.context, "/games/demo"));
+    expect(hostLockDir(mac.context, "/Games/Demo")).toBe(hostLockDir(mac.context, "/games/demo"));
+    expect(hostLockDir(linux.context, "/Games/Demo")).not.toBe(hostLockDir(linux.context, "/games/demo"));
   });
 
   test("an unreadable lock is believed only while it is fresh", async () => {
     const home = tempDir();
     const project = projectWithBridge(home);
     const { gd, processes } = hostHarness(home, project);
-    const lock = writeFile(hostLockPath(gd.context, project), "");
+    const lock = otherTicket(gd.context, project, { pid: 777 }, "");
     const LONG_AGO = new Date(Date.now() - 60_000);
 
     await gd.json("host", "start", "--wait", "0.1");

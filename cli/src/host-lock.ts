@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
-import { existsSync, linkSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import type { Context } from "./context.js";
@@ -7,111 +7,196 @@ import { gdcliHome } from "./project.js";
 
 export const HOST_LOCKS_DIR_NAME = "host-locks";
 const NAME_HEX_DIGITS = 16;
+const NONCE_BYTES = 6;
 const PRIVATE_DIR_MODE = 0o700;
 const PRIVATE_FILE_MODE = 0o600;
-/** A lock file is written right after it is created; an empty one this young is still being written. */
+/** A file is written right after it is created; an unreadable one this young is still being written. */
 const WRITE_GRACE_MS = 5000;
-const ATTEMPTS = 2;
-const RENAME_ATTEMPTS = 5;
-const RENAME_RETRY_MS = 20;
+const RENAME_ATTEMPTS = 10;
+const RENAME_RETRY_MS = 50;
+/** What Windows answers while another process (a reader, a virus scanner) has the file open. */
+const BUSY_CODES = new Set(["EPERM", "EACCES", "EBUSY"]);
+const CHOOSING = ".choosing";
+const ASIDE = ".tmp";
+const TICKET = ".ticket";
 
-/** Where the lock of one project lives. Case is folded where the default filesystem folds it (Windows, macOS). */
-export function hostLockPath(context: Context, project: string): string {
+/** The folder of one project's queue. Case is folded where the default filesystem folds it (Windows, macOS). */
+export function hostLockDir(context: Context, project: string): string {
   const absolute = resolve(project).replaceAll("\\", "/");
   const key = context.platform === "win32" || context.platform === "darwin" ? absolute.toLowerCase() : absolute;
   const name = createHash("sha256").update(key).digest("hex").slice(0, NAME_HEX_DIGITS);
-  return join(gdcliHome(context), HOST_LOCKS_DIR_NAME, `${name}.lock`);
+  return join(gdcliHome(context), HOST_LOCKS_DIR_NAME, name);
 }
 
-function lockText(path: string): string | undefined {
-  try {
-    return readFileSync(path, "utf8");
-  } catch {
-    return undefined;
-  }
+/** One gd's place in the queue for starting a project's headless editor. */
+export interface HostLock {
+  /** True when it is this gd's turn. False means wait and ask again; the place in the queue is kept. */
+  tryAcquire(): boolean;
+  /** Hands the place to the editor this gd started, so it is held while that editor still starts. */
+  recordEditor(editor: number): void;
+  /** Whether the editor recorded in this gd's place is still running. */
+  editorAlive(): boolean;
+  /** Leaves the queue (or gives up the turn). Safe to call more than once. */
+  release(): void;
 }
 
-function lockField(path: string, field: "pid" | "editor"): number | undefined {
-  try {
-    const pid: unknown = (JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>)[field];
-    return typeof pid === "number" && Number.isInteger(pid) && pid > 0 ? pid : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-const ownerPid = (path: string): number | undefined => lockField(path, "pid");
-
-/**
- * A lock is stale when the gd that took it is gone and so is the editor it
- * started (a gd that stopped waiting leaves the lock to the editor that is
- * still starting), or when it is older than any start may last.
- */
-function isStale(context: Context, path: string, maxAgeMs: number): boolean {
-  let ageMs: number;
-  try {
-    ageMs = Date.now() - statSync(path).mtimeMs;
-  } catch {
-    // It vanished between the failed create and now: the next attempt decides.
-    return true;
-  }
-  if (ageMs > maxAgeMs) {
-    return true;
-  }
-  const pid = ownerPid(path);
-  if (pid === undefined) {
-    return ageMs > WRITE_GRACE_MS;
-  }
-  const editor = lockField(path, "editor");
-  return !context.processes.isAlive(pid) && (editor === undefined || !context.processes.isAlive(editor));
+interface Entry {
+  readonly base: string;
+  /** "choosing" sorts before "ticket": a snapshot of the folder never misses both of one gd's files. */
+  readonly kind: "choosing" | "ticket";
+  readonly number: number;
+  readonly live: boolean;
 }
 
 /**
- * Removes a stale lock. It is renamed aside first and looked at again: when
- * two gd notice the same stale lock, one may already have replaced it with
- * its own fresh lock, and what was moved aside is then put back. A third gd
- * creating a lock in the instant between can still win over the one put
- * back; that needs three starts of one project within microseconds.
+ * Makes `gd host start` for one project exclusive, with Lamport's bakery
+ * algorithm over files: a gd marks that it is choosing, takes a number one
+ * higher than any it sees, and has its turn when no one is choosing and no
+ * one holds a lower number (ties go by name). Each file is written whole
+ * (written aside and renamed), and no gd ever removes another's place
+ * unless that one is gone (its gd and the editor it started have exited,
+ * or it is older than any start may last): there is no moment in which a
+ * place that is still held can be taken over. File names carry a random
+ * part, so a reused process id never stands for an old place.
  */
-export function clearStale(path: string, pid: number, judged: string | undefined): void {
-  const aside = `${path}.${pid}.stale`;
-  try {
-    renameSync(path, aside);
-  } catch {
-    return; // Another gd cleared it first; the next attempt competes for the lock.
-  }
-  if (lockText(aside) !== judged) {
+export function hostLock(context: Context, project: string, pid: number, maxAgeMs: number): HostLock {
+  const folder = hostLockDir(context, project);
+  const base = `${pid}-${randomBytes(NONCE_BYTES).toString("hex")}`;
+  const choosingFile = join(folder, base + CHOOSING);
+  const ticketFile = join(folder, base + TICKET);
+  let number = 0;
+  let editor: number | undefined;
+
+  const writeTicket = (): void => writeWhole(ticketFile, JSON.stringify({ number, pid, ...(editor === undefined ? {} : { editor }) }));
+  const isAlive = (value: number | undefined): boolean => value !== undefined && context.processes.isAlive(value);
+
+  /**
+   * Whether a place still holds, and its number; undefined when the file has
+   * gone. Only a missing file is gone: one that cannot be read at this moment
+   * (Windows: open in another process) counts as held until it is too old,
+   * and one that reads but is not a place counts as being written for a few
+   * seconds.
+   */
+  const judge = (path: string): { readonly number: number; readonly live: boolean } | undefined => {
+    let ageMs: number;
+    let text: string;
     try {
-      // A link, not a rename: it fails instead of replacing a lock made since.
-      linkSync(aside, path);
+      ageMs = Date.now() - statSync(path).mtimeMs;
+      text = readFileSync(path, "utf8");
     } catch (error: unknown) {
-      // EEXIST: a third gd took the place; its lock stands. Otherwise the
-      // filesystem has no hard links: a rename, while the place is free.
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST" && !existsSync(path)) {
-        try {
-          renameSync(aside, path);
-          return;
-        } catch {
-          // Lost; the next start judges again.
-        }
-      }
+      return (error as NodeJS.ErrnoException).code === "ENOENT" ? undefined : { number: 0, live: true };
     }
-  }
+    if (ageMs > maxAgeMs) {
+      return { number: 0, live: false };
+    }
+    const fields = parseFields(text);
+    if (fields === undefined) {
+      return { number: 0, live: ageMs <= WRITE_GRACE_MS };
+    }
+    return { number: numberField(fields, "number") ?? 0, live: isAlive(numberField(fields, "pid")) || isAlive(numberField(fields, "editor")) };
+  };
+
+  const entries = (): Entry[] => {
+    let names: string[];
+    try {
+      names = readdirSync(folder);
+    } catch {
+      return [];
+    }
+    return names.flatMap((name): Entry[] => {
+      const kind = name.endsWith(TICKET) ? "ticket" : name.endsWith(CHOOSING) ? "choosing" : undefined;
+      if (kind === undefined) {
+        // A file written aside by a gd that died before renaming it: nobody's place.
+        if (name.endsWith(ASIDE) && ageOf(join(folder, name)) > maxAgeMs) {
+          removeQuietly(join(folder, name));
+        }
+        return [];
+      }
+      const entryBase = name.slice(0, -(kind === "ticket" ? TICKET : CHOOSING).length);
+      const read = judge(join(folder, name));
+      return read === undefined ? [] : [{ base: entryBase, kind, ...read }];
+    });
+  };
+
+  return {
+    tryAcquire(): boolean {
+      mkdirSync(folder, { recursive: true, mode: PRIVATE_DIR_MODE });
+      // A place removed meanwhile (judged too old, a clock jump) is taken again, never assumed.
+      if (number !== 0 && !existsSync(ticketFile)) {
+        number = 0;
+      }
+      if (number === 0) {
+        writeWhole(choosingFile, JSON.stringify({ pid }));
+        const highest = Math.max(0, ...entries().filter((entry) => entry.live && entry.kind === "ticket").map((entry) => entry.number));
+        number = highest + 1;
+        writeTicket();
+        removeQuietly(choosingFile);
+      }
+      let turn = true;
+      for (const entry of entries()) {
+        if (entry.base === base) {
+          continue;
+        }
+        if (!entry.live) {
+          // Gone: its gd and editor have exited. Judged once more right before removing it;
+          // the name is unique, so this removes nobody else's place.
+          const path = join(folder, entry.base + (entry.kind === "ticket" ? TICKET : CHOOSING));
+          if (judge(path)?.live === false) {
+            removeQuietly(path);
+          }
+          continue;
+        }
+        const ahead = entry.kind === "choosing" || entry.number < number || (entry.number === number && entry.base < base);
+        turn &&= !ahead;
+      }
+      return turn;
+    },
+    recordEditor(started: number): void {
+      editor = started;
+      try {
+        writeTicket();
+      } catch {
+        // Not handed over: the place names only this gd, so it is not kept for the editor either.
+        editor = undefined;
+      }
+    },
+    editorAlive(): boolean {
+      return isAlive(editor);
+    },
+    release(): void {
+      removeQuietly(choosingFile);
+      removeQuietly(ticketFile);
+      number = 0;
+    },
+  };
+}
+
+function parseFields(text: string): Record<string, unknown> | undefined {
   try {
-    unlinkSync(aside);
+    const parsed: unknown = JSON.parse(text);
+    return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : undefined;
   } catch {
-    // Gone already.
+    return undefined;
   }
 }
 
-/** Windows refuses to replace a file another process is reading at that moment: tried again shortly. */
-function renameOver(from: string, to: string): void {
+function numberField(fields: Record<string, unknown>, name: string): number | undefined {
+  const value = fields[name];
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+/** Written aside and renamed into place, so no other gd ever reads it half written. */
+function writeWhole(path: string, text: string): void {
+  const aside = path + ASIDE;
+  writeFileSync(aside, text, { mode: PRIVATE_FILE_MODE });
   for (let attempt = 1; ; attempt += 1) {
     try {
-      renameSync(from, to);
+      renameSync(aside, path);
       return;
     } catch (error: unknown) {
-      if (attempt >= RENAME_ATTEMPTS || (error as NodeJS.ErrnoException).code !== "EPERM") {
+      // Windows refuses to replace a file another process has open at that moment.
+      if (attempt >= RENAME_ATTEMPTS || !BUSY_CODES.has((error as NodeJS.ErrnoException).code ?? "")) {
+        removeQuietly(aside);
         throw error;
       }
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, RENAME_RETRY_MS);
@@ -119,69 +204,18 @@ function renameOver(from: string, to: string): void {
   }
 }
 
-/** Notes in the lock this gd holds which editor it started. */
-export function recordHostEditor(context: Context, project: string, pid: number, editor: number): void {
-  const path = hostLockPath(context, project);
-  if (ownerPid(path) !== pid) {
-    return;
-  }
-  // Written aside and renamed over the lock, so no other gd reads it half written.
-  const next = `${path}.${pid}.next`;
+function ageOf(path: string): number {
   try {
-    writeFileSync(next, JSON.stringify({ pid, editor }), { mode: PRIVATE_FILE_MODE });
-    renameOver(next, path);
+    return Date.now() - statSync(path).mtimeMs;
   } catch {
-    // The lock still names this gd; only the hand-over to the editor is lost.
-    try {
-      unlinkSync(next);
-    } catch {
-      // Never written.
-    }
+    return 0;
   }
 }
 
-/** Whether the lock names an editor that is still running. */
-export function hostEditorAlive(context: Context, project: string): boolean {
-  const editor = lockField(hostLockPath(context, project), "editor");
-  return editor !== undefined && context.processes.isAlive(editor);
-}
-
-function release(path: string, pid: number): void {
-  // Only the lock this gd wrote: if it was taken over as stale, it is not ours.
-  if (ownerPid(path) !== pid) {
-    return;
-  }
+function removeQuietly(path: string): void {
   try {
     unlinkSync(path);
   } catch {
-    // Already gone; nothing to release.
+    // Not there.
   }
-}
-
-/**
- * Makes `gd host start` for one project exclusive: two of them running at the
- * same moment would otherwise both find no editor and both start one.
- * Returns the function that releases the lock, or undefined when another gd
- * holds it.
- */
-export function acquireHostLock(context: Context, project: string, pid: number, maxAgeMs: number): (() => void) | undefined {
-  const path = hostLockPath(context, project);
-  mkdirSync(join(gdcliHome(context), HOST_LOCKS_DIR_NAME), { recursive: true, mode: PRIVATE_DIR_MODE });
-  for (let attempt = 0; attempt < ATTEMPTS; attempt += 1) {
-    try {
-      // "wx" fails when the file exists, which is what makes this a lock.
-      writeFileSync(path, JSON.stringify({ pid }), { flag: "wx", mode: PRIVATE_FILE_MODE });
-      return () => release(path, pid);
-    } catch (error: unknown) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
-        throw error;
-      }
-      const judged = lockText(path);
-      if (!isStale(context, path, maxAgeMs)) {
-        return undefined;
-      }
-      clearStale(path, pid, judged);
-    }
-  }
-  return undefined;
 }
