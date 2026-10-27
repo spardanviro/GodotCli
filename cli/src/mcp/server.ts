@@ -102,6 +102,8 @@ const TOOL_NAME = /^[a-z][a-z0-9_]{0,63}$/u;
 const OWN_PREFIX = "gd_";
 /** Longest summary taken from a command the project adds; the rest is cut. */
 const MAX_PROJECT_TEXT = 400;
+/** Longer than any description of gd's own commands. */
+const MAX_BRIDGE_TEXT = 4000;
 
 /** A name a client accepts, and not one of gd's own tools. */
 function isOfferable(descriptor: Descriptor): boolean {
@@ -125,7 +127,8 @@ function cleanText(text: unknown, limit: number): string | undefined {
 const KNOWN_RISKS: ReadonlySet<unknown> = new Set(["read", "write", "destructive", "exec"]);
 
 function cleanDescriptor(descriptor: Descriptor): Descriptor {
-  const limit = descriptor.custom === true ? MAX_PROJECT_TEXT : Number.MAX_SAFE_INTEGER;
+  // Every text is capped: a changed bridge could leave out the custom mark.
+  const limit = descriptor.custom === true ? MAX_PROJECT_TEXT : MAX_BRIDGE_TEXT;
   const given: unknown = descriptor.params?.properties;
   const properties = Object.fromEntries(
     Object.entries(given !== null && typeof given === "object" ? given : {})

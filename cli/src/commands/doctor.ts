@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { addonDiffersFromBundled } from "../addon-digest.js";
 import { handshake } from "../client.js";
 import type { CommandHandler } from "../context.js";
 import { isEnvelopeError, success } from "../envelope.js";
@@ -37,12 +38,16 @@ export const doctorCommand: CommandHandler = async (context, globals) => {
     const installed = readPluginVersion(join(project, ADDON_RELATIVE_DIR));
     const enabled = isPluginEnabled(readFileSync(join(project, PROJECT_FILE), "utf8"));
     const bundled = readPluginVersion(context.addonDir);
-    const current = installed !== undefined && installed === bundled;
+    const changed = addonDiffersFromBundled(context.addonDir, join(project, ADDON_RELATIVE_DIR));
+    const current = installed !== undefined && installed === bundled && !changed;
     checks.push({
       name: "bridge",
       ok: installed !== undefined && enabled,
-      detail: installed === undefined ? "not installed" : `${installed}${enabled ? "" : ", not enabled"}${current ? "" : `, gd ships ${bundled ?? "?"}`}`,
-      ...(installed !== undefined && enabled && current ? {} : { hint: "Run `gd bridge install` (add --force to replace another version)." }),
+      detail:
+        installed === undefined
+          ? "not installed"
+          : `${installed}${enabled ? "" : ", not enabled"}${changed ? ", but not gd's code" : current ? "" : `, gd ships ${bundled ?? "?"}`}`,
+      ...(installed !== undefined && enabled && current ? {} : { hint: "Run `gd bridge install` (add --force to replace another version or a changed copy)." }),
     });
 
     const instances = readInstances(gdcliHome(context), context.platform).filter((instance) =>

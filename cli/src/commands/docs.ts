@@ -1,9 +1,9 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 
-import type { CommandHandler, CommandResult, Context, GlobalOptions } from "../context.js";
+import type { CommandHandler, CommandResult, Context, GlobalOptions, ProcessResult } from "../context.js";
 import { errorOf, isEnvelopeError, success } from "../envelope.js";
-import { requireGodot } from "../godot.js";
+import { findOnPath, requireGodot } from "../godot.js";
 import { gdcliHome, nonEmpty } from "../project.js";
 import { sanitize } from "../text.js";
 import { fail, numberOption, parseCommandArgs, usage } from "./shared.js";
@@ -51,7 +51,9 @@ const DEVELOPMENT_BRANCH = "master";
 const BRANCH_PATTERN = /^(\d+\.\d+|master)$/u;
 const LIST_TIMEOUT_MS = 60_000;
 const FETCH_TIMEOUT_MS = 600_000;
-const GIT = "git";
+// Looked up on PATH as an absolute path: a bare "git" would be found in the
+// working folder first on Windows, which is often an untrusted project.
+const GIT_NAME = "git";
 // The user's git configuration is not part of this download: no hooks from a
 // template folder, no file watcher, no question about credentials for a public
 // repository; links in the repository arrive as plain files.
@@ -271,9 +273,15 @@ function use(context: Context, folder: string, dryRun: boolean): CommandResult {
 }
 
 async function install(context: Context, globals: GlobalOptions, wanted: string | undefined): Promise<CommandResult> {
-  const git = (args: readonly string[], timeoutMs: number) => context.processes.run(GIT, [...GIT_SETTINGS, ...args], { timeoutMs });
   const noGit = (details: Record<string, unknown>) =>
     fail("docs", errorOf("PRECONDITION_FAILED", "The manual could not be downloaded.", "It needs git and a connection to github.com. A copy you already have is used with `gd docs use <folder>`.", details));
+  const git = (args: readonly string[], timeoutMs: number): Promise<ProcessResult> => {
+    const gitPath = findOnPath(context, [GIT_NAME]);
+    // Not on PATH is the same answer as git failing to start.
+    return gitPath === undefined
+      ? Promise.resolve({ code: null, stdout: "", stderr: "", timedOut: false, spawnError: "ENOENT" })
+      : context.processes.run(gitPath, [...GIT_SETTINGS, ...args], { timeoutMs });
+  };
 
   let own = wanted;
   if (own === undefined) {

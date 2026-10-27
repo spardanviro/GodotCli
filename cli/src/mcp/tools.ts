@@ -88,7 +88,7 @@ function offline(
   description: string,
   properties: Readonly<Record<string, unknown>>,
   required: readonly string[],
-  readOnly: boolean,
+  effect: Effect,
   handler: CommandHandler,
   argv: OfflineTool["argv"],
 ): OfflineTool {
@@ -97,12 +97,26 @@ function offline(
       name,
       description,
       inputSchema: { type: "object", properties, ...(required.length > 0 ? { required } : {}) },
-      annotations: { readOnlyHint: readOnly, destructiveHint: false, idempotentHint: readOnly, openWorldHint: false },
+      annotations: ANNOTATIONS[effect],
     },
     handler,
     argv: guarded(argv),
   };
 }
+
+/**
+ * What a tool does, as a client's approval rules read it. A tool that runs the
+ * project's code (a game run, a script compile that runs static initializers,
+ * a headless editor that runs tool scripts) is never marked read-only: a
+ * client that waves read-only tools through would run any code a script holds.
+ */
+type Effect = "reads" | "changes" | "runs-project-code";
+
+const ANNOTATIONS: Readonly<Record<Effect, { readonly readOnlyHint: boolean; readonly destructiveHint: boolean; readonly idempotentHint: boolean; readonly openWorldHint: boolean }>> = {
+  reads: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  changes: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  "runs-project-code": { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+};
 
 class WrongType extends Error {}
 
@@ -148,17 +162,17 @@ function plain(value: string | undefined, what: string): string | undefined {
  * the editor's approval does not see (protocol.md section 4.3).
  */
 export const OFFLINE_TOOLS: readonly OfflineTool[] = [
-  offline("gd_status", "The editors with the gdcli bridge that have this project open. Use it to see whether the editor tools will work.", {}, [], true, statusCommand, () => []),
+  offline("gd_status", "The editors with the gdcli bridge that have this project open. Use it to see whether the editor tools will work.", {}, [], "reads", statusCommand, () => []),
   offline(
     "gd_run",
-    "Run the project (or one scene) in a separate Godot process for some seconds and report the errors and warnings it printed, with file and line. Saves nothing; the editor's unsaved changes are not seen.",
+    "Run the project (or one scene) in a separate Godot process for some seconds and report the errors and warnings it printed, with file and line. Runs the project's code. Saves nothing; the editor's unsaved changes are not seen.",
     {
       scene: { type: "string", description: "res:// path of a scene; default: the main scene" },
       seconds: { type: "number", description: "How long to let it run, in seconds, at least 1 (default 10)", minimum: 1, maximum: 600 },
       headless: { type: "boolean", description: "No window (default true)" },
     },
     [],
-    true,
+    "runs-project-code",
     runCommand,
     (args) => {
       const scene = text(args, "scene");
@@ -172,10 +186,10 @@ export const OFFLINE_TOOLS: readonly OfflineTool[] = [
   ),
   offline(
     "gd_check",
-    "Parse GDScript files for errors without running them.",
+    "Compile GDScript files and report their errors. Loading a script runs its static variable initializers and loads what it preloads, as the game would.",
     { scripts: { type: "array", items: { type: "string" }, description: "res:// paths or paths in the project" } },
     ["scripts"],
-    true,
+    "runs-project-code",
     checkCommand,
     (args) => {
       const scripts = Array.isArray(args["scripts"]) ? args["scripts"].filter((entry): entry is string => typeof entry === "string" && entry !== "") : [];
@@ -190,7 +204,7 @@ export const OFFLINE_TOOLS: readonly OfflineTool[] = [
     "What a Godot class offers in the installed version: properties, methods, signals, constants, with their descriptions.",
     { name: { type: "string", description: "Class name, e.g. CharacterBody2D" }, member: { type: "string", description: "Only this member" } },
     ["name"],
-    true,
+    "reads",
     apiCommand,
     (args) => {
       const name = text(args, "name");
@@ -207,7 +221,7 @@ export const OFFLINE_TOOLS: readonly OfflineTool[] = [
     "Find Godot classes and members whose names contain some text.",
     { text: { type: "string" } },
     ["text"],
-    true,
+    "reads",
     apiCommand,
     (args) => {
       const query = text(args, "text");
@@ -223,7 +237,7 @@ export const OFFLINE_TOOLS: readonly OfflineTool[] = [
       classes: { type: "boolean", description: "Include the class reference pages" },
     },
     ["words"],
-    true,
+    "reads",
     docsCommand,
     (args) => {
       const words = text(args, "words");
@@ -243,7 +257,7 @@ export const OFFLINE_TOOLS: readonly OfflineTool[] = [
     "Read one page of the Godot manual, or one section of it.",
     { page: { type: "string", description: "Page id from gd_docs_search" }, section: { type: "string", description: "Heading of the section to read" } },
     ["page"],
-    true,
+    "reads",
     docsCommand,
     (args) => {
       const page = text(args, "page");
@@ -260,10 +274,10 @@ export const OFFLINE_TOOLS: readonly OfflineTool[] = [
     "Start a headless editor with the bridge for this project, for when no editor is open. The editor tools then work against it; changes need scene_save to reach disk.",
     {},
     [],
-    false,
+    "runs-project-code",
     hostCommand,
     () => ["start"],
   ),
-  offline("gd_host_stop", "Stop the headless editor started with gd_host_start.", {}, [], false, hostCommand, () => ["stop"]),
-  offline("gd_doctor", "Check the installation: Godot binary, project, bridge addon, reachable editor.", {}, [], true, doctorCommand, () => []),
+  offline("gd_host_stop", "Stop the headless editor started with gd_host_start.", {}, [], "changes", hostCommand, () => ["stop"]),
+  offline("gd_doctor", "Check the installation: Godot binary, project, bridge addon, reachable editor.", {}, [], "reads", doctorCommand, () => []),
 ];

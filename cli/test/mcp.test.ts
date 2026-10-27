@@ -324,6 +324,15 @@ describe("gd mcp: what the review asked for", () => {
     expect(sly?.inputSchema.properties["mode"]?.enum).toEqual(["a", 2]);
   });
 
+  test("gd's tools that run the project's code are never marked read-only", () => {
+    const byName = Object.fromEntries(OFFLINE_TOOLS.map((entry) => [entry.tool.name, entry.tool.annotations]));
+
+    for (const name of ["gd_run", "gd_check", "gd_host_start"]) {
+      expect(byName[name], name).toMatchObject({ readOnlyHint: false, destructiveHint: true });
+    }
+    expect(byName["gd_docs_search"]).toMatchObject({ readOnlyHint: true });
+  });
+
   test("eval is marked as the most dangerous kind of tool", () => {
     expect(toolOf({ name: "eval", risk: "exec" }).annotations.destructiveHint).toBe(true);
   });

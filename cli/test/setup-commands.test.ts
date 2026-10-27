@@ -1,7 +1,9 @@
-import { existsSync, readFileSync, readdirSync, symlinkSync } from "node:fs";
+import { cpSync, existsSync, readFileSync, readdirSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
+
+import { addonDigest, addonDiffersFromBundled } from "../src/addon-digest.js";
 
 import { addGameHelper, enablePlugin, hasGameHelper, isPluginEnabled } from "../src/commands/bridge.js";
 import { ExitCode } from "../src/protocol.js";
@@ -100,8 +102,9 @@ describe("gd bridge", () => {
   test("adds the game helper to a project that has only the plugin", async () => {
     const home = tempDir();
     const project = makeProject(home, `\n[editor_plugins]\n\n${ENABLED_LINE}\n`);
-    const gd = harness({ homeDir: home, cwd: project, addonDir: addonFixture(home) });
-    writeFile(join(project, "addons", "gdcli", "plugin.cfg"), 'version="1.2.3"\n');
+    const bundled = addonFixture(home);
+    const gd = harness({ homeDir: home, cwd: project, addonDir: bundled });
+    cpSync(bundled, join(project, "addons", "gdcli"), { recursive: true });
 
     const { envelope } = await gd.json("bridge", "install");
 
@@ -176,6 +179,30 @@ describe("gd bridge", () => {
     await gd.json("bridge", "install", "--force");
 
     expect(readdirSync(join(project, "addons")).sort()).toEqual(["gdcli"]);
+  });
+
+  test("a bridge with gd's version number but other code is not taken for gd's own", async () => {
+    const home = tempDir();
+    const project = makeProject(home);
+    const bundled = addonFixture(home);
+    cpSync(bundled, join(project, "addons", "gdcli"), { recursive: true });
+    writeFile(join(project, "addons", "gdcli", "core", "bridge.gd"), "extends RefCounted\n# changed\n");
+    // Files Godot writes by itself do not count.
+    writeFile(join(bundled, "plugin.gd.uid"), "uid://a\n");
+    const gd = harness({ homeDir: home, cwd: project, addonDir: bundled });
+
+    const refused = await gd.json("bridge", "install");
+    const status = await gd.json("bridge", "status");
+    const forced = await gd.json("bridge", "install", "--force");
+    const after = await gd.json("bridge", "status");
+
+    expect(addonDigest(bundled)).toBe(addonDigest(join(home, "bundled-addon")));
+    expect(refused.envelope.errors[0]).toMatchObject({ code: "ALREADY_EXISTS", message: expect.stringContaining("different code") });
+    // Not enabled yet in this project: the state comes with the error.
+    expect(status.envelope.errors[0]?.details).toMatchObject({ changed: true });
+    expect(forced.envelope.success).toBe(true);
+    expect(after.envelope.data).toMatchObject({ changed: false });
+    expect(addonDiffersFromBundled(bundled, join(project, "addons", "gdcli"))).toBe(false);
   });
 
   test("does not delete a folder at addons/gdcli that is not the bridge", async () => {

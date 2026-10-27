@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
@@ -168,11 +168,20 @@ function fakeGit(overrides: (call: Call) => Partial<{ code: number; stdout: stri
   }, "4.5.stable.official.876b29033\n");
 }
 
+/** A folder on PATH holding a "git": gd starts git by its full path, never by name. */
+function gitOnPath(root: string): string {
+  const folder = join(root, "git-bin");
+  writeFile(join(folder, process.platform === "win32" ? "git.exe" : "git"), "");
+  return folder;
+}
+
+const isGit = (call: Call): boolean => /^git(\.exe)?$/u.test(basename(call.file));
+
 describe("gd docs install", () => {
   test("fetches the manual of the Godot version in use, text only, and uses it from then on", async () => {
     const root = tempDir();
     const processes = fakeGit();
-    const gd = harness({ homeDir: root, cwd: root, processes, env: { GODOT_BIN: writeFile(join(root, "godot-bin"), "") } });
+    const gd = harness({ homeDir: root, cwd: root, processes, env: { GODOT_BIN: writeFile(join(root, "godot-bin"), ""), PATH: gitOnPath(root) } });
 
     const { exitCode, envelope } = await gd.json("docs", "install");
     const folder = join(root, ".gdcli", "docs", "4.5");
@@ -182,7 +191,8 @@ describe("gd docs install", () => {
 
     expect(exitCode).toBe(ExitCode.Success);
     expect(envelope.data).toMatchObject({ version: "4.5", folder, pages: 2 });
-    const gitCalls = processes.calls.filter((call) => call.file === "git");
+    const gitCalls = processes.calls.filter(isGit);
+    expect(gitCalls.every((call) => call.file === join(root, "git-bin", process.platform === "win32" ? "git.exe" : "git"))).toBe(true);
     expect(clone?.args).toEqual(
       expect.arrayContaining(["--template=", "--depth", "1", "--filter=blob:none", "--no-checkout", "--single-branch", "--branch", "4.5", "https://github.com/godotengine/godot-docs.git"]),
     );
@@ -201,7 +211,7 @@ describe("gd docs install", () => {
     const root = tempDir();
     const base = fakeGit();
     const processes = { ...base, run: (file: string, args: readonly string[], options: { timeoutMs: number }) => (args[0] === "--version" ? Promise.resolve({ code: 0, stdout: "4.9.dev.custom_build\n", stderr: "", timedOut: false }) : base.run(file, args, options)) };
-    const gd = harness({ homeDir: root, cwd: root, processes, env: { GODOT_BIN: writeFile(join(root, "godot-bin"), "") } });
+    const gd = harness({ homeDir: root, cwd: root, processes, env: { GODOT_BIN: writeFile(join(root, "godot-bin"), ""), PATH: gitOnPath(root) } });
 
     const dry = await gd.json("docs", "install", "--dry-run");
     const callsAfterDryRun = base.calls.length;
@@ -214,7 +224,7 @@ describe("gd docs install", () => {
 
   test("takes a version by name, without needing Godot, and replaces an earlier download", async () => {
     const root = tempDir();
-    const gd = harness({ homeDir: root, cwd: root, processes: fakeGit(), env: { PATH: "" } });
+    const gd = harness({ homeDir: root, cwd: root, processes: fakeGit(), env: { PATH: gitOnPath(root) } });
     writeFile(join(root, ".gdcli", "docs", "4.4", "stale.rst"), "Old\n===\n");
 
     const { envelope } = await gd.json("docs", "install", "4.4");
@@ -229,14 +239,24 @@ describe("gd docs install", () => {
 
   test("says what is missing when git is not there or the download fails, and leaves nothing half done", async () => {
     const root = tempDir();
-    const noGit = harness({ homeDir: root, cwd: root, processes: fakeGit(() => ({ spawnError: "ENOENT" })) });
-    const failing = harness({ homeDir: root, cwd: root, processes: fakeGit((call) => (call.args.includes("checkout") && !call.args.includes("sparse-checkout") ? { code: 128 } : undefined)) });
+    const noGit = harness({ homeDir: root, cwd: root, processes: fakeGit(), env: { PATH: "" } });
+    const brokenGit = harness({ homeDir: root, cwd: root, processes: fakeGit(() => ({ spawnError: "ENOENT" })), env: { PATH: gitOnPath(root) } });
+    const failing = harness({
+      homeDir: root,
+      cwd: root,
+      processes: fakeGit((call) => (call.args.includes("checkout") && !call.args.includes("sparse-checkout") ? { code: 128 } : undefined)),
+      env: { PATH: gitOnPath(root) },
+    });
+    // A git in the working folder (often an untrusted project) is never the one started.
+    writeFile(join(root, process.platform === "win32" ? "git.exe" : "git"), "");
 
     const missing = await noGit.json("docs", "install", "4.5");
+    const unstartable = await brokenGit.json("docs", "install", "4.5");
     const broken = await failing.json("docs", "install", "4.5");
-    const noGodot = await harness({ homeDir: root, cwd: root, processes: fakeGit(), env: { PATH: "" } }).json("docs", "install");
+    const noGodot = await harness({ homeDir: root, cwd: root, processes: fakeGit(), env: { PATH: gitOnPath(root) } }).json("docs", "install");
 
     expect(missing.envelope.errors[0]).toMatchObject({ code: "PRECONDITION_FAILED", details: { reason: "git was not found" } });
+    expect(unstartable.envelope.errors[0]).toMatchObject({ code: "PRECONDITION_FAILED", details: { reason: "git was not found" } });
     expect(broken.envelope.errors[0]).toMatchObject({ code: "PRECONDITION_FAILED", details: { step: "checkout" } });
     expect(existsSync(join(root, ".gdcli", "docs", "4.5"))).toBe(false);
     expect(readdirSync(join(root, ".gdcli", "docs"))).toEqual([]);

@@ -1,5 +1,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { join } from "node:path";
 
+import { CHANGED_BRIDGE_WARNING, addonDiffersFromBundled } from "./addon-digest.js";
 import type { Context, GlobalOptions } from "./context.js";
 import { type Envelope, type EnvelopeError, errorOf, failure } from "./envelope.js";
 import { TransportError, httpRequest } from "./http.js";
@@ -111,7 +113,10 @@ export async function resolveInstance(context: Context, globals: GlobalOptions):
   }
   const only = ready[0];
   if (only !== undefined) {
-    return only;
+    // Every answer of a bridge that is not gd's own code carries the warning, the model's included.
+    return addonDiffersFromBundled(context.addonDir, join(project, "addons", "gdcli"))
+      ? { ...only, warnings: [CHANGED_BRIDGE_WARNING, ...only.warnings] }
+      : only;
   }
   if (mismatch !== undefined) {
     const bridgeIsNewer = mismatch > MAX_PROTOCOL;

@@ -1,6 +1,7 @@
 import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
+import { addonDiffersFromBundled } from "../addon-digest.js";
 import type { CommandHandler, CommandResult, Context, GlobalOptions } from "../context.js";
 import { errorOf, success } from "../envelope.js";
 import { readInstances } from "../instances.js";
@@ -102,6 +103,8 @@ interface BridgeState {
   readonly project: string;
   readonly installed_version: string | null;
   readonly bundled_version: string | null;
+  /** gd's version number, other code: changed locally, or brought by the project. */
+  readonly changed: boolean;
   readonly enabled: boolean;
   readonly game_helper: boolean;
   readonly editor_running: boolean;
@@ -116,6 +119,7 @@ function inspect(context: Context, project: string): BridgeState {
     project,
     installed_version: readPluginVersion(join(project, ADDON_RELATIVE_DIR)) ?? null,
     bundled_version: readPluginVersion(context.addonDir) ?? null,
+    changed: addonDiffersFromBundled(context.addonDir, join(project, ADDON_RELATIVE_DIR)),
     enabled: isPluginEnabled(projectText),
     game_helper: hasGameHelper(projectText),
     editor_running: running,
@@ -158,6 +162,14 @@ export function installBridge(context: Context, globals: GlobalOptions, project:
     );
   }
   const differs = before.installed_version !== null && before.installed_version !== before.bundled_version;
+  if (before.changed && !force) {
+    return fail(
+      "bridge",
+      errorOf("ALREADY_EXISTS", "The installed bridge has gd's version number but different code.", "If you did not change it yourself, pass --force to replace it.", {
+        installed: before.installed_version,
+      }),
+    );
+  }
   if (differs && !force) {
     return fail(
       "bridge",
