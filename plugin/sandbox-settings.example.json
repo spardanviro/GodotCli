@@ -8,14 +8,27 @@
       "gd status *",
       "gd list",
       "gd list *",
-      "gd doctor",
-      "gd doctor *",
-      "gd api *",
       "gd eval *"
     ],
     "filesystem": {
-      "denyWrite": ["."],
-      "allowWrite": ["~/.local/share/godot", "~/.cache/godot", "~/.config/godot", "~/.gdcli"]
+      "denyWrite": [
+        ".",
+        "~/.gdcli/config.json",
+        "~/.gdcli/instances",
+        "~/.local/share/godot/export_templates",
+        "~/.config/godot/editor_settings-4.tres",
+        "~/.config/godot/editor_settings-4.3.tres",
+        "~/.config/godot/editor_settings-4.4.tres",
+        "~/.config/godot/editor_settings-4.5.tres",
+        "~/.config/godot/editor_settings-4.6.tres",
+        "~/.config/godot/editor_settings-4.7.tres"
+      ],
+      "allowWrite": [
+        "~/.local/share/godot",
+        "~/.cache/godot",
+        "~/.config/godot",
+        "~/.gdcli"
+      ]
     }
   }
 }

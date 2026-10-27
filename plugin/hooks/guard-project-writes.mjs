@@ -9,6 +9,7 @@
 // not a sandbox. See plugin/README.md.
 
 import { existsSync, realpathSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -123,6 +124,25 @@ export function isGuardedRelativePath(relativePath) {
 }
 
 /**
+ * gd's own settings (which Godot it starts) and the editor's settings (the
+ * bridge's access mode and eval switch live there): an agent changing them
+ * would undo what the bridge asks a person about.
+ */
+function isGuardedSetting(path) {
+  const name = basename(path).toLowerCase();
+  if (/^editor_settings-[\d.]+\.tres$/u.test(name)) {
+    return true;
+  }
+  const homes = [process.env["GDCLI_HOME"], join(homedir(), ".gdcli")].filter((home) => typeof home === "string" && home !== "");
+  return name === "config.json" && homes.some((home) => samePlace(dirname(path), home));
+}
+
+function samePlace(a, b) {
+  const fold = (value) => (process.platform === "win32" ? resolve(value).toLowerCase() : resolve(value));
+  return fold(a) === fold(b);
+}
+
+/**
  * A file with another hard link is the same file under a second name, which
  * may lie inside a project: its path tells nothing, so it is held.
  */
@@ -142,7 +162,7 @@ function hasOtherHardLinks(path) {
  */
 export function isGuardedWrite(filePath, cwd) {
   const absolute = isAbsolute(filePath) ? resolve(filePath) : resolve(cwd, filePath);
-  if (hasOtherHardLinks(absolute)) {
+  if (hasOtherHardLinks(absolute) || isGuardedSetting(absolute)) {
     return true;
   }
   for (const candidate of new Set([absolute, throughLinks(absolute)])) {

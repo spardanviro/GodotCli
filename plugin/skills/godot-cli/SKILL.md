@@ -152,7 +152,7 @@ A change is not done until the project has run without errors.
 ```bash
 gd command scene_save
 gd run --seconds 5 --headless          # starts the game from disk, stops it, reports errors with file and line
-gd check res://scripts/player.gd       # parse one or more scripts without running anything
+gd check res://scripts/player.gd       # compile scripts; static initializers run, as in the game
 ```
 
 To see the game behave, run it from the editor and look inside (details in `references/running-game.md`):

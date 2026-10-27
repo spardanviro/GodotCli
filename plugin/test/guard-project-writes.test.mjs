@@ -120,6 +120,39 @@ describe("isGuardedWrite", () => {
   });
 });
 
+describe("gd's and the editor's settings", () => {
+  test("the editor settings (access mode, eval) and gd's config.json are held wherever they are", () => {
+    const { root } = workspace();
+    const home = join(root, "gdcli-home");
+    const before = process.env["GDCLI_HOME"];
+    process.env["GDCLI_HOME"] = home;
+    try {
+      assert.equal(isGuardedWrite(join(root, "config", "godot", "editor_settings-4.5.tres"), root), true);
+      assert.equal(isGuardedWrite(join(home, "config.json"), root), true);
+      assert.equal(isGuardedWrite(join(root, "some", "config.json"), root), false, "another program's config.json");
+    } finally {
+      if (before === undefined) {
+        delete process.env["GDCLI_HOME"];
+      } else {
+        process.env["GDCLI_HOME"] = before;
+      }
+    }
+  });
+
+  test("the sandbox example runs nothing that starts Godot outside the sandbox, and keeps those files read-only", () => {
+    const example = JSON.parse(readFileSync(join(dirname(HOOK), "..", "sandbox-settings.example.json"), "utf8"));
+    const excluded = example.sandbox.excludedCommands.join(" ");
+    const denied = example.sandbox.filesystem.denyWrite;
+
+    for (const starter of ["doctor", "api", "run", "check", "exec", "import", "export", "host"]) {
+      assert.equal(excluded.includes(`gd ${starter}`), false, starter);
+    }
+    for (const file of ["~/.gdcli/config.json", "~/.gdcli/instances", "~/.config/godot/editor_settings-4.7.tres"]) {
+      assert.equal(denied.includes(file), true, file);
+    }
+  });
+});
+
 describe("hard links", () => {
   test("a file with a second name is held wherever it is: it may be a project file", () => {
     const { root, project } = workspace();
