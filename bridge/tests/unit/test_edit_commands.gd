@@ -13,6 +13,7 @@ const FsEditCommands = preload("res://addons/gdcli/commands/fs_edit_commands.gd"
 const ProjectEditCommands = preload("res://addons/gdcli/commands/project_edit_commands.gd")
 const Registry = preload("res://addons/gdcli/core/registry.gd")
 const SceneEditCommands = preload("res://addons/gdcli/commands/scene_edit_commands.gd")
+const NodeEditCommands = preload("res://addons/gdcli/commands/node_edit_commands.gd")
 const Schema = preload("res://addons/gdcli/core/schema.gd")
 const FakeContext = preload("res://tests/fake_context.gd")
 
@@ -39,7 +40,7 @@ func _setup() -> void:
 	_registry = Registry.new()
 	_command_sets = [
 		SceneEditCommands.new(_context), FsEditCommands.new(_context),
-		ProjectEditCommands.new(_context), EditorControlCommands.new(_context),
+		ProjectEditCommands.new(_context), EditorControlCommands.new(_context), NodeEditCommands.new(_context),
 	]
 	for command_set in _command_sets:
 		command_set.register(_registry)
@@ -693,3 +694,43 @@ func test_fs_write_text_compile_check_reports_without_refusing() -> void:
 	equal(bad["compiles"], false, "a type error is found without running or loading the file")
 	check(loads.has("skipped") and by_path.has("skipped"), "a script that would make the compiler load other files is not compiled")
 	check(own_name.has("skipped"), "nor one that needs its own class name to be known")
+
+
+func test_a_scene_that_uses_a_script_outside_the_project_is_neither_written_nor_loaded() -> void:
+	_setup()
+	var outside := OS.get_user_data_dir().path_join("gdcli_outside_probe.gd")
+	FileAccess.open(outside, FileAccess.WRITE).store_string("@tool\nextends Node\n")
+	var text := '[gd_scene load_steps=2 format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n\n[node name="Main" type="Node"]\nscript = ExtResource("1")\n' % outside
+	var planted := "res://tests/tmp/planted_outside.tscn"
+	# Written behind the bridge's back, as an agent's own file tools could.
+	FileAccess.open(planted, FileAccess.WRITE).store_string(text)
+
+	var written := _code("fs_write_text", {"path": "res://tests/tmp/outside.tscn", "text": text})
+	var opened := _code("scene_open", {"path": planted})
+	var instanced := _code("node_instantiate_scene", {"parent": ".", "scene": planted})
+
+	equal(written, "PATH_NOT_ALLOWED", "writing it is refused, approval or not")
+	equal(opened, "PATH_NOT_ALLOWED", "opening one that is already there is refused")
+	equal(instanced, "PATH_NOT_ALLOWED", "and so is instancing it")
+	check(not FileAccess.file_exists("res://tests/tmp/outside.tscn"), "nothing was written")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(planted))
+	DirAccess.remove_absolute(outside)
+
+
+func test_text_that_uses_outside_files_cannot_become_a_resource_by_a_rename_or_another_extension() -> void:
+	_setup()
+	var text := '[gd_resource type="Resource" format=3]\n\n[ext_resource type="Script" path="C:/elsewhere/evil.gd" id="1"]\n\n[resource]\nscript = ExtResource("1")\n'
+	var notes := "res://tests/tmp/innocent_notes.txt"
+	# Through the bridge even a .txt with this text is refused (its first line makes it a resource),
+	var written := _code("fs_write_text", {"path": notes, "text": text})
+	# so it is planted the way an agent's own file tools could.
+	FileAccess.open(notes, FileAccess.WRITE).store_string(text)
+
+	var moved := _code("fs_move", {"from": notes, "to": "res://tests/tmp/innocent.tres", "update_references": false}, {"confirm": true})
+	var material := _code("fs_write_text", {"path": "res://tests/tmp/stone.material", "text": text})
+
+	equal(written, "PATH_NOT_ALLOWED", "a resource's text is judged by what it is, not by its extension")
+	equal(moved, "PATH_NOT_ALLOWED", "renaming it into a resource is refused")
+	equal(material, "PATH_NOT_ALLOWED", "so is writing it under a resource extension the list does not name")
+	check(not FileAccess.file_exists("res://tests/tmp/innocent.tres"), "nothing was moved")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(notes))

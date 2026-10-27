@@ -2,6 +2,7 @@ extends RefCounted
 ## File path rules of docs/protocol.md section 4.4.
 
 const Reply = preload("reply.gd")
+const TextSanitizer = preload("text_sanitizer.gd")
 
 const ROOT := "res://"
 const ACCESS_READ := "read"
@@ -22,9 +23,20 @@ const _SENSITIVE_ROOTS: Array[String] = ["addons", "gdcli_commands"]
 # Native libraries, and the files a C# build runs: projects and solutions of
 # every kind, imported props and targets, a project's .user file (imported
 # automatically) and response files.
+# .import: its import script (import_script/path) runs in the editor when the asset is imported.
 const _SENSITIVE_EXTENSIONS: Array[String] = [
-	"gdextension", "csproj", "fsproj", "vbproj", "proj", "sln", "slnx", "slnf", "props", "targets", "user", "rsp",
+	"gdextension", "csproj", "fsproj", "vbproj", "proj", "sln", "slnx", "slnf", "props", "targets", "user", "rsp", "import",
 ]
+# Files whose text names other files the editor loads: scenes, resources, import settings.
+const _REFERENCING_EXTENSIONS: Array[String] = ["tscn", "tres", "escn", "import"]
+# Any key ending in path, script or file, as `key="..."` or `"key": "..."`:
+# path=, path.s3tc=, import_script/path=, nodes/root_script=, source_file=,
+# "use_external/path": ... The files such a text makes the editor load.
+const _REFERENCE_PATTERN := "(?m)(?:^|[\\s{,\"])[\\w/.]*(?:path|script|file)(?:\\.[\\w]+)?\"?\\s*[=:]\\s*\"([^\"]*)\""
+# Text resources start like this whatever their extension (.material, .theme, ...).
+const _TEXT_RESOURCE_HEADERS: Array[String] = ["[gd_scene", "[gd_resource"]
+# More files than a project's dependencies reach; past it the answer is no, not yes.
+const _MAX_DEPENDENCIES := 20000
 const _FIRST_PRINTABLE := 0x20
 const _DELETE := 0x7f
 const _RESERVED_DEVICE_PATTERN := "^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\\..*)?$"
@@ -101,6 +113,81 @@ static func _is_plain_segment(segment: String) -> bool:
 	if _reserved_regex == null:
 		_reserved_regex = RegEx.create_from_string(_RESERVED_DEVICE_PATTERN)
 	return _reserved_regex.search(segment.to_lower()) == null
+
+
+## Whether a file's text can name other files the editor loads: a scene, a
+## resource (text resources load under any extension, by their first line),
+## an asset's import settings.
+static func names_other_files(path: String, text: String = "") -> bool:
+	if path.get_extension().to_lower() in _REFERENCING_EXTENSIONS:
+		return true
+	var start := text.trim_prefix(char(0xfeff)).strip_edges(true, false)
+	for header in _TEXT_RESOURCE_HEADERS:
+		if start.begins_with(header):
+			return true
+	return false
+
+
+## The first file outside the project that such a text names, or "". A scene
+## or resource never needs one; one that does can load a tool script from
+## anywhere, which no person was asked about (docs/protocol.md 4.1).
+static func outside_reference_in_text(text: String) -> String:
+	for found in RegEx.create_from_string(_REFERENCE_PATTERN).search_all(text):
+		var named := found.get_string(1)
+		if not _is_plain_project_path(named):
+			return named
+	return ""
+
+
+## The first file outside the project that a resource depends on, directly or
+## through other files of the project, or "". Checked before the editor loads it.
+static func outside_dependency(path: String) -> String:
+	var pending: Array[String] = [path]
+	var seen := {}
+	while not pending.is_empty():
+		var current: String = pending.pop_back()
+		if seen.has(current):
+			continue
+		if seen.size() >= _MAX_DEPENDENCIES:
+			return "(more files than can be checked)"
+		seen[current] = true
+		for dependency in ResourceLoader.get_dependencies(current):
+			var named := _dependency_path(dependency)
+			if not _is_plain_project_path(named):
+				return named
+			if named.begins_with(ROOT):
+				pending.append(named)
+	return ""
+
+
+# "uid::type::path", "path::type" or "uid::path": the path is the part that is
+# neither a uid nor a type name.
+static func _dependency_path(dependency: String) -> String:
+	var parts := dependency.split("::")
+	for index in range(parts.size() - 1, -1, -1):
+		var part := parts[index]
+		if part.begins_with("uid://"):
+			continue
+		if part.contains("/") or part.contains(":") or part.contains("."):
+			return part
+	return parts[0]
+
+
+## The reply that refuses to load a resource reaching outside the project; {} when it does not.
+static func refuse_outside_dependency(path: String) -> Dictionary:
+	var outside := outside_dependency(path)
+	if outside == "":
+		return {}
+	return Reply.fail(
+		"PATH_NOT_ALLOWED", "The file uses a file outside the project.",
+		"A scene or resource may only use files under res://.", {"path": path, "uses": TextSanitizer.clean_line(outside)},
+	)
+
+
+static func _is_plain_project_path(named: String) -> bool:
+	if named.begins_with("uid://"):
+		return true
+	return named.begins_with(ROOT) and not named.contains("..") and not named.contains("\\") and not named.substr(ROOT.length()).contains(":")
 
 
 static func _is_sensitive(folded: String, segment_count: int) -> bool:

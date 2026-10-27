@@ -76,6 +76,9 @@ func _open(args: Dictionary, options: Dictionary) -> Dictionary:
 		return checked
 	if not FileAccess.file_exists(checked["path"]):
 		return Reply.fail("RESOURCE_NOT_FOUND", "The scene file does not exist.", "Create it with scene_new.", {"path": checked["path"]})
+	var outside := PathPolicy.refuse_outside_dependency(checked["path"])
+	if not outside.is_empty():
+		return outside
 	if options["dry_run"]:
 		return Edit.planned({"open": checked["path"]})
 	_context.open_scene(checked["path"])

@@ -470,6 +470,9 @@ func _load_resource(path: String) -> Dictionary:
 		return checked
 	if not ResourceLoader.exists(checked["path"]):
 		return Reply.fail("RESOURCE_NOT_FOUND", "The resource does not exist.", "", {"path": checked["path"]})
+	var outside := PathPolicy.refuse_outside_dependency(checked["path"])
+	if not outside.is_empty():
+		return outside
 	var resource := ResourceLoader.load(checked["path"])
 	if resource == null:
 		return Reply.fail("COMMAND_FAILED", "The resource could not be loaded.", "", {"path": checked["path"]})

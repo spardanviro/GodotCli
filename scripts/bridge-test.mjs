@@ -7,7 +7,7 @@
 // On Windows pass the *_console.exe binary; the GUI one does not write to pipes.
 import { spawn, spawnSync } from "node:child_process";
 import { createHmac, randomBytes } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import net from "node:net";
 import { tmpdir } from "node:os";
@@ -499,6 +499,17 @@ async function checkEdits(instance) {
   const text = onDisk.body?.data?.text ?? "";
   check(saved.status === 200 && /\[node name="Boss" type="CharacterBody2D" parent="\."/.test(text), "scene_save writes the node", text);
   check(text.includes("e2e_boss.gd") && text.includes("instance=ExtResource"), "the saved scene has the script and the instance", text);
+  // The editor answers OK even when it cannot write the file; the bridge must not.
+  const sceneFile = join(projectDir, scene.slice("res://".length));
+  chmodSync(sceneFile, 0o444);
+  try {
+    await command(instance, "node_create", { type: "Node2D", name: "Unsaved" });
+    const refused = await command(instance, "scene_save");
+    check(refused.status !== 200 && refused.body?.errors?.[0]?.code === "COMMAND_FAILED", "scene_save on a read-only file says it failed", refused.body);
+  } finally {
+    chmodSync(sceneFile, 0o644);
+  }
+  await command(instance, "node_delete", { path: "Unsaved" }, { confirm: true });
   const box = await command(instance, "fs_read_text", { path: `${TMP_DIR}/e2e_box.tres` });
   check(box.body?.data?.text?.includes("Vector2(16, 8)"), "the resource file has its property", box.body);
 

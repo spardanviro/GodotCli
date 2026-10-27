@@ -40,6 +40,9 @@ static func _load(path: Variant, extensions: Array[String], what: String, exampl
 		)
 	if not ResourceLoader.exists(checked["path"]):
 		return Reply.fail("RESOURCE_NOT_FOUND", "There is no such file at this path.", "fs_list shows the files; a new file needs fs_scan first.", {"path": checked["path"]})
+	var outside := PathPolicy.refuse_outside_dependency(checked["path"])
+	if not outside.is_empty():
+		return outside
 	var resource := ResourceLoader.load(checked["path"])
 	if resource == null:
 		return Reply.fail("TYPE_MISMATCH", "The engine could not load this file.", "", {"path": checked["path"]})

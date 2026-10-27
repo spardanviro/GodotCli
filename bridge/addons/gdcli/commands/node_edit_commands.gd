@@ -530,6 +530,9 @@ func _instantiate_scene(args: Dictionary, options: Dictionary) -> Dictionary:
 		return Reply.fail("RESOURCE_NOT_FOUND", "The scene file does not exist.", "", {"path": checked["path"]})
 	if _depends_on(checked["path"], _context.scene_path()):
 		return Reply.fail("INVALID_ARGS", "A scene cannot contain itself, directly or through other scenes.")
+	var outside := PathPolicy.refuse_outside_dependency(checked["path"])
+	if not outside.is_empty():
+		return outside
 	var packed := ResourceLoader.load(checked["path"]) as PackedScene
 	if packed == null:
 		return Reply.fail("TYPE_MISMATCH", "The file is not a scene.", "", {"path": checked["path"]})

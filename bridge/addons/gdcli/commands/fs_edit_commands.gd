@@ -117,6 +117,13 @@ func _write_text(args: Dictionary, options: Dictionary) -> Dictionary:
 		return Reply.fail("INVALID_ARGS", "The path names a folder.", "", {"path": path})
 	if path.get_extension().to_lower() in _BINARY_EXTENSIONS:
 		return Reply.fail("INVALID_ARGS", "Binary scene and resource files are not written as text.", "Use the text formats .tscn and .tres.", {"path": path})
+	if PathPolicy.names_other_files(path, args["text"]):
+		var outside := PathPolicy.outside_reference_in_text(args["text"])
+		if outside != "":
+			return Reply.fail(
+				"PATH_NOT_ALLOWED", "The text uses a file outside the project.",
+				"A scene, resource or import file may only use files under res://.", {"path": path, "uses": TextSanitizer.clean_line(outside)},
+			)
 	var exists := FileAccess.file_exists(path)
 	if exists and not args["overwrite"]:
 		return Reply.fail("ALREADY_EXISTS", "The file already exists.", "Pass overwrite to replace it.", {"path": path})
@@ -339,6 +346,14 @@ func _move(args: Dictionary, options: Dictionary, approved_text: Variant = null)
 	# Changed while the person was deciding: what they allowed is not what would move.
 	if approved_text != null and text != approved_text:
 		return Reply.fail("PRECONDITION_FAILED", "The file changed while waiting for approval.", "Run the move again.", {"path": from})
+	# Renamed into a scene, resource or import file: held to the same rule as writing one.
+	if not is_folder and PathPolicy.names_other_files(to, text):
+		var outside_reference := PathPolicy.outside_reference_in_text(text)
+		if outside_reference != "":
+			return Reply.fail(
+				"PATH_NOT_ALLOWED", "The file uses a file outside the project.",
+				"A scene, resource or import file may only use files under res://.", {"path": from, "uses": TextSanitizer.clean_line(outside_reference)},
+			)
 	var becomes_code := not is_folder and to.get_extension().to_lower() != from.get_extension().to_lower() \
 			and Edit.runs_in_editor(text, to.get_extension())
 	if source["sensitive"] or target["sensitive"] or not references["sensitive"].is_empty() or becomes_code:
@@ -438,6 +453,9 @@ func _resource_set(args: Dictionary, options: Dictionary) -> Dictionary:
 	var path: String = checked["path"]
 	if not ResourceLoader.exists(path):
 		return Reply.fail("RESOURCE_NOT_FOUND", "The resource does not exist.", "Create it with resource_create.", {"path": path})
+	var outside := PathPolicy.refuse_outside_dependency(path)
+	if not outside.is_empty():
+		return outside
 	var resource := ResourceLoader.load(path)
 	if resource == null or resource is Script or resource is PackedScene:
 		return Reply.fail("TYPE_MISMATCH", "This file is not a plain resource.", "Scripts are written with fs_write_text; scenes are edited with the node commands.", {"path": path})

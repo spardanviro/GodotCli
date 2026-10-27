@@ -92,8 +92,26 @@ func open_scene(path: String) -> void:
 	EditorInterface.open_scene_from_path(path)
 
 
+## The editor answers OK even when it could not write the file (it only logs
+## "Cannot save file"): a read-only file and a folder that is gone are found
+## before, and a file that is still missing after.
 func save_scene() -> Error:
-	return EditorInterface.save_scene()
+	var path := scene_path()
+	if path != "" and not _can_write(path):
+		return ERR_FILE_CANT_WRITE
+	var result := EditorInterface.save_scene()
+	if result == OK and path != "" and not FileAccess.file_exists(path):
+		return ERR_FILE_CANT_WRITE
+	return result
+
+
+static func _can_write(path: String) -> bool:
+	if not DirAccess.dir_exists_absolute(ProjectSettings.globalize_path(path.get_base_dir())):
+		return false
+	if not FileAccess.file_exists(path):
+		return true
+	# Opened for reading and writing, which changes nothing, and fails on a read-only file.
+	return FileAccess.open(path, FileAccess.READ_WRITE) != null
 
 
 ## Loads an open scene again from its file, dropping what is in memory.

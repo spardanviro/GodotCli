@@ -38,6 +38,7 @@ const INSTANCE_ID_BYTES := 8
 const TOKEN_BYTES := 32
 # A headless host started by gd quits by itself when nobody talks to it.
 const HOST_IDLE_EXIT_MSEC := 30 * 60 * 1000
+const _ONE_SHOT_ARGUMENTS: Array[String] = ["--import", "--export-release", "--export-debug", "--export-pack", "--export-patch"]
 const IDLE_CHECK_SECONDS := 30.0
 
 var _server: HttpServer
@@ -53,6 +54,11 @@ var _command_sets: Array = []
 
 
 func _enter_tree() -> void:
+	# An editor started only to import or export (gd import, gd export) quits
+	# when done; nobody talks to it, and in a sandbox it may not even write its
+	# instance file. No bridge there.
+	if _one_shot_run():
+		return
 	var crypto := Crypto.new()
 	var instance_id := crypto.generate_random_bytes(INSTANCE_ID_BYTES).hex_encode()
 	var token := crypto.generate_random_bytes(TOKEN_BYTES).hex_encode()
@@ -130,6 +136,13 @@ func _enable_plugin() -> void:
 func _disable_plugin() -> void:
 	if ProjectSettings.has_setting(GameLink.AUTOLOAD_SETTING):
 		remove_autoload_singleton(GameLink.AUTOLOAD_NAME)
+
+
+static func _one_shot_run() -> bool:
+	for argument in OS.get_cmdline_args():
+		if argument in _ONE_SHOT_ARGUMENTS:
+			return true
+	return false
 
 
 func _exit_tree() -> void:

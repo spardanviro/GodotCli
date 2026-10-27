@@ -86,3 +86,27 @@ func test_path_policy_a_nested_git_folder_is_neither_read_nor_listed() -> void:
 	check(not _allowed("res://a/b/.GIT/hooks/pre-commit", "write"), "and nothing is written into it")
 	check(PathPolicy.is_hidden_name(".git", "res://sub/"), "listings leave it out at any depth")
 	check(not PathPolicy.is_hidden_name(".godot", "res://sub/"), "a nested .godot is an ordinary folder")
+
+
+func test_path_policy_texts_that_use_files_outside_the_project_are_found() -> void:
+	var outside_script := '[ext_resource type="Script" path="C:/elsewhere/evil.gd" id="1"]'
+	var import_script := '[params]\nimport_script/path="/tmp/post.gd"'
+	var climbing := '[ext_resource type="Texture2D" path="res://../secret.png" id="1"]'
+	var ordinary := '[ext_resource type="Texture2D" uid="uid://abc" path="res://art/a.png" id="1"]\n[remap]\npath.s3tc="res://.godot/imported/a.ctex"'
+
+	equal(PathPolicy.outside_reference_in_text(outside_script), "C:/elsewhere/evil.gd", "a script on another drive")
+	equal(PathPolicy.outside_reference_in_text(import_script), "/tmp/post.gd", "an import script outside")
+	equal(PathPolicy.outside_reference_in_text(climbing), "res://../secret.png", "a path that climbs out")
+	equal(PathPolicy.outside_reference_in_text(ordinary), "", "files of the project are fine")
+	check(PathPolicy.check_text("res://art/a.png.import", "write")["sensitive"], "import settings are a sensitive file")
+
+
+func test_path_policy_other_spellings_and_extensions_of_a_reference_are_found() -> void:
+	var root_script := '[params]\nnodes/root_script="/tmp/evil.gd"'
+	var dictionary := '_subresources={"materials": {"m": {"use_external/path": "C:/x.tres"}}}'
+	var material := '[gd_resource type="StandardMaterial3D" format=3]\n[ext_resource type="Script" path="/tmp/evil.gd" id="1"]'
+
+	equal(PathPolicy.outside_reference_in_text(root_script), "/tmp/evil.gd", "a root script in import settings")
+	equal(PathPolicy.outside_reference_in_text(dictionary), "C:/x.tres", "a dictionary entry")
+	check(PathPolicy.names_other_files("res://art/stone.material", material), "a text resource under any extension, by its first line")
+	check(not PathPolicy.names_other_files("res://notes.txt", "just notes"), "ordinary text is not")
