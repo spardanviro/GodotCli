@@ -9,8 +9,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # A pull request's runs share a group; on main each commit has its own, so a
+  # newer push can neither cancel nor push out (from the queue) an older run.
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  # Only a pull request's older runs are cancelled. On main every commit keeps
+  # its run: a release tag waits for the CI of its commit, and a push right
+  # after the tag must not cancel it (0.3.1 and 0.3.2 failed that way).
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   cli:
