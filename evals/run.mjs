@@ -35,7 +35,7 @@ const DEFAULT_ALLOWED_TOOLS = "Bash,PowerShell,Write,Edit,Read,Glob,Grep,Skill";
 // Options
 
 function parseOptions(argv) {
-  const options = { agent: "replay", filter: "", repeat: 1, jobs: 0, out: "", baseline: "", maxTurns: DEFAULT_MAX_TURNS, keep: false, pluginDir: "", verbose: false };
+  const options = { agent: "replay", filter: "", repeat: 1, jobs: 0, out: "", baseline: "", maxTurns: DEFAULT_MAX_TURNS, keep: false, transcripts: false, pluginDir: "", verbose: false };
   for (let index = 0; index < argv.length; index++) {
     const name = argv[index];
     const value = () => {
@@ -56,6 +56,7 @@ function parseOptions(argv) {
       // Absolute: the session runs in the eval project, where a relative path finds nothing.
       case "--plugin-dir": options.pluginDir = resolve(value()); break;
       case "--keep": options.keep = true; break;
+      case "--transcripts": options.transcripts = true; break;
       case "--verbose": options.verbose = true; break;
       default: throw new Error(`unknown option ${name}`);
     }
@@ -316,6 +317,51 @@ function lastCd(command, project) {
 
 function inputsText(transcript) {
   return transcript.map((entry) => `${entry.tool} ${JSON.stringify(entry.input)}`);
+}
+
+/** The temporary project, the repository, the temp and home folders: with either slash, in any case. */
+function hideLocalPaths(text, root) {
+  if (typeof text !== "string") {
+    return text;
+  }
+  const places = [
+    [root, "<eval>"],
+    [fileURLToPath(new URL("../", import.meta.url)).replace(/[\\/]$/u, ""), "<repo>"],
+    [tmpdir(), "<tmp>"],
+    [homedir(), "<home>"],
+  ].filter(([place]) => typeof place === "string" && place.length > 3);
+  let hidden = text;
+  for (const [place, label] of places) {
+    for (const spelling of new Set([place, place.replaceAll("\\", "/"), place.replaceAll("/", "\\")])) {
+      hidden = hidden.replace(new RegExp(spelling.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "giu"), label);
+    }
+  }
+  return hidden;
+}
+
+function withoutRoot({ root: _root, ...rest }) {
+  return rest;
+}
+
+/**
+ * A result fit to commit: each session's tool calls counted instead of their
+ * inputs (which hold scripts and local paths), and the temporary project's
+ * path written as <eval>. --transcripts keeps everything.
+ */
+function forSharing(result) {
+  const { transcript = [], ...rest } = withoutRoot(result);
+  const tools = {};
+  for (const entry of transcript) {
+    tools[entry.tool] = (tools[entry.tool] ?? 0) + 1;
+  }
+  const hide = (text) => hideLocalPaths(text, result.root);
+  return {
+    ...rest,
+    finalText: hide(rest.finalText),
+    failures: (rest.failures ?? []).map(hide),
+    notes: (rest.notes ?? []).map(hide),
+    ...(transcript.length > 0 ? { tools } : {}),
+  };
 }
 
 /** Checks done here: files, gd run, the transcript. Returns a failure text or null. */
@@ -994,8 +1040,8 @@ async function main() {
   const summary = summarize(results);
   report(results, summary, options);
   if (options.out !== "") {
-    const stripped = results.map(({ root: _root, ...rest }) => rest);
-    writeFileSync(options.out, `${JSON.stringify({ agent: options.agent, date: new Date().toISOString(), summary, results: stripped }, null, 2)}\n`);
+    const shared = results.map((result) => (options.transcripts ? withoutRoot(result) : forSharing(result)));
+    writeFileSync(options.out, `${JSON.stringify({ agent: options.agent, date: new Date().toISOString(), summary, results: shared }, null, 2)}\n`);
   }
   let broken = 0;
   if (options.baseline !== "") {

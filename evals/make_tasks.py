@@ -36,6 +36,24 @@ def check(typ, **fields):
     return {"type": typ, **fields}
 
 
+def find(alias, timeout=None, **spec):
+    step = {"find": spec, "as": alias}
+    if timeout is not None:
+        step["timeout"] = timeout
+    return step
+
+
+def expect(left, op, right, scale=None, plus=None, why=None):
+    step = {"expect": {"left": left, "op": op, "right": right}}
+    if scale is not None:
+        step["expect"]["scale"] = scale
+    if plus is not None:
+        step["expect"]["plus"] = plus
+    if why is not None:
+        step["why"] = why
+    return step
+
+
 tasks = {}
 
 # ---------------------------------------------------------------- scene
@@ -364,6 +382,19 @@ tasks["acceptance"] = [
         "max_turns": 80,
         "checks": [
             check("runs_clean"),
+            # It falls onto ground and stays there: a top-down character with no gravity fails this.
+            check("play", steps=[
+                find("player", **{"class": "CharacterBody2D"}),
+                {"get": "player", "property": "global_position", "index": 1, "as": "y0"},
+                {"wait": 2.0},
+                {"get": "player", "property": "global_position", "index": 1, "as": "y1"},
+                {"wait": 0.5},
+                {"get": "player", "property": "global_position", "index": 1, "as": "y2"},
+                expect("$y2", "==", "$y1", why="it stands still on the ground"),
+                expect("$y1", ">=", "$y0", why="gravity pulls it down, not up"),
+                {"call": "player", "method": "is_on_floor", "as": "grounded"},
+                expect("$grounded", "==", True, why="on a floor"),
+            ]),
             check("game", **{"class": "CharacterBody2D"}, actions_any=["jump", "player_jump", "ui_accept", "ui_up", "move_up", "up"], hold=0.15, after=0.3, expect="rises", min=20),
             check("game", **{"class": "CharacterBody2D"}, actions_any=["move_right", "right", "ui_right", "player_right", "walk_right", "run_right"], hold=0.6, after=0.1, expect="moves_right", min=20),
         ],
@@ -470,24 +501,6 @@ HUD_MAIN = [
 ]
 
 
-def find(alias, timeout=None, **spec):
-    step = {"find": spec, "as": alias}
-    if timeout is not None:
-        step["timeout"] = timeout
-    return step
-
-
-def expect(left, op, right, scale=None, plus=None, why=None):
-    step = {"expect": {"left": left, "op": op, "right": right}}
-    if scale is not None:
-        step["expect"]["scale"] = scale
-    if plus is not None:
-        step["expect"]["plus"] = plus
-    if why is not None:
-        step["why"] = why
-    return step
-
-
 tasks["hard"] = [
     {
         "id": "hard.enemy_patrol_chase",
@@ -590,6 +603,11 @@ tasks["hard"] = [
                 expect("$n1", "==", 5, why="five coins after a few seconds"),
                 {"wait": 1.5}, {"count": {"group": "coins", "class": "Area2D"}, "as": "n2"},
                 expect("$n2", "==", 5, why="and never more"),
+                find("coin", group="coins"),
+                {"get": "coin", "property": "global_position", "index": 0, "as": "cx"},
+                {"get": "coin", "property": "global_position", "index": 1, "as": "cy"},
+                expect("$cx", ">=", 0, why="inside the screen"), expect("$cx", "<=", 640),
+                expect("$cy", ">=", 0), expect("$cy", "<=", 360),
             ]),
         ],
         "reference": [write_script("res://main.gd", SPAWNER_SCRIPT), cmd("node_attach_script", {"path": ".", "script": "res://main.gd"}), SAVE],
@@ -773,21 +791,21 @@ tasks["hard"] = [
         ],
         "max_turns": 70,
         "checks": [
-            check("expression", code='ProjectSettings.get_setting("internationalization/locale/translations", PackedStringArray()).size() >= 2'),
             check("runs_clean"),
             # Chinese forced for the run: what the Label and the Button show, not their raw text.
+            # Registered in the project settings or at run time (TranslationServer): either passes.
             check("play", settings={"internationalization/locale/test": "zh"}, steps=[
-                find("title", **{"class": "Label"}),
+                find("title", name="Title"),
                 {"get": "title", "property": "text", "as": "title_text"},
                 {"call": "title", "method": "atr", "arguments": ["$title_text"], "as": "title_shown"},
                 expect("$title_shown", "==", "我的游戏", why="the title in Chinese"),
-                find("play", **{"class": "Button"}),
+                find("play", name="Play"),
                 {"get": "play", "property": "text", "as": "play_text"},
                 {"call": "play", "method": "atr", "arguments": ["$play_text"], "as": "play_shown"},
                 expect("$play_shown", "==", "开始", why="the button in Chinese"),
             ]),
             check("play", settings={"internationalization/locale/test": "en"}, steps=[
-                find("title", **{"class": "Label"}),
+                find("title", name="Title"),
                 {"get": "title", "property": "text", "as": "title_text"},
                 {"call": "title", "method": "atr", "arguments": ["$title_text"], "as": "title_shown"},
                 expect("$title_shown", "==", "My Game", why="the title in English"),

@@ -458,6 +458,53 @@
               "right": 5
             },
             "why": "and never more"
+          },
+          {
+            "find": {
+              "group": "coins"
+            },
+            "as": "coin"
+          },
+          {
+            "get": "coin",
+            "property": "global_position",
+            "index": 0,
+            "as": "cx"
+          },
+          {
+            "get": "coin",
+            "property": "global_position",
+            "index": 1,
+            "as": "cy"
+          },
+          {
+            "expect": {
+              "left": "$cx",
+              "op": ">=",
+              "right": 0
+            },
+            "why": "inside the screen"
+          },
+          {
+            "expect": {
+              "left": "$cx",
+              "op": "<=",
+              "right": 640
+            }
+          },
+          {
+            "expect": {
+              "left": "$cy",
+              "op": ">=",
+              "right": 0
+            }
+          },
+          {
+            "expect": {
+              "left": "$cy",
+              "op": "<=",
+              "right": 360
+            }
           }
         ]
       }
@@ -1252,10 +1299,6 @@
     "max_turns": 70,
     "checks": [
       {
-        "type": "expression",
-        "code": "ProjectSettings.get_setting(\"internationalization/locale/translations\", PackedStringArray()).size() >= 2"
-      },
-      {
         "type": "runs_clean"
       },
       {
@@ -1266,7 +1309,7 @@
         "steps": [
           {
             "find": {
-              "class": "Label"
+              "name": "Title"
             },
             "as": "title"
           },
@@ -1293,7 +1336,7 @@
           },
           {
             "find": {
-              "class": "Button"
+              "name": "Play"
             },
             "as": "play"
           },
@@ -1328,7 +1371,7 @@
         "steps": [
           {
             "find": {
-              "class": "Label"
+              "name": "Title"
             },
             "as": "title"
           },

@@ -11,6 +11,70 @@
         "type": "runs_clean"
       },
       {
+        "type": "play",
+        "steps": [
+          {
+            "find": {
+              "class": "CharacterBody2D"
+            },
+            "as": "player"
+          },
+          {
+            "get": "player",
+            "property": "global_position",
+            "index": 1,
+            "as": "y0"
+          },
+          {
+            "wait": 2.0
+          },
+          {
+            "get": "player",
+            "property": "global_position",
+            "index": 1,
+            "as": "y1"
+          },
+          {
+            "wait": 0.5
+          },
+          {
+            "get": "player",
+            "property": "global_position",
+            "index": 1,
+            "as": "y2"
+          },
+          {
+            "expect": {
+              "left": "$y2",
+              "op": "==",
+              "right": "$y1"
+            },
+            "why": "it stands still on the ground"
+          },
+          {
+            "expect": {
+              "left": "$y1",
+              "op": ">=",
+              "right": "$y0"
+            },
+            "why": "gravity pulls it down, not up"
+          },
+          {
+            "call": "player",
+            "method": "is_on_floor",
+            "as": "grounded"
+          },
+          {
+            "expect": {
+              "left": "$grounded",
+              "op": "==",
+              "right": true
+            },
+            "why": "on a floor"
+          }
+        ]
+      },
+      {
         "type": "game",
         "class": "CharacterBody2D",
         "actions_any": [
