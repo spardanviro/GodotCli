@@ -326,6 +326,15 @@ export const exportCommand: CommandHandler = async (context, globals, args) => {
     rmSync(aside, { force: true });
     renameSync(output, aside);
   }
+  // Interrupted (an agent's timeout, Ctrl-C), Godot is stopped mid-export: what
+  // it left is half a file, and the old one goes back where it was.
+  const forget = context.onInterrupt?.(() => {
+    rmSync(output, { force: true });
+    if (hadOld && existsSync(aside)) {
+      renameSync(aside, output);
+    }
+    return Promise.resolve();
+  });
   const settle = (exported: boolean): void => {
     if (!hadOld) {
       return;
@@ -341,6 +350,7 @@ export const exportCommand: CommandHandler = async (context, globals, args) => {
   const timeoutMs = globals.timeoutMs ?? EXPORT_TIMEOUT_MS;
   const run = await runGodot(context, ready.godot, ready.project, ["--headless", mode, preset, output], timeoutMs);
   const exported = run.result.spawnError === undefined && !run.result.timedOut && run.result.code === 0 && existsSync(output);
+  forget?.();
   settle(exported);
   if (run.result.spawnError !== undefined) {
     return spawnFailure("export", run.result.spawnError);
@@ -376,7 +386,9 @@ export const openCommand: CommandHandler = async (context, globals, args) => {
   }
   const editorArgs = ["--editor", "--path", ready.project, ...(scene === undefined ? [] : [scene])];
   if (globals.dryRun) {
-    return plan("open", ready, editorArgs.slice(2));
+    // The same program and arguments as below: plan() adds --path itself.
+    const shown = plan("open", { ...ready, godot: { ...ready.godot, bin: preferGuiBinary(ready.godot.bin, context.platform) } }, ["--editor", ...(scene === undefined ? [] : [scene])]);
+    return shown;
   }
   const pid = context.processes.startDetached(preferGuiBinary(ready.godot.bin, context.platform), editorArgs, ready.project);
   if (pid === undefined) {

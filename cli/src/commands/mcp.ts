@@ -216,9 +216,10 @@ async function configure(context: Context, globals: GlobalOptions, args: readonl
   // Only gd's own entry is shown: the rest of the file may hold other servers' keys.
   const shown = format.shown(entry);
   const data = { client, file, scope: format.userScope ? "user" : "project", server: { name: SERVER_NAME, ...entry }, entry: shown, written: false, note: format.note };
-  if (!globals.yes) {
+  // --dry-run looks, whatever else is given: --yes with it still writes nothing.
+  if (!globals.yes || globals.dryRun) {
     const preview = `Would add to ${file}:\n\n${shown}\n\nRun again with --yes to write it. ${format.note}\n`;
-    return { envelope: success("mcp", data, {}, ["Nothing was written: add --yes.", ...warnings]), human: preview };
+    return { envelope: success("mcp", data, {}, [globals.dryRun ? "Nothing was written: --dry-run." : "Nothing was written: add --yes.", ...warnings]), human: preview };
   }
   try {
     writeAtomically(file, text, mode);

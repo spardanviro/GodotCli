@@ -50,7 +50,8 @@ export interface Context {
   /** The program and arguments that start this gd (node and its script), for configuration files that start it again. */
   readonly launcher?: readonly string[];
   /** Work to do before gd exits on SIGINT or SIGTERM (a few seconds at most). */
-  readonly onInterrupt?: (cleanup: () => Promise<void>) => void;
+  /** Registers what to do when gd is interrupted; the returned function unregisters it. */
+  readonly onInterrupt?: (cleanup: () => Promise<void>) => () => void;
 }
 
 export type OutputFormat = "human" | "json";

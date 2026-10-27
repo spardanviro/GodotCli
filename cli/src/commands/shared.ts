@@ -16,6 +16,10 @@ export function usage(command: string, message: string): CommandResult {
 
 /** Pretty JSON of the data, for commands without a dedicated text layout. */
 export function dataAsText(envelope: Envelope): string {
+  // A failure without data has nothing for stdout: the error goes to stderr.
+  if (!envelope.success && (envelope.data === null || envelope.data === undefined)) {
+    return "";
+  }
   return `${sanitize(JSON.stringify(envelope.data, null, JSON_INDENT))}\n`;
 }
 

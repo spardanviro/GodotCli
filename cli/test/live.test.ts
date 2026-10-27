@@ -349,6 +349,19 @@ describe("gd command", () => {
 
     expect(exitCode).toBe(ExitCode.Transient);
     expect(envelope.errors[0]?.code).toBe("TIMEOUT");
+    // Sent and not answered: it may still have been carried out.
+    expect(envelope.errors[0]?.details).toMatchObject({ may_have_applied: true });
+    expect(envelope.errors[0]?.hint).toContain("before repeating a change");
+  });
+
+  test("a failed command prints nothing on stdout; the error goes to stderr", async () => {
+    const { home, project } = setup();
+    await fakeBridge({ home, project, commands: COMMANDS });
+
+    const { out, err } = await harness({ homeDir: home, cwd: project }).text("command", "no_such_command");
+
+    expect(out).toBe("");
+    expect(err).not.toBe("");
   });
 });
 

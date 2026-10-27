@@ -95,7 +95,7 @@ export const listCommand: CommandHandler = async (context, globals) => {
   const lines = descriptorsOf(envelope).map(
     (descriptor) => `${descriptor.name.padEnd(width)}  ${(descriptor.risk ?? "").padEnd(11)}  ${descriptor.summary ?? ""}`,
   );
-  return { envelope, human: `${sanitize(lines.join("\n"))}\n` };
+  return { envelope, human: envelope.success ? `${sanitize(lines.join("\n"))}\n` : "" };
 };
 
 const FILE_SUFFIX = "_file";

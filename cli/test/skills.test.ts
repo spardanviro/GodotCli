@@ -36,6 +36,15 @@ describe("gd skills", () => {
     expect(existsSync(join(home, ".codex", "skills"))).toBe(false);
   });
 
+  test("--dry-run with --yes still installs nothing", async () => {
+    const { home, run } = setup();
+
+    const result = await run("install", "codex", "--yes", "--dry-run");
+
+    expect(result.envelope.data).toMatchObject({ written: false });
+    expect(existsSync(join(home, ".codex", "skills"))).toBe(false);
+  });
+
   test("installs with their references, marked as gd's, and updates them on the next run", async () => {
     const { home, run } = setup();
     const folder = join(home, ".codex", "skills");

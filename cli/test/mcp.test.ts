@@ -472,6 +472,17 @@ function configured(client: string, extra: readonly string[] = [], files: Record
   return { home, project, run: (...argv: string[]) => h.json("mcp", "configure", client, ...extra, ...argv) };
 }
 
+describe("gd mcp configure: --dry-run", () => {
+  test("--dry-run with --yes still writes nothing", async () => {
+    const { project, run } = configured("claude");
+
+    const result = await run("--yes", "--dry-run");
+
+    expect(result.envelope.data).toMatchObject({ written: false });
+    expect(existsSync(join(project, ".mcp.json"))).toBe(false);
+  });
+});
+
 describe("gd mcp configure", () => {
 
   test("shows the change first and writes nothing without --yes", async () => {

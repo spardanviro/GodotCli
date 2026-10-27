@@ -13,15 +13,27 @@ const EXIT_INTERRUPTED = 130;
 const CLEANUP_MS = 3000;
 const cleanups: Array<() => Promise<void>> = [];
 
+let stopping = false;
+/** Stops what this gd started and runs the registered clean-ups, then exits. */
+function shutDown(code: number): void {
+  if (stopping) {
+    return;
+  }
+  stopping = true;
+  processes.stopAll();
+  const done = Promise.all(cleanups.map((cleanup) => cleanup().catch(() => undefined)));
+  void Promise.race([done, new Promise((resolve) => setTimeout(resolve, CLEANUP_MS))]).then(() => process.exit(code));
+}
+
 // An agent's own timeout or Ctrl-C must not leave an export, a game or a
 // headless editor (gd mcp) running.
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  process.once(signal, () => {
-    processes.stopAll();
-    const done = Promise.all(cleanups.map((cleanup) => cleanup().catch(() => undefined)));
-    void Promise.race([done, new Promise((resolve) => setTimeout(resolve, CLEANUP_MS))]).then(() => process.exit(EXIT_INTERRUPTED));
-  });
+  process.once(signal, () => shutDown(EXIT_INTERRUPTED));
 }
+// The reader went away (an MCP client that closed its end): writing fails
+// later with EPIPE as an 'error' event, which would end the process before
+// any clean-up. Nobody is listening any more, so stop the same way.
+process.stdout.on("error", (error: NodeJS.ErrnoException) => shutDown(error.code === "EPIPE" ? 0 : 1));
 
 process.exitCode = await run(process.argv.slice(2), {
   io: {
@@ -41,5 +53,13 @@ process.exitCode = await run(process.argv.slice(2), {
   processes,
   readVersion: readCliVersion,
   launcher: [process.execPath, fileURLToPath(import.meta.url)],
-  onInterrupt: (cleanup) => cleanups.push(cleanup),
+  onInterrupt: (cleanup) => {
+    cleanups.push(cleanup);
+    return () => {
+      const at = cleanups.indexOf(cleanup);
+      if (at !== -1) {
+        cleanups.splice(at, 1);
+      }
+    };
+  },
 });

@@ -138,11 +138,31 @@ export async function resolveInstance(context: Context, globals: GlobalOptions):
   );
 }
 
-function transportFailure(command: string, error: unknown): Envelope {
+/**
+ * A command that was sent and not answered may still be carried out: the
+ * bridge finishes a change whose caller went away (protocol 4.3). Retrying
+ * a change blindly would make it twice (two nodes), so the answer says so.
+ */
+function transportFailure(command: string, error: unknown, sent: boolean): Envelope {
+  const unknownOutcome = sent ? { may_have_applied: true } : undefined;
   if (error instanceof TransportError && error.kind === "timeout") {
-    return failure(command, [errorOf("TIMEOUT", "The editor did not answer in time.", "Retry, or raise --timeout.")]);
+    return failure(command, [
+      errorOf(
+        "TIMEOUT",
+        "The editor did not answer in time.",
+        sent ? "It may still carry the command out: look at the result (e.g. scene_tree) before repeating a change, or raise --timeout." : "Retry, or raise --timeout.",
+        unknownOutcome,
+      ),
+    ]);
   }
-  return failure(command, [errorOf("NO_EDITOR", "The connection to the editor was lost.", "Check that the editor is still running.")]);
+  return failure(command, [
+    errorOf(
+      "NO_EDITOR",
+      "The connection to the editor was lost.",
+      sent ? "Check that the editor is still running, and look at the result before repeating a change: it may have been carried out." : "Check that the editor is still running.",
+      unknownOutcome,
+    ),
+  ]);
 }
 
 async function send(
@@ -171,7 +191,9 @@ async function send(
       failure(command, [errorOf("INTERNAL_ERROR", "The bridge sent a reply that is not an envelope.", undefined, { status: response.status })])
     );
   } catch (error: unknown) {
-    return transportFailure(command, error);
+    // A refused connection reached nothing; anything else may have reached the editor.
+    const sent = method === "POST" && !(error instanceof TransportError && error.kind === "refused");
+    return transportFailure(command, error, sent);
   }
 }
 

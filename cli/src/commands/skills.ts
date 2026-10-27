@@ -97,9 +97,10 @@ async function install(context: Context, globals: GlobalOptions, args: readonly 
   const foreign = plan.filter((entry) => entry.state === "foreign").map((entry) => entry.name);
   const data = { folder, version, skills: plan.map(({ name, state }) => ({ name, state })), skipped: foreign, written: false };
   const lines = plan.map((entry) => `  ${entry.name}  ${entry.state === "foreign" ? "(left alone: a skill of this name is not gd's)" : entry.state}`);
-  if (!globals.yes) {
+  // --dry-run looks, whatever else is given: --yes with it still writes nothing.
+  if (!globals.yes || globals.dryRun) {
     return {
-      envelope: success("skills", data, {}, ["Nothing was written: add --yes."]),
+      envelope: success("skills", data, {}, [globals.dryRun ? "Nothing was written: --dry-run." : "Nothing was written: add --yes."]),
       human: `Would install into ${folder}:\n${lines.join("\n")}\n\nRun again with --yes to install them.\n`,
     };
   }

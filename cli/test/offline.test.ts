@@ -553,6 +553,55 @@ describe("gd export", () => {
     expect(existsSync(`${old}.gdcli-old`)).toBe(false);
   });
 
+  test("an interrupted export puts the old file back, not the half-written one", async () => {
+    const cleanups: Array<() => Promise<void>> = [];
+    const root = tempDir();
+    const project = makeProject(root);
+    const godot = writeFile(join(root, "godot-bin"), "");
+    const processes = fakeProcesses((call) => {
+      if (call.args.includes("--export-release")) {
+        writeFile(call.args.at(-1)!, "half");
+        // The interrupt arrives while Godot is still writing.
+        for (const cleanup of cleanups) {
+          void cleanup();
+        }
+        return { code: 1 };
+      }
+      return {};
+    });
+    const gd = harness({ homeDir: root, cwd: project, processes, env: { GODOT_BIN: godot }, onInterrupt: (cleanup) => cleanups.push(cleanup) });
+    writeFile(join(project, "export_presets.cfg"), PRESETS);
+    const old = writeFile(join(project, "game.zip"), "old");
+
+    await gd.json("export", "Web", "game.zip", "--yes");
+
+    expect(readFileSync(old, "utf8")).toBe("old");
+    expect(existsSync(`${old}.gdcli-old`)).toBe(false);
+  });
+
+  test("an interrupted export with no old file leaves no half-written one", async () => {
+    const cleanups: Array<() => Promise<void>> = [];
+    const root = tempDir();
+    const project = makeProject(root);
+    const godot = writeFile(join(root, "godot-bin"), "");
+    const processes = fakeProcesses((call) => {
+      if (call.args.includes("--export-release")) {
+        writeFile(call.args.at(-1)!, "half");
+        for (const cleanup of cleanups) {
+          void cleanup();
+        }
+        return { code: 1 };
+      }
+      return {};
+    });
+    const gd = harness({ homeDir: root, cwd: project, processes, env: { GODOT_BIN: godot }, onInterrupt: (cleanup) => cleanups.push(cleanup) });
+    writeFile(join(project, "export_presets.cfg"), PRESETS);
+
+    await gd.json("export", "Web", "new.zip");
+
+    expect(existsSync(join(project, "new.zip"))).toBe(false);
+  });
+
   test("a binary in a project folder named ..tools still counts as inside the project", () => {
     const root = tempDir();
     const project = makeProject(root);
@@ -579,6 +628,14 @@ describe("gd export", () => {
 });
 
 describe("gd open", () => {
+  test("--dry-run shows the editor command it would start", async () => {
+    const { gd, project } = fixture();
+
+    const { envelope } = await gd.json("open", "res://main.tscn", "--dry-run");
+
+    expect((envelope.data as { args: string[] }).args).toEqual(["--path", project, "--editor", "res://main.tscn"]);
+  });
+
   test("starts the editor detached and returns at once", async () => {
     const { gd, processes, project, godot } = fixture();
 

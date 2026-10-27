@@ -106,6 +106,8 @@ export interface HarnessOptions {
   /** What gd mcp reads, one message per line. */
   readonly stdinLines?: readonly string[];
   readonly launcher?: readonly string[];
+  /** Receives what a command registers to run when gd is interrupted. */
+  readonly onInterrupt?: (cleanup: () => Promise<void>) => void;
 }
 
 async function* linesOf(lines: readonly string[]): AsyncIterable<string> {
@@ -135,6 +137,14 @@ export function harness(options: HarnessOptions = {}): Harness {
     processes: options.processes ?? fakeProcesses(),
     readVersion: options.readVersion ?? (() => "9.9.9"),
     ...(options.launcher === undefined ? {} : { launcher: options.launcher }),
+    ...(options.onInterrupt === undefined
+      ? {}
+      : {
+          onInterrupt: (cleanup: () => Promise<void>) => {
+            options.onInterrupt?.(cleanup);
+            return () => undefined;
+          },
+        }),
   };
   const reset = (): void => {
     out.length = 0;

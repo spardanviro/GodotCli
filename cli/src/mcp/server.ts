@@ -44,6 +44,8 @@ const INSTRUCTIONS = [
 const HOST_TOOLS = new Set(["gd_host_start", "gd_host_stop"]);
 /** gd_* tools that start a Godot process; more at once would only crowd the machine. */
 const MAX_OFFLINE_RUNNING = 2;
+/** The tools that start a Godot process; only they count against the limit above. */
+const STARTS_GODOT = new Set(["gd_run", "gd_check", "gd_host_start", "gd_api_class", "gd_api_search", "gd_doctor"]);
 
 export interface McpServerOptions {
   readonly context: Context;
@@ -341,13 +343,18 @@ export class McpServer {
     const args = objectOf(given);
     const offline = OFFLINE_TOOLS.find((entry) => entry.tool.name === name);
     if (offline !== undefined) {
-      if (this.offlineRunning >= MAX_OFFLINE_RUNNING) {
-        return this.resultOf(failure(name, [errorOf("EDITOR_BUSY", "Two gd tools are already running.", "Wait for one of them to finish, then call again.")]));
+      const counted = STARTS_GODOT.has(name);
+      if (counted && this.offlineRunning >= MAX_OFFLINE_RUNNING) {
+        return this.resultOf(failure(name, [errorOf("EDITOR_BUSY", "Two Godot processes started by gd tools are already running.", "Wait for one of them to finish, then call again.")]));
       }
-      this.offlineRunning += 1;
+      if (counted) {
+        this.offlineRunning += 1;
+      }
       const run = (): Promise<Envelope> => this.callOffline(offline, args);
       const envelope = await (HOST_TOOLS.has(name) ? this.inOrder(run) : run()).finally(() => {
-        this.offlineRunning -= 1;
+        if (counted) {
+          this.offlineRunning -= 1;
+        }
       });
       if (HOST_TOOLS.has(name)) {
         this.startedHost = name === "gd_host_start" ? this.startedHost || (envelope.success && (envelope.data as { started?: unknown } | null)?.started === true) : false;
