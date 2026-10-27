@@ -79,6 +79,62 @@ describe("what the phase review found the guard let through", () => {
   });
 });
 
+describe("variables and the words of inline code", () => {
+  test("${HOME} and $USERPROFILE are the home folder too", () => {
+    const { project } = workspace();
+    const home = homedir().replaceAll("\\", "/");
+    const inside = project.replaceAll("\\", "/");
+    if (!inside.toLowerCase().startsWith(`${home.toLowerCase()}/`)) {
+      return; // The temporary folder is not under the home folder here.
+    }
+    const below = inside.slice(home.length);
+    for (const prefix of ["${HOME}", "$USERPROFILE"]) {
+      assert.equal(commandWrites(`echo x > ${prefix}${below}/scripts/player.gd`, project), true, prefix);
+    }
+  });
+
+  test("the temporary folder's variables are resolved, so scratch files stay allowed", () => {
+    const { project } = workspace();
+
+    assert.equal(commandWrites("echo x > $TMPDIR/player.gd", project), false);
+    assert.equal(commandWrites("echo x > ${TEMP}/player.gd", project), false);
+  });
+
+  test("an unknown variable in front of a guarded file name is held", () => {
+    const { project } = workspace();
+
+    assert.equal(commandWrites("echo x > $GAME/scripts/player.gd", project), true);
+    assert.equal(commandWrites("echo x > $GAME/notes.txt", project), false, "an ordinary file");
+    assert.equal(commandWrites("echo x > $PWD/scripts/player.gd", project), true, "$PWD is the working folder");
+  });
+
+  test("WSL's and Cygwin's drive paths on Windows", { skip: process.platform !== "win32" }, () => {
+    const { project } = workspace();
+    const drive = project[0]?.toLowerCase() ?? "c";
+    const rest = project.replaceAll("\\", "/").slice(2);
+
+    assert.equal(commandWrites(`echo x > /mnt/${drive}${rest}/scripts/player.gd`, project), true);
+    assert.equal(commandWrites(`echo x > /cygdrive/${drive}${rest}/scripts/player.gd`, project), true);
+  });
+
+  test("a ${...} that holds a command is still split, so the command is seen", () => {
+    const { project } = workspace();
+
+    assert.equal(commandWrites("true ${x:-$(cp a.txt scripts/player.gd)}", project), true);
+    assert.equal(commandWrites("echo ${x:-a;cp a.txt scripts/player.gd}", project), true);
+    assert.equal(commandWrites("echo ${NAME:-x} > notes.txt", project), false, "a plain default value");
+  });
+
+  test("the word write in a string is not a write", () => {
+    const { project } = workspace();
+
+    assert.equal(commandWrites(`python -c "print('write tests for player.gd')"`, project), false);
+    assert.equal(commandWrites(`python -c "print(open('scripts/player.gd').read().replace('a','b'))"`, project), false, "str.replace reads");
+    assert.equal(commandWrites(`python -c "open('scripts/player.gd','w').write('x')"`, project), true);
+    assert.equal(commandWrites(`node -e "require('fs').writeFileSync('scripts/player.gd','x')"`, project), true);
+  });
+});
+
 describe("parse", () => {
   test("splits commands and sets redirection targets apart", () => {
     assert.deepEqual(parse("echo hi > out.txt && cat a | tee -a b; ls"), [

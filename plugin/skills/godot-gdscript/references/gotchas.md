@@ -826,9 +826,9 @@ Node lifecycle gotchas:
 
 
 <!-- keywords: File, Windows, INSENSITIVE, Linux, Android, SENSITIVE, export -->
-### File paths: Windows/macOS are case-INSENSITIVE (works), Linux/Android are case-SENSITIVE (silently fails on export)
+### File paths: the editor on Windows/macOS ignores case; exported packs and Linux/Android do not
 Cross-platform file path gotchas:
-- On Windows/macOS, `load('res://myfile.PNG')` works even if the file is `myfile.png`. On Linux/Android export, this SILENTLY FAILS. Always match case exactly in code.
+- In the editor on Windows/macOS, `load('res://myfile.PNG')` works even if the file is `myfile.png`. In an exported game (the pack is case-sensitive on every platform) and on Linux/Android, this SILENTLY FAILS. Always match case exactly in code.
 - Moving or renaming assets using the OS file explorer (not Godot's FileSystem dock) breaks all references — Godot detects but doesn't prevent saving broken references
 - res:// is READ-ONLY in exported builds — any attempt to write files to res:// works in editor but silently fails in exported games. Write game state to user:// instead.
 

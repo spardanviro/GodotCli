@@ -12,7 +12,7 @@
 // instructions, not by habit. The hard limit is the sandbox of Claude Code
 // (plugin/README.md).
 
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -60,7 +60,9 @@ const CHANGES_DIRECTORY = new Set(["cd", "pushd", "set-location", "sl", "chdir",
 const POWERSHELL_SWITCHES = new Set(["-force", "-nonewline", "-append", "-noclobber", "-confirm", "-whatif", "-passthru", "-asbytestream", "-usetransaction", "-verbose", "-debug", "-recurse", "-raw"]);
 // What a guarded file looks like inside code, where its path cannot be resolved.
 const GUARDED_IN_TEXT = /\.(?:gd|tscn|tres|escn|scn|res|cs|import|gdextension|csproj|fsproj|vbproj|proj|sln|slnx|slnf|props|targets|rsp)\b|\.csproj\.user\b|project\.godot|override\.cfg|export_presets\.cfg|nuget\.config|global\.json|dotnet-tools\.json|\.gitmodules|\.gitattributes|(?:^|[\\/"'\s])(?:addons|gdcli_commands|\.godot|\.git)[\\/]/iu;
-const WRITES_IN_TEXT = /\bopen\s*\([^)]{0,300},\s*["'][wax+]|["']\s*>|write|unlink|rename|remove|copy|move|shutil|Set-Content|Add-Content|Out-File|New-Item|truncate|touch/iu;
+// Calls that write (write_text(, os.remove(, fs.copyFileSync(), PowerShell's
+// writing cmdlets, and redirections inside code: the word "write" in a string is not one.
+const WRITES_IN_TEXT = /\bopen\s*\([^)]{0,300},\s*["'][wax+]|["']\s*>|\b\w*(?:write|unlink|rename|remove|copy|move|truncate|touch|rmtree)\w*\s*\(|shutil\.|Set-Content|Add-Content|Out-File|New-Item|Copy-Item|Move-Item|Remove-Item/iu;
 // Code longer than this is judged by its beginning.
 const MAX_CODE_LENGTH = 20000;
 
@@ -162,6 +164,13 @@ export function parse(command) {
       index += 1;
       word += next;
       hasWord = true;
+    } else if (character === "$" && next === "{" && /^\$\{[^}$`;|&\n()]*\}/u.test(command.slice(index))) {
+      // ${NAME} or ${NAME:-word}: one word. One that holds a command ($(...), ;, |)
+      // is left to the ordinary splitting, which sees that command.
+      const close = command.indexOf("}", index);
+      word += command.slice(index, close + 1);
+      hasWord = true;
+      index = close;
     } else if (";\n|(){}".includes(character)) {
       endSegment();
     } else if (character === "&" && next === ">") {
@@ -215,22 +224,36 @@ function slashed(word) {
   return word.replaceAll("\\", "/");
 }
 
-const HOME_PREFIX = /^(?:~|\$HOME|\$\{HOME\}|\$env:USERPROFILE|\$env:HOME|%USERPROFILE%)(?=[\\/]|$)/iu;
+const HOME_PREFIX = /^(?:~|\$HOME|\$\{HOME\}|\$USERPROFILE|\$\{USERPROFILE\}|\$env:USERPROFILE|\$env:HOME|%USERPROFILE%|\$env:HOMEDRIVE\$env:HOMEPATH|%HOMEDRIVE%%HOMEPATH%|\$env:HOMEPATH|%HOMEPATH%)(?=[\\/]|$)/iu;
+const TEMP_PREFIX = /^(?:\$TMPDIR|\$\{TMPDIR\}|\$TEMP|\$\{TEMP\}|\$TMP|\$\{TMP\}|\$env:TEMP|\$env:TMP|%TEMP%|%TMP%)(?=[\\/]|$)/iu;
+const CWD_PREFIX = /^(?:\$PWD|\$\{PWD\}|\$pwd)(?=[\\/]|$)/iu;
 
 /**
  * A word as the path it names, or null when it cannot be read as one: the
  * home folder however a shell spells it, and on Windows Git Bash's /c/... for
  * C:/... (Node would read it as C:\c\...). Other variables are not guessed at.
  */
-function asPath(word) {
+function asPath(word, cwd = process.cwd()) {
   if (word === "" || word.startsWith("-") || word.includes("://")) {
     return null;
   }
-  let path = slashed(word).replace(HOME_PREFIX, () => slashed(homedir()));
+  let path = slashed(word)
+    .replace(HOME_PREFIX, () => slashed(homedir()))
+    .replace(TEMP_PREFIX, () => slashed(tmpdir()))
+    .replace(CWD_PREFIX, () => slashed(cwd));
   if (process.platform === "win32") {
-    path = path.replace(/^\/([a-zA-Z])(?=\/|$)/u, (_whole, drive) => `${drive.toUpperCase()}:`);
+    // Git Bash /c/..., WSL /mnt/c/..., Cygwin /cygdrive/c/...: all C:/...
+    path = path.replace(/^(?:\/mnt|\/cygdrive)?\/([a-zA-Z])(?=\/|$)/u, (_whole, drive) => `${drive.toUpperCase()}:`);
   }
   return /[$`%]/u.test(path) ? null : path;
+}
+
+/**
+ * A path built from a variable this cannot resolve ($GAME/scripts/player.gd)
+ * is taken as guarded when it names a guarded file: when unsure, it holds.
+ */
+function namesGuardedUnresolved(word) {
+  return /[$`%]/u.test(word) && GUARDED_IN_TEXT.test(slashed(word));
 }
 
 /** Whether a word can be read as a path at all. */
@@ -277,8 +300,8 @@ function withoutWrappers(words) {
  */
 function segmentWrites(segment, cwd) {
   const guarded = (word) => {
-    const path = asPath(word);
-    return path !== null && isGuardedWrite(path, cwd);
+    const path = asPath(word, cwd);
+    return path === null ? namesGuardedUnresolved(word) : isGuardedWrite(path, cwd);
   };
   if (segment.redirects.some(guarded)) {
     return true;
@@ -412,7 +435,7 @@ export function commandWrites(command, cwd) {
       return true;
     }
     const [first, target] = segment.words;
-    const where = target === undefined ? null : asPath(target);
+    const where = target === undefined ? null : asPath(target, current);
     if (first !== undefined && CHANGES_DIRECTORY.has(verbOf(first)) && where !== null) {
       current = isAbsolute(where) ? resolve(where) : resolve(current, where);
     }
@@ -448,6 +471,7 @@ async function main() {
   try {
     event = JSON.parse(text);
   } catch {
+    process.stderr.write("gdcli: the shell write guard got input it could not read and let the command run unchecked.\n");
     return;
   }
   let decision = null;
@@ -456,7 +480,9 @@ async function main() {
   } catch (error) {
     // A command this cannot make sense of is not held up: it is a guard
     // against habit, and the file tools' guard does not depend on it.
-    process.stderr.write(`gdcli: the shell write guard could not read this command (${error instanceof Error ? error.message : "unknown error"}).\n`);
+    process.stderr.write(
+      `gdcli: the shell write guard could not read this command and let it run unchecked (${error instanceof Error ? error.message : "unknown error"}).\n`,
+    );
     return;
   }
   if (decision !== null) {

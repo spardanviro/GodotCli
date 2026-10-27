@@ -109,8 +109,9 @@ When the user names a path, or the file already exists, that path wins. When you
 - by type for a small project: `res://scripts/`, `res://scenes/`, `res://resources/`, `res://art/`, `res://audio/`,
   `res://shaders/`;
 - a self-contained feature keeps its files together (`res://enemies/slime/slime.tscn`, `slime.gd`);
-- lower-case file names with underscores. Linux and Android are case-sensitive: `Player.gd` and `player.gd` are
-  different files there.
+- lower-case file names with underscores. An exported game's pack is case-sensitive on every platform, and so
+  are Linux and Android: `Player.gd` and `player.gd` are different files there, though the editor on Windows
+  and macOS finds either.
 
 Move or rename files with `gd command fs_move`, which also rewrites the references to them. Moving a file with a
 shell command breaks every scene that uses it.

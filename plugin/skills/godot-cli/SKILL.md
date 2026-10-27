@@ -43,6 +43,9 @@ gd command fs_write_text --path res://scripts/player.gd --text-file /tmp/player.
 - `/tmp/...` in these examples is any scratch folder outside the project. On Windows give a real path
   (`$env:TEMP\player.gd` in PowerShell): `gd` does not see Git Bash's `/tmp`.
 - Arguments are `--name value`. A dash in a name stands for an underscore (`--root-type` is `root_type`).
+- A value for an argument without a declared type (such as `project_settings_set --value`) is read as JSON:
+  `2048` becomes a number and `true` a boolean, so a text setting that looks like one is quoted twice:
+  `--value '"2048"'`.
 - An object or array argument is JSON in single quotes. `--args '{...}'` or `--args-file <file>` gives all arguments
   as one JSON object.
 - `--<name>-file <file>` reads the value of argument `<name>` from a file. Use it for script text: nothing has to be
