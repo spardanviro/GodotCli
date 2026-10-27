@@ -360,6 +360,13 @@ describe("buildArgs", () => {
     expect(buildArgs(["--args", '{"path":"A","max_depth":1}', "--path", "B"], descriptor, context)).toEqual({ path: "B", max_depth: 1 });
   });
 
+  test("a byte order mark at the start of a file is not part of it", () => {
+    const directory = tempDir();
+    writeFile(join(directory, "args.json"), '﻿{"path":"FromFile"}');
+
+    expect(buildArgs(["--args-file", "args.json"], descriptor, { ...context, cwd: directory })).toEqual({ path: "FromFile" });
+  });
+
   test("reads --args-file relative to the working directory", () => {
     const directory = tempDir();
     writeFile(join(directory, "args.json"), '{"path":"FromFile"}');
@@ -392,12 +399,12 @@ describe("buildArgs", () => {
     expect(buildArgs(["--args-file", "-", "--path-file=-"], descriptor, pipedArgs)).toContain("one argument only");
   });
 
-  test("leaves values it cannot convert for the bridge to reject", () => {
-    expect(buildArgs(["--max-depth", "deep", "--deep", "maybe", "--names", "[oops"], descriptor, context)).toEqual({
+  test("leaves scalars it cannot convert for the bridge to reject, but says so itself for broken JSON", () => {
+    expect(buildArgs(["--max-depth", "deep", "--deep", "maybe"], descriptor, context)).toEqual({
       max_depth: "deep",
       deep: "maybe",
-      names: "[oops",
     });
+    expect(buildArgs(["--names", "[oops"], descriptor, context)).toBe("--names is not valid JSON (an array is expected).");
   });
 
   test("converts booleans and negative numbers", () => {

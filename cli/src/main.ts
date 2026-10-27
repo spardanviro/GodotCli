@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 
 import { readCliVersion, run } from "./cli.js";
+import { boundedLines } from "./line-reader.js";
+import { MAX_LINE_CHARS } from "./mcp/server.js";
 import { createProcessRunner } from "./process-runner.js";
 
 const processes = createProcessRunner(process.platform);
@@ -28,7 +29,8 @@ process.exitCode = await run(process.argv.slice(2), {
     stderr: (text) => process.stderr.write(text),
     env: process.env,
     readStdin: () => readFileSync(0, "utf8"),
-    readLines: () => createInterface({ input: process.stdin, crlfDelay: Infinity }),
+    // Bounded: one endless line from a client must not take all memory.
+    readLines: () => boundedLines(process.stdin, MAX_LINE_CHARS),
   },
   cwd: process.cwd(),
   platform: process.platform,

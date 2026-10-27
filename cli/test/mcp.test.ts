@@ -82,6 +82,56 @@ describe("gd mcp: the protocol", () => {
   });
 });
 
+describe("gd mcp: batches, arguments and cancelling", () => {
+  test("a batch is answered with one array, without its notifications", async () => {
+    const { server } = setup();
+
+    const line = await server.handleLine(
+      JSON.stringify([
+        { jsonrpc: "2.0", id: 1, method: "ping" },
+        { jsonrpc: "2.0", method: "notifications/initialized" },
+        { jsonrpc: "2.0", id: 2, method: "nope" },
+      ]),
+    );
+    const onlyNotifications = await server.handleLine(JSON.stringify([{ jsonrpc: "2.0", method: "notifications/initialized" }]));
+
+    expect(JSON.parse(line ?? "null")).toEqual([
+      { jsonrpc: "2.0", id: 1, result: {} },
+      { jsonrpc: "2.0", id: 2, error: { code: -32601, message: "Unknown method." } },
+    ]);
+    expect(onlyNotifications).toBeUndefined();
+  });
+
+  test("a batch past the limit is refused as a whole", async () => {
+    const { server } = setup();
+    const many = Array.from({ length: 65 }, (_unused, index) => ({ jsonrpc: "2.0", id: index, method: "ping" }));
+
+    const answer = JSON.parse((await server.handleLine(JSON.stringify(many))) ?? "null") as Answer;
+
+    expect(answer.error?.code).toBe(-32600);
+  });
+
+  test("tools/call arguments that are not an object are invalid params", async () => {
+    const { server } = setup();
+
+    const asText = await ask(server, 1, "tools/call", { name: "gd_status", arguments: "{}" });
+    const asList = await ask(server, 2, "tools/call", { name: "gd_status", arguments: [] });
+
+    expect(asText.error?.code).toBe(-32602);
+    expect(asList.error?.code).toBe(-32602);
+  });
+
+  test("cancelling a request that already has its answer is forgotten, not kept", async () => {
+    const { server } = setup();
+    await ask(server, 7, "ping");
+
+    await server.handleLine(JSON.stringify({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: 7 } }));
+    const again = await ask(server, 7, "ping");
+
+    expect(again.result).toEqual({});
+  });
+});
+
 describe("gd mcp: tools", () => {
   test("without an editor it offers gd's own tools and the built-in commands", async () => {
     const { server } = setup();

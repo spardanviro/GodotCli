@@ -22,6 +22,8 @@ const JSON_INDENT = 2;
 const LIST_TIMEOUT_MS = 5000;
 /** Longer than any script or scene text a tool takes; a longer line is refused unread. */
 export const MAX_LINE_CHARS = 32 * 1024 * 1024;
+/** More requests in one batch than any client sends; each would reach the editor at once. */
+const MAX_BATCH = 64;
 
 const PARSE_ERROR = -32700;
 const INVALID_REQUEST = -32600;
@@ -73,16 +75,7 @@ function isId(value: unknown): value is Id {
 }
 
 /** A request or notification; undefined for a message that needs no answer (a response from the client). */
-function parseRequest(line: string): Request | RpcError | undefined {
-  if (line.length > MAX_LINE_CHARS) {
-    return new RpcError(INVALID_REQUEST, "The message is too long.");
-  }
-  let message: unknown;
-  try {
-    message = JSON.parse(line);
-  } catch {
-    return new RpcError(PARSE_ERROR, "Not JSON.");
-  }
+function parseRequest(message: unknown): Request | RpcError | undefined {
   if (typeof message !== "object" || message === null || Array.isArray(message)) {
     return new RpcError(INVALID_REQUEST, "A message is one JSON-RPC object.");
   }
@@ -95,6 +88,10 @@ function parseRequest(line: string): Request | RpcError | undefined {
     return new RpcError(INVALID_REQUEST, "Not a JSON-RPC 2.0 request.", answerId);
   }
   return { method, params, ...(id === undefined ? {} : { id }) };
+}
+
+function errorAnswer(error: RpcError): object {
+  return { jsonrpc: "2.0", id: error.id, error: { code: error.code, message: error.message } };
 }
 
 function objectOf(value: unknown): Readonly<Record<string, unknown>> {
@@ -171,6 +168,8 @@ export class McpServer {
   /** Changes reach the editor one at a time, in the order they were asked for. */
   private changes: Promise<unknown> = Promise.resolve();
   private readonly cancelled = new Set<Id>();
+  /** Requests still being worked on: only those can be cancelled. */
+  private readonly running = new Set<Id>();
   private startedHost = false;
   private offlineRunning = 0;
 
@@ -184,30 +183,56 @@ export class McpServer {
     if (line.trim() === "") {
       return undefined;
     }
-    const request = parseRequest(line);
+    const failed = (error: RpcError): string => JSON.stringify(errorAnswer(error));
+    if (line.length > MAX_LINE_CHARS) {
+      return failed(new RpcError(INVALID_REQUEST, "The message is too long."));
+    }
+    let message: unknown;
+    try {
+      message = JSON.parse(line);
+    } catch {
+      return failed(new RpcError(PARSE_ERROR, "Not JSON."));
+    }
+    // A batch (JSON-RPC 2.0, MCP 2025-03-26): each message answered, the answers in one array.
+    if (Array.isArray(message)) {
+      if (message.length === 0 || message.length > MAX_BATCH) {
+        return failed(new RpcError(INVALID_REQUEST, message.length === 0 ? "An empty batch." : `A batch holds at most ${MAX_BATCH} messages.`));
+      }
+      const answers = (await Promise.all(message.map((item) => this.handleMessage(item)))).filter((answer) => answer !== undefined);
+      return answers.length === 0 ? undefined : JSON.stringify(answers);
+    }
+    const answer = await this.handleMessage(message);
+    return answer === undefined ? undefined : JSON.stringify(answer);
+  }
+
+  private async handleMessage(message: unknown): Promise<object | undefined> {
+    const request = parseRequest(message);
     if (request === undefined) {
       return undefined;
     }
     if (request instanceof RpcError) {
-      return JSON.stringify({ jsonrpc: "2.0", id: request.id, error: { code: request.code, message: request.message } });
+      return errorAnswer(request);
     }
-    let answer: string | undefined;
+    if (request.id !== undefined) {
+      this.running.add(request.id);
+    }
+    let answer: object | undefined;
     try {
       const result = await this.dispatch(request);
-      answer = request.id === undefined ? undefined : JSON.stringify({ jsonrpc: "2.0", id: request.id, result });
+      answer = request.id === undefined ? undefined : { jsonrpc: "2.0", id: request.id, result };
     } catch (error: unknown) {
-      if (request.id === undefined) {
-        return undefined; // A notification gets no answer, not even an error.
-      }
-      const code = error instanceof RpcError ? error.code : INTERNAL_ERROR;
-      const message = error instanceof RpcError ? error.message : "gd hit an unexpected error.";
-      answer = JSON.stringify({ jsonrpc: "2.0", id: request.id, error: { code, message } });
+      if (request.id !== undefined) {
+        const code = error instanceof RpcError ? error.code : INTERNAL_ERROR;
+        const text = error instanceof RpcError ? error.message : "gd hit an unexpected error.";
+        answer = { jsonrpc: "2.0", id: request.id, error: { code, message: text } };
+      } // A notification gets no answer, not even an error.
     }
-    // A request the client gave up on is not answered (it may still have run).
-    if (request.id !== undefined && this.cancelled.delete(request.id)) {
+    if (request.id === undefined) {
       return undefined;
     }
-    return answer;
+    this.running.delete(request.id);
+    // A request the client gave up on is not answered (it may still have run).
+    return this.cancelled.delete(request.id) ? undefined : answer;
   }
 
   /** A notification for the client when the tools changed since it last listed them. */
@@ -240,7 +265,8 @@ export class McpServer {
         return {};
       case "notifications/cancelled": {
         const requestId = objectOf(request.params)["requestId"];
-        if (isId(requestId)) {
+        // Remembered only while it runs: an id cancelled after its answer would never be forgotten.
+        if (isId(requestId) && this.running.has(requestId)) {
           this.cancelled.add(requestId);
         }
         return {};
@@ -302,10 +328,14 @@ export class McpServer {
 
   private async call(params: Readonly<Record<string, unknown>>): Promise<unknown> {
     const name = params["name"];
-    const args = objectOf(params["arguments"]);
+    const given = params["arguments"];
     if (typeof name !== "string") {
       throw new RpcError(INVALID_PARAMS, "tools/call needs the name of a tool.");
     }
+    if (given !== undefined && (typeof given !== "object" || given === null || Array.isArray(given))) {
+      throw new RpcError(INVALID_PARAMS, "tools/call arguments must be an object.");
+    }
+    const args = objectOf(given);
     const offline = OFFLINE_TOOLS.find((entry) => entry.tool.name === name);
     if (offline !== undefined) {
       if (this.offlineRunning >= MAX_OFFLINE_RUNNING) {

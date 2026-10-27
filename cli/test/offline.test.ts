@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
@@ -521,6 +521,45 @@ describe("gd export", () => {
     expect(dryRun.envelope.data).toMatchObject({ dry_run: true });
     expect(existsSync(join(project, "new"))).toBe(false);
     expect(processes.calls.every((call) => call.args[0] === "--version")).toBe(true);
+  });
+
+  test("an overwrite that left the old file in place is a failure, even when Godot exits 0", async () => {
+    const { gd, project } = fixture(() => ({ code: 0, stderr: "ERROR: Cannot export.\n" }));
+    writeFile(join(project, "export_presets.cfg"), PRESETS);
+    const old = writeFile(join(project, "old.zip"), "old");
+    const LONG_AGO = new Date(Date.now() - 60_000);
+    utimesSync(old, LONG_AGO, LONG_AGO);
+
+    const { exitCode, envelope } = await gd.json("export", "Web", "old.zip", "--yes");
+
+    expect(exitCode).toBe(ExitCode.CommandFailed);
+    expect(envelope.errors[0]?.message).toContain("export failed");
+    expect(readFileSync(old, "utf8")).toBe("old"); // Put back, not taken for the new one.
+    expect(existsSync(`${old}.gdcli-old`)).toBe(false);
+  });
+
+  test("an overwrite that worked replaces the old file and leaves nothing aside", async () => {
+    const built = fixture((call) => {
+      writeFile(call.args.at(-1)!, "new");
+      return {};
+    });
+    writeFile(join(built.project, "export_presets.cfg"), PRESETS);
+    const old = writeFile(join(built.project, "game.zip"), "old");
+
+    const { exitCode } = await built.gd.json("export", "Web", "game.zip", "--yes");
+
+    expect(exitCode).toBe(ExitCode.Success);
+    expect(readFileSync(old, "utf8")).toBe("new");
+    expect(existsSync(`${old}.gdcli-old`)).toBe(false);
+  });
+
+  test("a binary in a project folder named ..tools still counts as inside the project", () => {
+    const root = tempDir();
+    const project = makeProject(root);
+    const planted = writeFile(join(project, "..tools", "godot-bin"), "");
+    const context = harness({ cwd: project, env: { PATH: "" } }).context;
+
+    expect(locateGodot(context, { format: "human", yes: false, dryRun: false, godot: planted })).toMatchObject({ code: "GODOT_NOT_FOUND" });
   });
 
   test("chooses the export mode and reports a failed export", async () => {

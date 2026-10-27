@@ -3,7 +3,7 @@ import { delimiter, isAbsolute, join, relative, resolve } from "node:path";
 
 import type { Context, GlobalOptions, ProcessResult } from "./context.js";
 import { type EnvelopeError, errorOf } from "./envelope.js";
-import { findProject, gdcliHome, nonEmpty } from "./project.js";
+import { findProject, gdcliHome, leavesFolder, nonEmpty } from "./project.js";
 import { isWritableOnlyByUser, readPrivateFile } from "./trust.js";
 
 export const GODOT_ENV = "GODOT_BIN";
@@ -99,7 +99,7 @@ function isInsideProject(context: Context, globals: GlobalOptions, binary: strin
   }
   try {
     const inside = relative(realpathSync(project), realpathSync(binary));
-    return inside !== "" && !inside.startsWith("..") && !isAbsolute(inside);
+    return inside !== "" && !leavesFolder(inside);
   } catch {
     return true;
   }

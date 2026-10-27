@@ -167,6 +167,17 @@ describe("gd bridge", () => {
     expect(existsSync(join(project, "addons", "gdcli", "stale.gd"))).toBe(false);
   });
 
+  test("--force swaps the new addon in, leaving no staging folders behind", async () => {
+    const home = tempDir();
+    const project = makeProject(home);
+    writeFile(join(project, "addons", "gdcli", "plugin.cfg"), 'version="0.0.9"\n');
+    const gd = harness({ homeDir: home, cwd: project, addonDir: addonFixture(home) });
+
+    await gd.json("bridge", "install", "--force");
+
+    expect(readdirSync(join(project, "addons")).sort()).toEqual(["gdcli"]);
+  });
+
   test("does not delete a folder at addons/gdcli that is not the bridge", async () => {
     const home = tempDir();
     const project = makeProject(home);

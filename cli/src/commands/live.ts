@@ -104,7 +104,23 @@ const STDIN = "-";
 
 /** The text of a file named on the command line, or of standard input for "-". */
 function readInput(context: Context, file: string): string {
-  return file === STDIN ? context.io.readStdin() : readFileSync(resolve(context.cwd, file), "utf8");
+  const text = file === STDIN ? context.io.readStdin() : readFileSync(resolve(context.cwd, file), "utf8");
+  // Windows PowerShell 5.1 starts the files it writes with a byte order mark.
+  return text.startsWith(BOM) ? text.slice(BOM.length) : text;
+}
+
+const BOM = "﻿";
+
+/** An object or array argument that is not JSON is the caller's mistake, said here rather than as a type mismatch from the editor. */
+function typedValue(raw: string, type: string | undefined, label: string): { readonly value: unknown } | string {
+  if (type === "array" || type === "object") {
+    try {
+      JSON.parse(raw);
+    } catch {
+      return `${label} is not valid JSON (an ${type} is expected).`;
+    }
+  }
+  return { value: coerce(raw, type) };
 }
 
 /** Standard input can be read once: a second "-" would silently be empty. */
@@ -206,14 +222,29 @@ export function buildArgs(tokens: readonly string[], descriptor: Descriptor, con
       if (raw === undefined) {
         return `--${fromFile.replaceAll("_", "-")}-file needs a value.`;
       }
+      const label = `--${fromFile.replaceAll("_", "-")}-file`;
+      let text: string;
       try {
-        flags[fromFile] = coerce(readInput(context, raw), types[fromFile]?.type);
+        text = readInput(context, raw);
       } catch {
-        return `Cannot read the file given to --${fromFile.replaceAll("_", "-")}-file.`;
+        return `Cannot read the file given to ${label}.`;
       }
+      const typed = typedValue(text, types[fromFile]?.type, label);
+      if (typeof typed === "string") {
+        return typed;
+      }
+      flags[fromFile] = typed.value;
       continue;
     }
-    flags[name] = raw === undefined ? true : coerce(raw, types[name]?.type);
+    if (raw === undefined) {
+      flags[name] = true;
+      continue;
+    }
+    const typed = typedValue(raw, types[name]?.type, `--${name.replaceAll("_", "-")}`);
+    if (typeof typed === "string") {
+      return typed;
+    }
+    flags[name] = typed.value;
   }
   return { ...base, ...flags };
 }

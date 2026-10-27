@@ -1,12 +1,12 @@
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 
 import type { CommandHandler, CommandResult, Context, GlobalOptions } from "../context.js";
 import { type EnvelopeError, errorOf, failureWithData, isEnvelopeError, success } from "../envelope.js";
 import { type Godot, preferGuiBinary, projectHasBeenImported, requireGodot, runGodot } from "../godot.js";
 import { type Diagnostic, countBySeverity, formatDiagnostic, parseGodotOutput } from "../output-parser.js";
 import { readInstances } from "../instances.js";
-import { findProject, gdcliHome, sameLocation, toResPath } from "../project.js";
+import { findProject, gdcliHome, leavesFolder, sameLocation, toResPath } from "../project.js";
 import { sanitize } from "../text.js";
 import { fail, numberOption, parseCommandArgs, usage } from "./shared.js";
 
@@ -307,8 +307,7 @@ export const exportCommand: CommandHandler = async (context, globals, args) => {
     return fail("export", errorOf("CONFIRMATION_REQUIRED", "The output file already exists.", "Pass --yes to overwrite it.", { output }));
   }
   // Writing elsewhere on the disk is allowed, but never by accident.
-  const insideProject = relative(ready.project, output);
-  if ((insideProject.startsWith("..") || isAbsolute(insideProject)) && !globals.yes) {
+  if (leavesFolder(relative(ready.project, output)) && !globals.yes) {
     return fail(
       "export",
       errorOf("CONFIRMATION_REQUIRED", "The output is outside the project folder.", "Pass --yes to write there.", { output }),
@@ -319,10 +318,30 @@ export const exportCommand: CommandHandler = async (context, globals, args) => {
     return { envelope: success("export", { preset, output, dry_run: true }), human: text };
   }
   mkdirSync(dirname(output), { recursive: true });
+  // An export that prints an error yet exits 0 would leave the old file
+  // looking like the new one: the old file waits aside until there is a new one.
+  const aside = `${output}.gdcli-old`;
+  const hadOld = existsSync(output);
+  if (hadOld) {
+    rmSync(aside, { force: true });
+    renameSync(output, aside);
+  }
+  const settle = (exported: boolean): void => {
+    if (!hadOld) {
+      return;
+    }
+    if (exported) {
+      rmSync(aside, { force: true });
+    } else if (!existsSync(output)) {
+      renameSync(aside, output);
+    }
+  };
 
   const mode = parsed.values["pack"] === true ? "--export-pack" : parsed.values["debug"] === true ? "--export-debug" : "--export-release";
   const timeoutMs = globals.timeoutMs ?? EXPORT_TIMEOUT_MS;
   const run = await runGodot(context, ready.godot, ready.project, ["--headless", mode, preset, output], timeoutMs);
+  const exported = run.result.spawnError === undefined && !run.result.timedOut && run.result.code === 0 && existsSync(output);
+  settle(exported);
   if (run.result.spawnError !== undefined) {
     return spawnFailure("export", run.result.spawnError);
   }
@@ -332,7 +351,8 @@ export const exportCommand: CommandHandler = async (context, globals, args) => {
   if (run.result.timedOut) {
     return { envelope: failureWithData("export", data, [errorOf("TIMEOUT", "The export did not finish in time.", "Raise --timeout.")]), human };
   }
-  if (run.result.code !== 0 || !existsSync(output)) {
+  // Decided before the old file was put back, which would otherwise look like the new one.
+  if (!exported) {
     const error = errorOf("COMMAND_FAILED", "The export failed.", "See data.diagnostics; export templates must be installed.");
     return { envelope: failureWithData("export", data, [error]), human };
   }
@@ -365,3 +385,4 @@ export const openCommand: CommandHandler = async (context, globals, args) => {
   const data = { pid, project: ready.project, scene: scene ?? null };
   return { envelope: success("open", data), human: "editor starting; `gd status` shows when it is ready\n" };
 };
+

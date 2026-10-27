@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import type { Context } from "./context.js";
@@ -12,13 +12,23 @@ const PRIVATE_FILE_MODE = 0o600;
 /** A lock file is written right after it is created; an empty one this young is still being written. */
 const WRITE_GRACE_MS = 5000;
 const ATTEMPTS = 2;
+const RENAME_ATTEMPTS = 5;
+const RENAME_RETRY_MS = 20;
 
-/** Where the lock of one project lives. Case is folded where the filesystem folds it. */
+/** Where the lock of one project lives. Case is folded where the default filesystem folds it (Windows, macOS). */
 export function hostLockPath(context: Context, project: string): string {
   const absolute = resolve(project).replaceAll("\\", "/");
-  const key = context.platform === "win32" ? absolute.toLowerCase() : absolute;
+  const key = context.platform === "win32" || context.platform === "darwin" ? absolute.toLowerCase() : absolute;
   const name = createHash("sha256").update(key).digest("hex").slice(0, NAME_HEX_DIGITS);
   return join(gdcliHome(context), HOST_LOCKS_DIR_NAME, `${name}.lock`);
+}
+
+function lockText(path: string): string | undefined {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return undefined;
+  }
 }
 
 function lockField(path: string, field: "pid" | "editor"): number | undefined {
@@ -57,17 +67,55 @@ function isStale(context: Context, path: string, maxAgeMs: number): boolean {
 }
 
 /**
- * Removes a stale lock. Renaming first makes this safe when two gd notice
- * the same stale lock: only one rename succeeds, so neither can delete the
- * fresh lock the other has created in the meantime.
+ * Removes a stale lock. It is renamed aside first and looked at again: when
+ * two gd notice the same stale lock, one may already have replaced it with
+ * its own fresh lock, and what was moved aside is then put back. A third gd
+ * creating a lock in the instant between can still win over the one put
+ * back; that needs three starts of one project within microseconds.
  */
-function clearStale(path: string, pid: number): void {
+export function clearStale(path: string, pid: number, judged: string | undefined): void {
   const aside = `${path}.${pid}.stale`;
   try {
     renameSync(path, aside);
+  } catch {
+    return; // Another gd cleared it first; the next attempt competes for the lock.
+  }
+  if (lockText(aside) !== judged) {
+    try {
+      // A link, not a rename: it fails instead of replacing a lock made since.
+      linkSync(aside, path);
+    } catch (error: unknown) {
+      // EEXIST: a third gd took the place; its lock stands. Otherwise the
+      // filesystem has no hard links: a rename, while the place is free.
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST" && !existsSync(path)) {
+        try {
+          renameSync(aside, path);
+          return;
+        } catch {
+          // Lost; the next start judges again.
+        }
+      }
+    }
+  }
+  try {
     unlinkSync(aside);
   } catch {
-    // Another gd cleared it first; the next attempt competes for the lock.
+    // Gone already.
+  }
+}
+
+/** Windows refuses to replace a file another process is reading at that moment: tried again shortly. */
+function renameOver(from: string, to: string): void {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      renameSync(from, to);
+      return;
+    } catch (error: unknown) {
+      if (attempt >= RENAME_ATTEMPTS || (error as NodeJS.ErrnoException).code !== "EPERM") {
+        throw error;
+      }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, RENAME_RETRY_MS);
+    }
   }
 }
 
@@ -77,10 +125,18 @@ export function recordHostEditor(context: Context, project: string, pid: number,
   if (ownerPid(path) !== pid) {
     return;
   }
+  // Written aside and renamed over the lock, so no other gd reads it half written.
+  const next = `${path}.${pid}.next`;
   try {
-    writeFileSync(path, JSON.stringify({ pid, editor }), { mode: PRIVATE_FILE_MODE });
+    writeFileSync(next, JSON.stringify({ pid, editor }), { mode: PRIVATE_FILE_MODE });
+    renameOver(next, path);
   } catch {
     // The lock still names this gd; only the hand-over to the editor is lost.
+    try {
+      unlinkSync(next);
+    } catch {
+      // Never written.
+    }
   }
 }
 
@@ -120,10 +176,11 @@ export function acquireHostLock(context: Context, project: string, pid: number, 
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
         throw error;
       }
+      const judged = lockText(path);
       if (!isStale(context, path, maxAgeMs)) {
         return undefined;
       }
-      clearStale(path, pid);
+      clearStale(path, pid, judged);
     }
   }
   return undefined;

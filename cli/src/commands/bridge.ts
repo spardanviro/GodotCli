@@ -1,5 +1,5 @@
 import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import type { CommandHandler, CommandResult, Context, GlobalOptions } from "../context.js";
 import { errorOf, success } from "../envelope.js";
@@ -183,9 +183,7 @@ export function installBridge(context: Context, globals: GlobalOptions, project:
   }
 
   if (copy) {
-    rmSync(target, { recursive: true, force: true });
-    mkdirSync(join(project, "addons"), { recursive: true });
-    cpSync(context.addonDir, target, { recursive: true });
+    replaceAddon(context.addonDir, target);
   }
   if (enable || addHelper) {
     // Written beside the original and renamed over it, so an interruption
@@ -229,3 +227,41 @@ export const bridgeCommand: CommandHandler = async (context, globals, args) => {
   }
   return { envelope: success("bridge", state), human: `bridge ${state.installed_version} installed and enabled\n` };
 };
+
+
+/**
+ * Copies the addon next to the old one first, then swaps the two: a copy
+ * that fails half way (a file held open, a full disk) leaves the old addon
+ * as it was. The folders start with a dot, which Godot does not scan.
+ */
+function replaceAddon(source: string, target: string): void {
+  const fresh = join(dirname(target), ".gdcli-new");
+  const old = join(dirname(target), ".gdcli-old");
+  rmSync(fresh, { recursive: true, force: true });
+  rmSync(old, { recursive: true, force: true });
+  mkdirSync(dirname(target), { recursive: true });
+  cpSync(source, fresh, { recursive: true });
+  const hadOld = existsSync(target);
+  if (hadOld) {
+    try {
+      renameSync(target, old);
+    } catch (error: unknown) {
+      rmSync(fresh, { recursive: true, force: true });
+      throw error;
+    }
+  }
+  try {
+    renameSync(fresh, target);
+  } catch (error: unknown) {
+    if (hadOld) {
+      renameSync(old, target);
+    }
+    rmSync(fresh, { recursive: true, force: true });
+    throw error;
+  }
+  try {
+    rmSync(old, { recursive: true, force: true });
+  } catch {
+    // The new addon is in place; a file of the old one still held open is removed by the next install.
+  }
+}

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
 import { buildArgs } from "../src/commands/live.js";
-import { hostLockPath } from "../src/host-lock.js";
+import { clearStale, hostLockPath } from "../src/host-lock.js";
 import { ExitCode } from "../src/protocol.js";
 import { type FakeProcesses, errorEnvelope, fakeBridge, fakeProcesses, harness, makeProject, okEnvelope, tempDir, writeFile } from "./helpers.js";
 
@@ -163,6 +163,26 @@ describe("gd host", () => {
 
     expect(processes.detached).toEqual([]);
     expect(envelope.errors[0]?.code).toBe("TIMEOUT");
+  });
+
+  test("a lock replaced after it was judged stale is put back, not removed", () => {
+    const lock = writeFile(join(tempDir(), "x.lock"), JSON.stringify({ pid: 2, fresh: true }));
+
+    clearStale(lock, 1, JSON.stringify({ pid: 777 }));
+    const kept = readFileSync(lock, "utf8");
+    clearStale(lock, 1, kept);
+
+    expect(kept).toBe(JSON.stringify({ pid: 2, fresh: true }));
+    expect(existsSync(lock)).toBe(false);
+    expect(existsSync(`${lock}.1.stale`)).toBe(false);
+  });
+
+  test("on macOS, as on Windows, two spellings of a project share one lock", () => {
+    const mac = harness({ homeDir: tempDir(), platform: "darwin" });
+    const linux = harness({ homeDir: tempDir(), platform: "linux" });
+
+    expect(hostLockPath(mac.context, "/Games/Demo")).toBe(hostLockPath(mac.context, "/games/demo"));
+    expect(hostLockPath(linux.context, "/Games/Demo")).not.toBe(hostLockPath(linux.context, "/games/demo"));
   });
 
   test("an unreadable lock is believed only while it is fresh", async () => {
