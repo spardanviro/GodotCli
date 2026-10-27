@@ -8,7 +8,7 @@
 // anywhere: this is a guard rail that keeps the approved route the easy one,
 // not a sandbox. See plugin/README.md.
 
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -41,6 +41,8 @@ const REASON = [
   "`gd command fs_write_text --path res://<path> --text-file <scratch file>` (add `--overwrite true --yes` to replace an existing file).",
   "For nodes, scenes, resources, project settings and input actions use the commands made for them (`gd list`).",
   "Do not write the file another way, such as shell redirection or a script. If the editor refuses or a person declines, stop and tell the user.",
+  "(A file with more than one hard link is refused wherever it is: it may be a project file under another name.",
+  "If it is not, the user can allow it by setting GDCLI_ALLOW_DIRECT_WRITES=1.)",
 ].join(" ");
 
 /**
@@ -121,12 +123,28 @@ export function isGuardedRelativePath(relativePath) {
 }
 
 /**
+ * A file with another hard link is the same file under a second name, which
+ * may lie inside a project: its path tells nothing, so it is held.
+ */
+function hasOtherHardLinks(path) {
+  try {
+    const stat = statSync(path);
+    return stat.isFile() && stat.nlink > 1;
+  } catch {
+    return false; // Not there yet: a new file has one name.
+  }
+}
+
+/**
  * @param {string} filePath as given to the tool
  * @param {string} cwd
  * @returns {boolean} whether writing it directly is refused
  */
 export function isGuardedWrite(filePath, cwd) {
   const absolute = isAbsolute(filePath) ? resolve(filePath) : resolve(cwd, filePath);
+  if (hasOtherHardLinks(absolute)) {
+    return true;
+  }
   for (const candidate of new Set([absolute, throughLinks(absolute)])) {
     for (const root of findProjectRoots(dirname(candidate))) {
       if (!existsSync(join(root, BRIDGE_MARKER))) {

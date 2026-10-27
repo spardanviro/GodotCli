@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, describe, test } from "node:test";
@@ -117,6 +117,22 @@ describe("isGuardedWrite", () => {
     }
 
     assert.equal(isGuardedWrite(join(link, "player.gd"), root), true);
+  });
+});
+
+describe("hard links", () => {
+  test("a file with a second name is held wherever it is: it may be a project file", () => {
+    const { root, project } = workspace();
+    const inside = join(project, "scripts", "player.gd");
+    writeFileSync(inside, "extends Node\n");
+    const outside = join(root, "innocent.txt");
+    linkSync(inside, outside);
+    const plain = join(root, "plain.txt");
+    writeFileSync(plain, "x");
+
+    assert.equal(isGuardedWrite(outside, root), true, "the project's script under another name");
+    assert.equal(isGuardedWrite(plain, root), false, "an ordinary file has one name");
+    assert.equal(isGuardedWrite(join(root, "new.txt"), root), false, "a new file has none yet");
   });
 });
 
