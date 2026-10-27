@@ -7,7 +7,7 @@ Imported from the knowledge base of the Godot AI assistant module (github.com/sp
 
 ## Camera3D
 Camera3D: fov:float=75, near:float, far:float, environment:Environment, attributes:CameraAttributes.
-  make_current() — use this to activate camera (NOT current=true).
+  make_current() or current = true (also as a property when creating the node) activates the camera.
   is_current()->bool, get_viewport()->Viewport.
   project_ray_origin(screen_point)->Vector3, project_ray_normal(screen_point)->Vector3.
 

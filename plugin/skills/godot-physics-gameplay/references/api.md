@@ -7,9 +7,9 @@ Imported from the knowledge base of the Godot AI assistant module (github.com/sp
 
 ## CharacterBody3D
 CharacterBody3D: velocity:Vector3, move_and_slide()->bool, is_on_floor()->bool, is_on_wall()->bool, is_on_ceiling()->bool.
-  motion_mode: MOTION_MODE_GROUNDED(default,platformer) | MOTION_MODE_FLOATING(top-down/vehicles/boats — required for non-platformer).
+  motion_mode: MOTION_MODE_GROUNDED(default: any game with a floor and gravity) | MOTION_MODE_FLOATING(no floor at all, e.g. space; is_on_floor() is then always false).
   up_direction:Vector3=Vector3.UP, floor_snap_length:float, floor_max_angle:float, wall_min_slide_angle:float.
-  CRITICAL: For top-down or vehicle games, always set motion_mode = CharacterBody3D.MOTION_MODE_FLOATING.
+  Keep GROUNDED wherever there is a floor (vehicles, walking, sliding); FLOATING is for movement without one.
 
 ## CharacterBody2D
 CharacterBody2D: velocity:Vector2, move_and_slide()->bool, is_on_floor()->bool, is_on_wall()->bool.

@@ -98,7 +98,7 @@ Resolution scaling gotchas:
 <!-- keywords: Default, Latin -->
 ### i18n: Default font silently fails on non-Latin characters; CJK line breaking requires opt-in ICU data (+4MB)
 Internationalization gotchas:
-- The default Godot font only supports Latin-1. CJK (Chinese/Japanese/Korean), Arabic, Cyrillic, etc. render as blank squares with no error
+- The default Godot font covers few scripts. On desktop, missing glyphs (CJK, Arabic, ...) are borrowed from a system font, so they look right on the developer's machine and show as boxes in a web export or where no such font is installed: ship a font that has them
 - For languages without spaces (CJK, Thai), line/word breaking requires ICU data that is NOT included in exports by default. Enable 'Include Text Server Data' in export settings (+4MB)
 - If a Label's text accidentally matches a translation key, it WILL be auto-translated. Disable Auto Translate Mode on labels displaying player names or dynamic strings
 - For RTL (Arabic/Hebrew): layout and text direction are mirrored, but the X/Y coordinate system is NOT. Sprites/non-Control nodes are unaffected by RTL mirroring
@@ -161,7 +161,7 @@ Other values: AUTOWRAP_ARBITRARY (any character), AUTOWRAP_WORD (word only), AUT
 
 
 <!-- keywords: export_tool_button, IconName, _bake_button -->
-### @export_tool_button — adds a clickable button in the Inspector (Godot 4.3+)
+### @export_tool_button — adds a clickable button in the Inspector (Godot 4.4+)
 `@export_tool_button("Label", "IconName")` creates a button in the Inspector that calls a Callable when clicked. Only works in `@tool` scripts. The second argument is optional (icon name from the editor theme):
   @tool
   @export_tool_button("Bake", "Bake") var _bake_button = bake
@@ -176,7 +176,7 @@ The `auto_translate` property on Control is deprecated. Use `Node.auto_translate
 
 
 <!-- keywords: LAYOUT_DIRECTION_LOCALE, LAYOUT_DIRECTION_APPLICATION_LOCALE, layout_direction -->
-### Control.LAYOUT_DIRECTION_LOCALE deprecated — use LAYOUT_DIRECTION_APPLICATION_LOCALE
+### Control.LAYOUT_DIRECTION_LOCALE deprecated — use LAYOUT_DIRECTION_APPLICATION_LOCALE (Godot 4.4+)
   WRONG:  control.layout_direction = Control.LAYOUT_DIRECTION_LOCALE
   CORRECT: control.layout_direction = Control.LAYOUT_DIRECTION_APPLICATION_LOCALE
 

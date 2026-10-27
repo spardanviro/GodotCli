@@ -194,7 +194,7 @@ func _on_health_changed(old_val, new_val, char_name: String):
 
 <!-- keywords: Cannot, GDScript, gdscript -->
 ### Cannot override non-virtual engine methods in GDScript
-Non-virtual engine methods like `get_class()`, `queue_free()`, `_to_string()` **cannot** be overridden in GDScript — attempting to will trigger the `NATIVE_METHOD_OVERRIDE` warning, which is treated as an error by default. Only methods marked `virtual` in the docs (and named with `_` prefix) can be overridden: `_ready()`, `_process()`, `_input()`, `_draw()`, etc.
+Non-virtual engine methods like `get_class()`, `queue_free()` **cannot** be overridden (`_to_string()` is virtual and can be) in GDScript — attempting to will trigger the `NATIVE_METHOD_OVERRIDE` warning, which is treated as an error by default. Only methods marked `virtual` in the docs (and named with `_` prefix) can be overridden: `_ready()`, `_process()`, `_input()`, `_draw()`, etc.
 
 
 <!-- keywords: export, property, @tool -->
@@ -240,7 +240,8 @@ Always place custom Resource classes in **their own .gd file** with `class_name`
 <!-- keywords: Node, _ready, scene, _process -->
 ### Node lifecycle order: _ready() is post-order, _process() is pre-order
 In Godot's scene tree, callback order differs by function:
-- `_process()`, `_physics_process()`, `_input()`, `_enter_tree()`: **pre-order** (parent called BEFORE children — top-to-bottom in the editor)
+- `_process()`, `_physics_process()`, `_enter_tree()`: **pre-order** (parent called BEFORE children — top-to-bottom in the editor)
+- `_input()`, `_unhandled_input()`: the other way round — the last child in the tree gets the event first, then up towards the root
 - `_ready()`: **post-order** (children called BEFORE parent — children are fully ready when parent's _ready() runs)
 - `_exit_tree()`: **reverse pre-order** (bottom-to-top)
 So in `_ready()` you can safely call methods on child nodes. In `_enter_tree()` the children may not be ready yet.
@@ -332,7 +333,7 @@ When creating and configuring nodes at runtime, set ALL properties before callin
 
 <!-- keywords: Custom, Mutex, Thread, threading -->
 ### Custom logger _log_message() is called from multiple threads — protect with Mutex
-In Godot 4.5+, you can override `_log_message()` in an autoload to intercept all `print()`, `push_error()`, `push_warning()` calls. However, **_log_message() can be called from any thread** (audio, physics, background threads). If your logger writes to a file, array, or any shared state, protect it with a Mutex:
+In Godot 4.5+, a class that extends `Logger`, registered with `OS.add_logger()`, receives all `print()`, `push_error()`, `push_warning()` output in `_log_message()`. However, **_log_message() can be called from any thread** (audio, physics, background threads). If your logger writes to a file, array, or any shared state, protect it with a Mutex:
   var _mutex = Mutex.new()
   func _log_message(msg: String, is_error: bool) -> void:
       _mutex.lock()
@@ -531,7 +532,7 @@ Web platform (JavaScriptBridge) gotchas:
 <!-- keywords: Large, float, int -->
 ### Large world coordinates: single-precision float breaks at ~16 million units; objects vibrate far from origin
 Single-precision floats lose integer precision beyond ±16,777,216. At large coordinates, objects vibrate/jitter because positions snap to nearest representable float value. Solutions:
-- Enable large world coordinates in project settings (uses double-precision floats for physics)
+- Use a build of Godot compiled with double precision (`precision=double`); no project setting switches it on
 - Origin shifting: periodically recenter the world around the player
 - Large world coordinates mainly benefit 3D; 2D rendering doesn't improve with double precision.
 
@@ -856,7 +857,7 @@ GDScript export gotchas:
 GDScript initialization order gotchas:
 - Combining `@onready` and `@export` on the same variable raises ONREADY_WITH_EXPORT warning/error by default — @onready initializes AFTER exported inspector values are applied, silently overwriting whatever was set in the Inspector
 - Initialization order: class variables (top to bottom) → _init() → inspector values applied → @onready variables. Understanding this prevents subtle override bugs.
-- Integer division silently truncates: `5 / 2 == 2` (not 2.5). Must write `5 / 2.0` or `float(5) / 2` to get a float result. No warning or error.
+- Integer division silently truncates: `5 / 2 == 2` (not 2.5). Must write `5 / 2.0` or `float(5) / 2` to get a float result. The editor warns (integer_division) but runs it.
 - GDScript `%` (modulo) uses TRUNCATION for negatives (like C), not floor division (like Python): `-7 % 3 == -1` in GDScript, but `2` in Python. Use `posmod(-7, 3)` for always-positive remainder.
 
 
@@ -864,7 +865,7 @@ GDScript initialization order gotchas:
 ### Typed arrays cannot be assigned between subtypes; native method overrides silently fail; lambda captures are by value
 GDScript type system gotchas:
 - `Array[Node2D]` CANNOT be assigned to `Array[Node]` even though Node2D inherits Node. Use `.assign()` method to copy elements between typed arrays of related types.
-- Overriding non-virtual engine methods (get_class(), queue_free(), etc.) SILENTLY FAILS — the engine calls its own implementation, not yours. Only override methods marked as `virtual` in the docs.
+- Overriding non-virtual engine methods (get_class(), queue_free(), etc.) does not compile: the native_method_override warning is an error by default. Only override methods marked as `virtual` in the docs.
 - Lambda variable captures are BY VALUE at creation time for primitives. Reassigning a captured variable outside the lambda doesn't update the lambda's copy. For reference types (Array, Dict, Object), changes to the object's contents ARE shared, but reassigning the variable is not.
 
 
@@ -1088,7 +1089,7 @@ The constant `Node.NOTIFICATION_MOVED_IN_PARENT` is deprecated. The engine no lo
 The old `SceneTree.change_scene(path)` method is gone. Use:
   get_tree().change_scene_to_file("res://my_scene.tscn")  # from path string
   get_tree().change_scene_to_packed(packed_scene)           # from PackedScene
-  get_tree().change_scene_to_node(scene_node)               # from instantiated node
+  get_tree().change_scene_to_node(scene_node)               # from instantiated node (Godot 4.6+; earlier: change_scene_to_packed)
 
 
 <!-- keywords: GDScript, Vector2, Vector3, Rect2, Transform2D, Transform3D -->
@@ -1115,5 +1116,5 @@ The internal C++ `HashMap` (and `HashSet`) do NOT guarantee insertion order — 
 
 
 <!-- keywords: load_steps -->
-### TSCN format: load_steps deprecated, uid:// paths mandatory in 4.6+
+### TSCN format: load_steps deprecated in 4.6; uid:// references preferred (not required)
 In `.tscn` and `.tres` files: the `load_steps` header field is deprecated in Godot 4.6 (it still parses but is no longer generated). The `uid://` scheme is the canonical resource reference format — every resource saved in 4.6+ gets a stable UID embedded in its file, and TSCN files prefer `uid://xxxxx "res://path"` references so the scene stays valid even if you rename the file. Do NOT hardcode bare `res://` paths in handwritten TSCN if you expect the file to be renamed. The `format=3` header field identifies Godot 4.x TSCN.

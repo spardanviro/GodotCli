@@ -7,6 +7,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { CORRECTIONS, stillWrong } from "./knowledge-corrections.mjs";
 import { readCommands } from "./plugin-commands.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -187,8 +188,22 @@ function checkCommands(file, text, commands, skills) {
   }
 }
 
+/** A statement corrected in the imported knowledge must not be back (scripts/knowledge-corrections.mjs). */
+function checkCorrections() {
+  for (const entry of CORRECTIONS) {
+    const file = join(SKILLS, ...entry.file.split("/"));
+    const text = existsSync(file) ? readFileSync(file, "utf8") : "";
+    if (stillWrong(entry, text)) {
+      problem(file, `holds a statement corrected in knowledge-corrections.mjs: "${entry.wrong.slice(0, 60)}..."`);
+    } else if (!text.includes(entry.right)) {
+      problem(file, `misses the correction "${entry.right.slice(0, 60)}...": the imported text changed; update knowledge-corrections.mjs`);
+    }
+  }
+}
+
 function main() {
   checkManifest();
+  checkCorrections();
   const commands = readCommands();
   if (commands.size === 0) {
     problem(join(SKILLS, "godot-cli", "references", "commands.md"), "lists no commands");

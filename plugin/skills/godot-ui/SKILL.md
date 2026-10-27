@@ -145,8 +145,9 @@ visible area grows on wider screens, which is exactly what anchors are for.
 
 ## Text and languages
 
-The default font has Latin characters only. Chinese, Japanese, Korean, Cyrillic or Arabic text needs a font that
-has them, set in the theme or as `theme_override_fonts/font`, or it shows as blanks. Text of labels and buttons is
+The default font covers few scripts. On desktop, missing glyphs (Chinese, Japanese, Korean, Arabic, ...) are borrowed
+from a system font, so text that looks right in the editor can show as boxes in a web export or on another machine:
+set a font that has them in the theme or as `theme_override_fonts/font`. Text of labels and buttons is
 looked up as a translation key automatically.
 
 ## Checking it

@@ -248,8 +248,8 @@ Properties `callback_mode_method`, `callback_mode_process`, `root_node` moved to
 
 
 <!-- keywords: AnimationPlayer, play_section, set_section_with_markers, start_marker, end_marker, play_section_with_markers, loop_start -->
-### AnimationPlayer: new section-based playback (Godot 4.7)
-AnimationPlayer gained section-based playback in 4.7. You can play a sub-range of an animation:
+### AnimationPlayer: section-based playback (Godot 4.4+)
+AnimationPlayer gained section-based playback in 4.4. You can play a sub-range of an animation:
   player.play_section("Run", 0.2, 0.8)  # play only 0.2s→0.8s of Run
   player.set_section_with_markers("start_marker", "end_marker")
   player.play_section_with_markers("Run", "loop_start", "loop_end")

@@ -45,7 +45,7 @@ func _physics_process(delta: float) -> void:
 ### Never scale CollisionShape nodes — use shape size handles instead
 Scaling a `CollisionShape2D` or `CollisionShape3D` node (via the Node2D/Node3D Scale property) causes incorrect collision behavior: the shape visually scales but collision detection uses wrong extents. ALWAYS resize collision shapes using the size handles in the editor or by setting the shape's size/radius properties directly:
   WRONG:  collision_shape.scale = Vector2(2, 2)   # scale property — breaks collisions
-  CORRECT: (collision_shape.shape as BoxShape2D).size = Vector2(64, 32)  # shape size
+  CORRECT: (collision_shape.shape as RectangleShape2D).size = Vector2(64, 32)  # shape size
 
 
 <!-- keywords: collision, collision_layer -->
@@ -58,7 +58,7 @@ The convenience method `set_collision_layer_value(layer_number, value)` uses 1-b
 
 <!-- keywords: NavigationAgent, NavigationAgent2D, navigation, _ready -->
 ### NavigationAgent: DON'T query path in _ready() — map not synced yet
-If you set `NavigationAgent2D.target_position` or call `get_next_path_position()` inside `_ready()`, the navigation map may not have finished its first synchronization. The result is an empty path and the agent immediately considers itself at the destination. Use `call_deferred()` or wait for the first `_physics_process()` tick:
+If you set `NavigationAgent2D.target_position` or call `get_next_path_position()` inside `_ready()`, the navigation map may not have finished its first synchronization. The result is an empty path and the agent immediately considers itself at the destination. Wait for the first physics frame (`await get_tree().physics_frame`) before setting the target, or set it in the first `_physics_process()` tick:
 ```gdscript
 func _ready() -> void:
     call_deferred("_set_initial_target")  # deferred, after map sync
@@ -139,9 +139,10 @@ Scaling a CollisionShape2D/3D using the node's scale property or the transform s
 
 <!-- keywords: Collision, LAYER, MASK, collision, physics -->
 ### Collision LAYER = what object you are; Collision MASK = what objects you can collide with
-For two objects to collide, **BOTH conditions must be met**:
-- Object A's collision **mask** must include the layer that Object B is **on**
-- Object B's collision **mask** must include the layer that Object A is **on** (for Area2D, only one direction needs to match)
+A contact is detected when **either** object's collision **mask** includes a layer the other is **on**:
+- Object A's mask includes Object B's layer, **or**
+- Object B's mask includes Object A's layer.
+Which body is pushed is decided by the moving one: a CharacterBody's move_and_slide() only collides with what its own mask includes.
 A common mistake: set both layer AND mask to the same layer and wonder why an enemy doesn't detect a coin. The enemy's mask must include the coin's layer. Name your layers in Project Settings > Layer Names > 2D/3D Physics. Set them per-bit using `set_collision_layer_value(layer_num, bool)` in code (layer numbers start at 1, not 0).
 
 
@@ -164,10 +165,10 @@ Important: SubViewports do NOT receive input unless inside a SubViewportContaine
 <!-- keywords: Physics, NEVER, CollisionShapes, Resources, SHARED, collision, physics, Resource, CollisionShape -->
 ### Physics: NEVER scale CollisionShapes, and collision shape Resources are SHARED
 Two critical physics gotchas:
-1. **Scaling physics bodies doesn't work**: Godot doesn't support non-uniform scaling of physics bodies or shapes. Instead, change the shape's `extents`, `radius`, or `height` directly. Change the visual node's scale separately. The CollisionShape must NOT be a child of the scaled visual node in this case.
+1. **Scaling physics bodies doesn't work**: Godot doesn't support non-uniform scaling of physics bodies or shapes. Instead, change the shape's `size` (boxes; Godot 3 called it extents, at half the size), `radius`, or `height` directly. Change the visual node's scale separately. The CollisionShape must NOT be a child of the scaled visual node in this case.
 2. **Collision shape Resources are shared**: When you change a collision shape's size at runtime, it affects ALL nodes using the same resource. Call `.duplicate()` on the resource first:
   collision_shape.shape = collision_shape.shape.duplicate()
-  collision_shape.shape.extents = new_size
+  collision_shape.shape.size = new_size
 
 
 <!-- keywords: Physics, Continuous, physics -->
@@ -194,7 +195,7 @@ Physics simulation (and rendering) loses precision as coordinates grow large. Ob
 Two non-obvious raycast rules:
 1. **Space is locked outside _physics_process()**. Calling `get_world_3d().direct_space_state` from `_process()` or `_ready()` causes a 'space locked' error. Always do ray queries inside `_physics_process()` (or `_physics_process()` via call_deferred).
 2. **Area3D/Area2D are not hit by default**: Must set `query.collide_with_areas = true` on the PhysicsRayQueryParameters object.
-3. **Raycast from a CollisionObject hits itself**: Add `query.exclude = [self]` (or `[get_rid()]` in C#) to exclude the caster.
+3. **Raycast from a CollisionObject hits itself**: Add `query.exclude = [get_rid()]` (exclude takes RIDs, not nodes) to exclude the caster.
 4. **Raycast result is an empty Dictionary on miss** (not null): Check `if result:` not `if result != null:`.
 
 
@@ -220,7 +221,7 @@ Godot validates RPC signatures using a checksum of ALL `@rpc`-annotated function
 
 <!-- keywords: Controller, Input, input -->
 ### Controller input is visible to ALL windows, including unfocused windows
-Unlike keyboard/mouse input (which requires the game window to be focused), controller/gamepad inputs are received by ALL running applications including unfocused ones. Enable the project setting `input_devices/joypads/ignore_joypad_on_unfocused_application` (or set `Input.ignore_joypad_on_unfocused_application = true` at runtime) to prevent accidental input while the player interacts with another window. Also:
+Unlike keyboard/mouse input (which requires the game window to be focused), controller/gamepad inputs are received by ALL running applications including unfocused ones. Enable the project setting `input_devices/joypads/ignore_joypad_on_unfocused_application` (or, in versions that have it, `Input.ignore_joypad_on_unfocused_application = true` at runtime; check with `gd api class Input`) to prevent accidental input while the player interacts with another window. Also:
 - Holding a controller button does NOT generate 'echo' events (keyboard holding does) — implement echo manually with a Timer if needed
 - Controller inputs do NOT prevent screen sleep/power saving — check 'Display > Window > Energy Saving > Keep Screen On'
 - **Windows: max 4 simultaneous controllers** (XInput API limitation)
@@ -305,9 +306,9 @@ When get_tree().paused = true:
 
 
 <!-- keywords: Scaling, collision, physics, instantiate -->
-### Scaling physics bodies or collision shapes is NOT supported — change extents instead; duplicate() before per-instance resize
+### Scaling physics bodies or collision shapes is NOT supported — change the shape's size instead; duplicate() before per-instance resize
 Physics shape gotchas:
-- Godot does NOT support scaling CollisionShape2D/3D nodes. Change the shape's extents/radius directly instead.
+- Godot does NOT support scaling CollisionShape2D/3D nodes. Change the shape's size/radius directly instead.
 - Collision shape resources are SHARED by default. If you resize one, ALL instances using it change. Call .duplicate() on the shape resource before modifying.
 - Cylinder collision shapes are buggy in GodotPhysics. Use box (most reliable) or capsule instead. Jolt physics handles cylinders better.
 - Tunneling (fast objects passing through walls): enable Continuous CD, use thicker colliders, or increase physics tick rate (prefer multiples of 60: 120, 180, 240).
@@ -442,7 +443,7 @@ Physics raycasting gotchas:
 - Must pass `collide_with_areas = true` in query params to detect Area2D/3D hits — by default, only physics bodies are hit
 - Use `query.exclude = [get_rid()]` to prevent self-collision on character body raycasts
 - Cylinder CollisionShape3D is UNSTABLE in physics simulation — use boxes or capsules instead
-- Scaling a physics body (set_scale()) does NOT work — change collision shape Extents/Radius directly
+- Scaling a physics body (set_scale()) does NOT work — change the collision shape's size/radius directly
 - Stacked physics objects wobble at 60 physics ticks/second — increase to a multiple of 60 (120, 180, 240) for stability
 
 
@@ -512,7 +513,7 @@ NavigationAgent3D/2D requests a complete path recalculation whenever target_posi
 
 
 <!-- keywords: Motion, DISABLED, Input, input -->
-### Controller motion sensors (gyroscope, accelerometer) are DISABLED by default — enable them with Input.set_joy_motion_sensors_enabled()
+### Controller motion sensors (gyroscope, accelerometer) are DISABLED by default — enable them with Input.set_joy_motion_sensors_enabled() (recent versions only: check with `gd api class Input`)
 Controller gyroscope and accelerometer sensors must be explicitly enabled with Input.set_joy_motion_sensors_enabled(device, true) (check Input.has_joy_motion_sensors(device) first) or they produce no data and silently drain battery. Also: accelerometer reports GRAVITY by default, so values immediately after stopping still show movement from gravity cancellation.
 
 
@@ -580,9 +581,9 @@ New physics bodies always start with `collision_mask = 1` (only layer 1). If ter
 
 
 <!-- keywords: CharacterBody3D, MOTION_MODE_FLOATING, motion_mode, floor_stop_on_slope -->
-### CharacterBody3D: use MOTION_MODE_FLOATING for non-platformer 3D movement
-For any 3D movement that is NOT a side-scroller (top-down, vehicles, boats, space), you MUST set `motion_mode = CharacterBody3D.MOTION_MODE_FLOATING`. The default GROUNDED mode applies `floor_stop_on_slope` which fights movement on slopes and breaks top-down games entirely.
-CORRECT for top-down / vehicles / snowboards:
+### CharacterBody3D: MOTION_MODE_FLOATING is for movement without a floor
+FLOATING has no floor: `is_on_floor()` is always false, so it suits space or swimming, not a game with gravity. With a floor (vehicles, snowboards, walking on slopes) keep the default GROUNDED and tune `floor_stop_on_slope`, `floor_max_angle` and `floor_snap_length` instead.
+CORRECT for movement with no floor (space, underwater):
   body.motion_mode = CharacterBody3D.MOTION_MODE_FLOATING
 
 

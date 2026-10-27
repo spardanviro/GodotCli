@@ -26,7 +26,7 @@ Windows 上 `GODOT_BIN` 用 `.console.exe`。
 
 `claude` 模式的要求：
 
-- 本机有 Claude Code 并已登录。命令不在 PATH 上时用 `CLAUDE_BIN` 指定（Windows 桌面版的位置见仓库根目录说明）。
+- 本机有 Claude Code 并已登录。命令不在 PATH 上时用 `CLAUDE_BIN` 指定，指向 claude 可执行文件本身（不能是 `.cmd` 文件）。
 - 插件 `godot@gdcli` 已安装并启用（`claude plugin marketplace add spardanviro/GodotCli`、`claude plugin install godot@gdcli`）。要测工作区里还没发布的插件，加 `--plugin-dir plugin`。
 - 会话里的 `gd` 指向本仓库构建出的 `cli/dist/main.js`（评测自己放一个，不需要全局安装）。
 - 允许的工具默认是 `Bash,PowerShell,Write,Edit,Read,Glob,Grep,Skill`，`--permission-mode acceptEdits`；`EVAL_ALLOWED_TOOLS` 可改。
@@ -46,7 +46,7 @@ Windows 上 `GODOT_BIN` 用 `.console.exe`。
 | `--out <文件>` | 结果写成 JSON，可以直接提交：每个会话只记各工具调了几次（不记输入，里面有脚本和本机路径），临时项目的路径写成 `<eval>` |
 | `--transcripts` | `--out` 里保留完整的工具调用记录，用来排查；这样的文件别提交 |
 | `--baseline <文件>` | 与以前的结果比较：修好了哪些、弄坏了哪些（每次都通过才算通过），以及平均轮数、花费变化超过 30% 的任务。`claude` 模式下弄坏了任何一个，退出码为 1；`replay` 和 `idle` 的退出码只看它们自己的判定 |
-| `--keep` | 通过的任务也保留项目目录（失败的总是保留） |
+| `--keep` | 通过的任务也保留项目目录（回放和 `claude` 模式下失败的总是保留；`idle` 本来就该失败，不保留） |
 | `--plugin-dir <目录>` | `claude` 模式下从这个目录加载插件 |
 | `--verbose` | 通过的任务也显示附注 |
 

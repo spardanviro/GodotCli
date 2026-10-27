@@ -96,7 +96,8 @@ gd command animation_state_machine_create --args '{"tree": "Player/Tree", "playe
   	var playback: AnimationNodeStateMachinePlayback = tree["parameters/playback"]
   	playback.travel(state)
   ```
-- `expression` on a transition is evaluated on the tree's parent node, e.g.
+- `expression` on a transition is evaluated on the tree's parent node (the command sets the tree's
+  `advance_expression_base_node` to `..`), e.g.
   `"expression": "velocity.length() > 10.0"`. A tree with an expression is left **inactive** by the command (the
   answer says `"active": false`): an active tree also runs inside the editor. Turn it on from the script, with
   `tree.active = true` in `_ready()`. Prefer a `condition` when a boolean will do.

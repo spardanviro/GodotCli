@@ -24,7 +24,8 @@ about anything that is missing. The usual fixes:
 - No editor open (`NO_EDITOR`): ask the user to open the project in Godot. When nobody is at the machine,
   `gd host start` runs an editor without a window (`gd host stop` ends it). A headless editor has no one to approve
   anything and cannot take screenshots.
-- `gd` not found: it is the npm package `gdcli`; tell the user rather than working around it.
+- `gd` not found: it is the npm package `@spardanviro/gdcli` (`npm install -g @spardanviro/gdcli`); tell the user
+  rather than working around it.
 - `NO_EDITOR` although the editor is open, in a session with a sandboxed shell: the sandbox keeps `gd` from
   reaching the editor unless the call is a `gd` command on its own. Send it again without a pipe, a redirection,
   `cd` or a second command on the same line (use `--json` and read the whole answer instead of piping to `head`).
@@ -197,4 +198,5 @@ The other skills of this plugin hold the Godot knowledge: how things are built a
 make. By topic: `godot-gdscript`, `godot-physics-gameplay`, `godot-ui`, `godot-3d-rendering`, `godot-animation-audio`.
 By task: `godot-new-project` (from nothing to a project that runs), `godot-tilemap` (levels made of tiles),
 `godot-sprite-animation` (sprite sheets, frame animation, pixel art), `godot-troubleshooting` (finding the cause
-of a bug from its symptom).
+of a bug from its symptom), `godot-localization` (more than one language), `godot-export` (builds, the web),
+`godot-audio-buses` (mixer buses and effects).

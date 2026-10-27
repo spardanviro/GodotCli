@@ -80,8 +80,8 @@ the locale changes; text a script set with `tr()` is not set again by itself: li
 
 ## Fonts
 
-The default font covers only part of Latin. Chinese, Japanese, Korean, Cyrillic, Arabic and others show nothing
-without a font that has them. The user has to provide the font file (for example a Noto font); then give it to the
+The default font covers few scripts. On desktop the missing glyphs (Chinese, Japanese, Korean, Arabic, ...) come from
+a system font, so the editor shows them while a web export or another machine shows boxes: ship a font that has them. The user has to provide the font file (for example a Noto font); then give it to the
 theme or to the Controls (see the `godot-ui` skill), with other fonts as fallbacks. Languages written without spaces
 (Chinese, Japanese, Thai) also need `internationalization/locale/include_text_server_data` true for line breaking in
 an exported game (about 4 MB). Arabic and Hebrew mirror the UI by themselves; check the layout.

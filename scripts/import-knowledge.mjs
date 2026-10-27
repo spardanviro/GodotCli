@@ -12,6 +12,8 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { applyCorrections } from "./knowledge-corrections.mjs";
+
 const SKILLS_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "plugin", "skills");
 const DEFAULT_TOPIC = "godot-gdscript";
 
@@ -125,7 +127,8 @@ function parseApi(source) {
 function write(skill, name, text) {
   const path = join(SKILLS_DIR, skill, "references", name);
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, text);
+  // Statements the audit found wrong are corrected on every import.
+  writeFileSync(path, applyCorrections(`${skill}/references/${name}`, text));
 }
 
 function main() {

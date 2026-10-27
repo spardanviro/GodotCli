@@ -92,7 +92,7 @@ GDCLI_UPDATE_PLUGIN=1 GODOT_BIN=/path/to/godot node scripts/bridge-test.mjs
 - 项目根目录的 `project.godot`、`project.binary`、`override.cfg`、`export_presets.cfg`
 - `addons/`、`gdcli_commands/`、`.godot/` 这几个文件夹本身（整个删掉或移走）和里面的任何文件
 
-只对**装了桥接的项目**生效（存在 `addons/gdcli/plugin.cfg`）；没装桥接的 Godot 项目和项目外的文件不受影响。子文件夹里另放一个 `project.godot` 不会让外层项目失去保护。读文件不受限制，Markdown、JSON、着色器、图片等照常直接写。
+只对**装了桥接的项目**生效（存在 `addons/gdcli/plugin.cfg`）；没装桥接的 Godot 项目和项目外的文件不受影响。例外有两种，两个钩子都适用：有不止一个硬链接的文件在哪里都不让写（它可能就是项目里的文件）；`gd` 的 `~/.gdcli/config.json` 和 Godot 的编辑器设置（`editor_settings-4.x.tres`，桥接的访问模式存在里面）在哪里都不让写。子文件夹里另放一个 `project.godot` 不会让外层项目失去保护。读文件不受限制，Markdown、JSON、着色器、图片等照常直接写。
 
 这样，脚本进项目只剩"经过编辑器"这一条顺手的路：写入后立刻有编译检查结果，该由人批准的改动会弹给人看，只读模式和 `ask` 模式也对 Claude 生效。
 

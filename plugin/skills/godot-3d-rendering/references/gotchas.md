@@ -69,7 +69,7 @@ Exceeding these limits silently drops some lights. For Mobile/Compatibility, use
 
 <!-- keywords: StandardMaterial3D, Material, material, OmniLight3D, light -->
 ### StandardMaterial3D emission does NOT light nearby objects by default
-Setting `emission_enabled = true` and `emission_color` on a material makes the surface appear to glow, but it does NOT actually emit light onto nearby geometry unless:
+Setting `emission_enabled = true` and `emission` (the color) on a material makes the surface appear to glow, but it does NOT actually emit light onto nearby geometry unless:
 - SDFGI or VoxelGI bakes the emission into GI, OR
 - Screen-space indirect lighting is enabled (Forward+ only)
 To make a glowing object actually light its surroundings, pair it with a small OmniLight3D at the same position.
@@ -163,7 +163,7 @@ In 2D, when Godot sees a node using `hint_screen_texture`, it copies the entire 
 ### Shader light() function disabled on mobile by default — vertex lighting
 The `light()` processor function in spatial shaders will NOT run if:
 - The shader has `render_mode vertex_lighting` set
-- **Project Settings > Rendering > Quality > Shading > Force Vertex Shading** is enabled (which is the DEFAULT on mobile platforms)
+- **Project Settings > Rendering > Shading > Overrides > Force Vertex Shading** is enabled
 If your shader uses a custom `light()` function for effects like rim lighting or custom specularity, these will silently disappear on mobile. Verify this setting for mobile exports. On desktop, this setting is off by default.
 
 
@@ -640,7 +640,7 @@ GridMap gotchas:
 ### Viewport.get_texture().get_image() returns EMPTY on first frame; 3D shadows need positional_shadow_atlas_size > 0 (default 0)
 Viewport gotchas:
 - Viewport has no get_image(): use get_texture().get_image(). On the first frame that image is EMPTY. Must await RenderingServer.frame_post_draw signal before reading viewport texture.
-- New Viewports have positional_shadow_atlas_size = 0 by default — 3D point/spot light shadows are completely invisible until this is set > 0
+- A Viewport whose positional_shadow_atlas_size is 0 shows no point or spot light shadows at all; check it when those shadows are missing (the default is 2048)
 - Viewport texture is CLEARED every frame by default. For persistent drawing (e.g., paint canvas), set viewport.render_target_clear_mode = CLEAR_MODE_NEVER
 - SubViewport does NOT receive mouse or touch input unless it has a SubViewportContainer as parent
 - SubViewportContainer cannot be smaller than its child SubViewport's size (hard constraint)
@@ -832,7 +832,7 @@ Physical light and camera unit gotchas:
 ### Forward+ is SLOWER than Compatibility on old hardware; 'Mobile' renderer NOT recommended for XR standalone; renderer auto-falls back silently
 Renderer selection gotchas:
 - Forward+ is the most feature-rich but WORST performing on old/low-end hardware — use Compatibility for low-end targets
-- Despite its name, 'Mobile' renderer is only recommended for NEWER mobile devices. For standalone XR headsets (Quest, etc.), use Compatibility renderer.
+- Despite its name, 'Mobile' renderer is only recommended for NEWER mobile devices. For standalone XR headsets (Quest, etc.), the Mobile renderer is the recommended one.
 - Since Godot 4.4, Forward+/Mobile automatically fall back to Compatibility if Vulkan/D3D12/Metal is unavailable — silently reduces quality. Disable in project settings if you want to show an error instead.
 
 

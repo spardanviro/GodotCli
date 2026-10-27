@@ -74,7 +74,7 @@ gd status                             # 编辑器连上了吗
 
 ```bash
 cd your-game
-gd bridge install                     # 把桥接装进项目并启用（已装的也用它更新）
+gd bridge install                     # 把桥接装进项目并启用（换版本时加 --force）
 gd open
 ```
 

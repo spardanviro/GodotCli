@@ -18,7 +18,7 @@ gd command project_settings_get --name rendering/renderer/rendering_method
 | Renderer | Value | For | Does not have |
 |---|---|---|---|
 | Forward+ | `forward_plus` | desktop | - |
-| Mobile | `mobile` | phones, weaker desktops | SDFGI, volumetric fog, VoxelGI; 8 omni and 8 spot lights per mesh |
+| Mobile | `mobile` | phones, weaker desktops | SDFGI, VoxelGI, volumetric fog, SSAO, SSIL, screen-space reflections, TAA, FSR2, subsurface scattering; 8 omni and 8 spot lights per mesh |
 | Compatibility | `gl_compatibility` | web, old hardware | most of the above plus many post effects, decals, compute shaders |
 
 An effect that needs Forward+ does nothing on the others, without an error. Changing the renderer is a project
