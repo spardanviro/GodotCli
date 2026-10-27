@@ -69,7 +69,7 @@ func handle(head: Dictionary, body: PackedByteArray) -> Dictionary:
 	if path == RequestGuard.PING_PATH and method == "GET":
 		return _ping(head["query"])
 	if path == COMMANDS_PATH and method == "GET":
-		return _respond(200, Envelope.success("commands", {"commands": _registry.descriptors()}, _meta()))
+		return _respond(200, Envelope.success("commands", {"commands": _registry.descriptors()}, _meta(), _startup_warnings))
 	if path.begins_with(COMMAND_PREFIX) and method == "POST":
 		return _run_command(path.substr(COMMAND_PREFIX.length()), body)
 	return _not_found()
@@ -96,7 +96,9 @@ func _ping(query: Dictionary) -> Dictionary:
 	var proof := Crypto.new().hmac_digest(HashingContext.HASH_SHA256, _token.to_utf8_buffer(), message)
 	var data := _identity.duplicate()
 	data["proof"] = proof.hex_encode()
-	return _respond(200, Envelope.success("ping", data, _meta(), _startup_warnings))
+	# Startup warnings can name project files: they go with the answers that
+	# need the token (the command list and every command), not with this one.
+	return _respond(200, Envelope.success("ping", data, _meta()))
 
 
 ## Milliseconds since the last command, for hosts that exit when idle.
@@ -148,9 +150,9 @@ func _finish(name: String, reply: Dictionary, started: int) -> Dictionary:
 	if reply["ok"]:
 		if reply.has("undo"):
 			meta["undo"] = TextSanitizer.clean_line(str(reply["undo"]))
-		return _respond(200, Envelope.success(name, reply["data"], meta, reply.get("warnings", [])))
+		return _respond(200, Envelope.success(name, reply["data"], meta, _startup_warnings + reply.get("warnings", [])))
 	var error: Dictionary = reply["error"]
-	return _respond(Envelope.http_status_for(error["code"]), Envelope.failure(name, error, meta))
+	return _respond(Envelope.http_status_for(error["code"]), Envelope.failure(name, error, meta, _startup_warnings))
 
 
 func _execute(name: String, body: PackedByteArray) -> Dictionary:

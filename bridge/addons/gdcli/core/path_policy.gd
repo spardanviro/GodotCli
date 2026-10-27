@@ -46,9 +46,10 @@ static func check_text(raw_path: String, access: String) -> Dictionary:
 		if not _is_plain_segment(segment):
 			return _deny("The path contains an empty, relative or reserved segment.")
 		# A repository nested anywhere in the project: its hooks and config
-		# are run by git, so nothing is written into it.
-		if access == ACCESS_WRITE and segment.to_lower() == _GIT_DIR:
-			return _deny("Nothing is written inside a .git folder.")
+		# are run by git, so nothing is written into it; and its config can
+		# hold a remote URL with a token, so nothing is read from it either.
+		if segment.to_lower() == _GIT_DIR:
+			return _deny("Nothing is written inside a .git folder." if access == ACCESS_WRITE else "A .git folder is not accessible through the bridge.")
 
 	# Compared in lower case: the default Windows and macOS filesystems fold case.
 	var folded := relative.to_lower()
@@ -79,7 +80,7 @@ static func check(raw_path: String, access: String) -> Dictionary:
 
 
 static func is_hidden_name(name: String, parent: String) -> bool:
-	return parent == ROOT and name.to_lower() in _HIDDEN_ROOTS
+	return name.to_lower() == _GIT_DIR or (parent == ROOT and name.to_lower() in _HIDDEN_ROOTS)
 
 
 static func _is_plain_segment(segment: String) -> bool:

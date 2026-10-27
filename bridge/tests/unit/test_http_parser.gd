@@ -88,3 +88,12 @@ func test_finds_the_end_of_the_head() -> void:
 	equal(HttpParser.find_head_end(bytes, 0), bytes.size() - 4, "index after the blank line")
 	equal(HttpParser.find_head_end("GET / HTTP/1.1\r\nA: b\r\n".to_ascii_buffer(), 0), -1, "incomplete head")
 	equal(HttpParser.find_head_end(PackedByteArray(), 0), -1, "empty buffer")
+
+
+func test_rejects_a_body_on_anything_but_post() -> void:
+	var head := _head("GET /v1/commands HTTP/1.1\r\nContent-Length: 5\r\n\r\n")
+	var empty := _head("GET /v1/commands HTTP/1.1\r\nContent-Length: 0\r\n\r\n")
+
+	equal(head["ok"], false, "a GET with a body would leave it for the next request")
+	equal(head["status"], 400, "bad request")
+	equal(empty["ok"], true, "Content-Length: 0 is no body")

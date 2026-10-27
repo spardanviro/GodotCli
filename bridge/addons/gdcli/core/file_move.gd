@@ -161,7 +161,7 @@ func _move() -> bool:
 		if ProjectSettings.save() != OK:
 			_warnings.append("project.godot could not be saved; its references to the old path are unchanged on disk.")
 	_context.scan_files()
-	_add_warnings(outcome)
+	var sensitive := _add_warnings(outcome)
 	var reloaded := []
 	for scene in _open_scenes:
 		if scene in _updated and _updater.moved_path(scene) == scene:
@@ -174,6 +174,8 @@ func _move() -> bool:
 			"possible_dynamic_references": _references["dynamic"],
 			"settings": TextSanitizer.clean_lines(settings),
 			"reloaded_scenes": TextSanitizer.clean_lines(reloaded),
+			"not_rewritten": TextSanitizer.clean_lines(outcome["failed"]),
+			"sensitive_rewritten": TextSanitizer.clean_lines(sensitive),
 		},
 	}
 	return true
@@ -237,15 +239,17 @@ static func _uid_of(path: String) -> int:
 	return ResourceUID.INVALID_ID
 
 
-func _add_warnings(outcome: Dictionary) -> void:
+# Warnings name no project files (docs/protocol.md 4.5): the files are listed
+# in references_updated. Returns the sensitive files that were rewritten.
+func _add_warnings(outcome: Dictionary) -> Array:
 	if not outcome["failed"].is_empty():
-		_warnings.append("Some files that refer to the old path could not be rewritten: %s" % ", ".join(TextSanitizer.clean_lines(outcome["failed"])))
+		_warnings.append("Some files that refer to the old path could not be rewritten: see references_updated.not_rewritten.")
 	var sensitive := []
 	for path in _references["sensitive"]:
 		if path in _updated:
 			sensitive.append(path)
 	if not sensitive.is_empty():
-		_warnings.append("Files in sensitive locations were rewritten: %s" % ", ".join(TextSanitizer.clean_lines(sensitive)))
+		_warnings.append("Files in sensitive locations were rewritten: see references_updated.sensitive_rewritten.")
 	if not _references["settings"].is_empty():
 		_warnings.append("project.godot was saved with the new path.")
 	if _references["truncated"]:
@@ -260,3 +264,4 @@ func _add_warnings(outcome: Dictionary) -> void:
 		if scene == _from or _updater.moved_path(scene) != scene:
 			_warnings.append("A moved scene is still open under its old path; open it from the new path.")
 			break
+	return sensitive

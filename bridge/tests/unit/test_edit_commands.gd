@@ -176,6 +176,21 @@ func test_scene_new_and_resource_set_gate_sensitive_paths() -> void:
 	equal(_code("scene_save"), "NOT_APPROVED", "saving a scene that lives under addons")
 	_context.path = "res://addons/gdcli/x.tscn"
 	equal(_code("scene_save"), "PATH_NOT_ALLOWED", "saving into the bridge itself")
+	equal(_code("resource_create", {"path": "res://addons/other/box.tres", "type": "RectangleShape2D"}), "NOT_APPROVED", "resource_create under addons")
+	var box := "res://gdcli_commands/zz_box.tres"
+	ResourceSaver.save(RectangleShape2D.new(), box)
+	equal(_code("resource_set", {"path": box, "properties": {"size": [4, 4]}}), "NOT_APPROVED", "resource_set in gdcli_commands")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(box))
+
+
+func test_project_settings_set_asks_for_dotnet_and_main_loop_settings() -> void:
+	_setup()
+
+	var dotnet := _code("project_settings_set", {"name": "dotnet/project/assembly_name", "value": "Game"}, {"confirm": true})
+	var main_loop := _code("project_settings_set", {"name": "application/run/main_loop_type", "value": "Evil"}, {"confirm": true})
+
+	equal(dotnet, "NOT_APPROVED", "the .NET build reads it")
+	equal(main_loop, "NOT_APPROVED", "the main loop class runs first of all")
 
 
 func test_destructive_dry_run_needs_no_confirmation() -> void:

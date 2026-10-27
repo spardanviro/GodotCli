@@ -79,3 +79,10 @@ func test_path_policy_refuses_a_path_through_a_link() -> void:
 	check(PathPolicy.check("res://tests/tmp/link_target/x.gd", "write")["ok"], "the real folder")
 	DirAccess.remove_absolute(link)
 	DirAccess.remove_absolute(target)
+
+
+func test_path_policy_a_nested_git_folder_is_neither_read_nor_listed() -> void:
+	check(not _allowed("res://sub/.git/config", "read"), "its config can hold a remote URL with a token")
+	check(not _allowed("res://a/b/.GIT/hooks/pre-commit", "write"), "and nothing is written into it")
+	check(PathPolicy.is_hidden_name(".git", "res://sub/"), "listings leave it out at any depth")
+	check(not PathPolicy.is_hidden_name(".godot", "res://sub/"), "a nested .godot is an ordinary folder")

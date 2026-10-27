@@ -26,6 +26,8 @@ func descriptor() -> Dictionary:
 
 
 func run(_args: Dictionary, _options: Dictionary) -> Variant:
+	if _args.get("n") == 2:
+		return null
 	var file := FileAccess.open("%s", FileAccess.WRITE)
 	file.store_string("ran")
 	return {"ok": true, "data": {"done": true}}
@@ -81,3 +83,21 @@ func test_custom_commands_descriptors_are_rebuilt_from_clean_known_fields() -> v
 	equal(params["properties"]["weird"], {}, "an unknown type is dropped")
 	equal(params["required"], ["n"], "required names a known parameter")
 	_clean_up()
+
+
+func test_custom_commands_nothing_returned_is_a_success_with_a_warning() -> void:
+	var registry := _load()
+
+	var reply: Dictionary = registry.handler_of("probe_touch").call({"n": 2}, {"dry_run": false, "confirm": true, "mode": "standard"})
+
+	equal(reply["ok"], true, "a command may return nothing")
+	check(str(reply.get("warnings", [])).contains("returned nothing"), "but a script error looks the same, so it is said")
+	_clean_up()
+
+
+func test_custom_commands_long_argument_names_are_dropped() -> void:
+	var long_name := "a".repeat(CustomCommands.MAX_NAME + 1)
+
+	var params := CustomCommands._params({"properties": {long_name: {"type": "string"}, "ok": {"type": "string"}}})
+
+	equal(params["properties"].keys(), ["ok"], "an argument name past the limit is dropped")

@@ -298,3 +298,17 @@ func test_value_decoder_nested_failures_name_the_whole_path() -> void:
 	var wrong := ValueDecoder.new().decode_properties(instance, {"mesh": {"$new": "BoxMesh", "properties": {"size": "big"}}})
 
 	equal(wrong["error"]["details"]["property"], "mesh.size", "outer and inner property")
+
+
+func test_value_decoder_reads_back_the_tagged_text_the_codec_writes() -> void:
+	var big := 9007199254740993
+	var encoded_big: Variant = ValueCodec.encode(big)
+	var encoded_nan: Variant = ValueCodec.encode(NAN)
+	var encoded_inf: Variant = ValueCodec.encode(-INF)
+
+	equal(_value(encoded_big, TYPE_INT), big, "an integer past 2^53")
+	check(is_nan(_value(encoded_nan, TYPE_FLOAT)), "NaN")
+	equal(_value(encoded_inf, TYPE_FLOAT), -INF, "minus infinity")
+	check(_fails({"$type": "int", "value": "12a"}, TYPE_INT), "text that is no integer still fails")
+	check(_fails({"$type": "int", "value": "9223372036854775808"}, TYPE_INT), "one past the largest 64-bit integer fails instead of clamping")
+	equal(_value({"$type": "int", "value": "-9223372036854775808"}, TYPE_INT), -9223372036854775807 - 1, "the smallest one fits")

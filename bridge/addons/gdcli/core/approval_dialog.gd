@@ -35,9 +35,11 @@ func _init(parent: Node, what: Dictionary) -> void:
 	_dialog.confirmed.connect(_decide.bind(ALLOWED))
 	_dialog.canceled.connect(_decide.bind(DENIED))
 	parent.add_child(_dialog)
-	_dialog.popup_centered(_SIZE)
-	# Enter must not allow anything by accident.
-	_dialog.get_cancel_button().grab_focus()
+	# Outside the tree (unit tests) the question is built but not shown.
+	if _dialog.is_inside_tree():
+		_dialog.popup_centered(_SIZE)
+		# Enter must not allow anything by accident.
+		_dialog.get_cancel_button().grab_focus()
 
 
 ## The text shown below the question.

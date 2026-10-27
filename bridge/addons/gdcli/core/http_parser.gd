@@ -86,6 +86,9 @@ static func parse_head(head: PackedByteArray) -> Dictionary:
 			return _reject(STATUS_TOO_LARGE, "Request body is too large.")
 	elif request_match.get_string(1) == "POST":
 		return _reject(STATUS_BAD_REQUEST, "POST requires Content-Length.")
+	# A body nobody reads would be taken for the next request; only POST has one.
+	if content_length > 0 and request_match.get_string(1) != "POST":
+		return _reject(STATUS_BAD_REQUEST, "Only POST requests take a body.")
 
 	return {
 		"ok": true,

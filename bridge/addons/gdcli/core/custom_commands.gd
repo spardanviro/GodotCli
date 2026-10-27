@@ -25,7 +25,10 @@ const MAX_COMMANDS := 64
 # What a descriptor may carry into gd list and MCP tool definitions, which a
 # model reads: project text, so it is cleaned, shortened and type-checked.
 const MAX_TEXT := 400
+const _NOTHING_RETURNED := "The command returned nothing. If it stopped on a script error, the editor's Output panel shows it."
 const MAX_PARAMS := 32
+# Names a client can take as tool and argument names (gd caps tool names at 64).
+const MAX_NAME := 48
 const MAX_ENUM := 32
 const _PARAM_TYPES: Array[String] = ["string", "number", "integer", "boolean", "array", "object"]
 
@@ -71,8 +74,8 @@ func _load_one(path: String, registry: RefCounted) -> String:
 	if not (descriptor is Dictionary and descriptor.get("name") is String):
 		return "descriptor() must return a dictionary with a name."
 	var name: String = descriptor["name"]
-	if not registry.is_valid_name(name) or registry.has(name):
-		return "its name is not lower snake case or is already taken."
+	if name.length() > MAX_NAME or not registry.is_valid_name(name) or registry.has(name):
+		return "its name is not lower snake case (at most %d characters) or is already taken." % MAX_NAME
 
 	# Rebuilt from known fields only. The declared tier can only be raised:
 	# what the script really does cannot be checked, so nothing custom is
@@ -102,7 +105,9 @@ func _run(args: Dictionary, options: Dictionary, instance: RefCounted, name: Str
 		return _failure(result.get("error"))
 	if result is Dictionary and result.get("ok") == true and result.has("data"):
 		result = result["data"]
-	return Reply.ok(ValueCodec.encode(result, _context.scene_root()))
+	# A script error inside run() also comes back as null; say so instead of a plain success.
+	var warnings := [_NOTHING_RETURNED] if result == null else []
+	return Reply.ok(ValueCodec.encode(result, _context.scene_root()), warnings)
 
 
 static func _text(value: Variant) -> String:
@@ -117,7 +122,7 @@ static func _params(value: Variant) -> Dictionary:
 	var given: Variant = value.get("properties") if value is Dictionary else null
 	if given is Dictionary:
 		for key in given.keys().slice(0, MAX_PARAMS):
-			if not (key is String and key.is_valid_identifier()):
+			if not (key is String and key.is_valid_identifier() and key.length() <= MAX_NAME):
 				continue
 			var raw: Variant = given[key]
 			var param := {}

@@ -421,6 +421,9 @@ func _attach_script(args: Dictionary, options: Dictionary) -> Dictionary:
 			var gate := Edit.person_gate(_context, options, what, _attach_script.bind(args, Edit.approved(options)))
 			if not gate.is_empty():
 				return gate
+			# Loading it would already run its static code: a plan does not load it.
+			if options["dry_run"]:
+				return Edit.planned({"attach": args["script"], "to": _describe(node)["path"], "runs_in_editor": true})
 		script = ResourceLoader.load(checked["path"]) as Script
 		if script == null:
 			return Reply.fail("TYPE_MISMATCH", "The file is not a script.", "", {"path": checked["path"]})

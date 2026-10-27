@@ -17,8 +17,12 @@ const MAX_HOLD_SECONDS := 10.0
 const MAX_PNG_BYTES := 4 * 1024 * 1024
 # Methods that only repeat what other commands do (set a property, call
 # something else). This keeps calls direct; it is not a security boundary.
+# The same list as animation tracks refuse (animation_commands.gd), except
+# emit_signal: emitting "pressed" is how a test presses a button.
 const _INDIRECT_METHODS: Array[String] = [
-	"call", "callv", "call_deferred", "set", "set_deferred", "set_indexed", "set_script", "set_meta", "connect", "rpc", "rpc_id",
+	"call", "callv", "call_deferred", "call_thread_safe", "call_deferred_thread_group", "call_thread_group", "propagate_call", "propagate_notification",
+	"set", "set_deferred", "set_indexed", "set_thread_safe", "set_script", "set_meta",
+	"connect", "add_user_signal", "rpc", "rpc_id", "rpc_config", "notification",
 ]
 
 var _tree: SceneTree

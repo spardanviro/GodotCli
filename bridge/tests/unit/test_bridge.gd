@@ -175,3 +175,17 @@ func test_bridge_check_head_wraps_guard_failures_in_an_envelope() -> void:
 	equal(JSON.parse_string(denied["body"].get_string_from_utf8())["errors"][0]["code"], "AUTH_FAILED", "code")
 	head["headers"]["authorization"] = "Bearer " + TOKEN
 	equal(bridge.check_head(head), {}, "with the token")
+
+
+func test_bridge_startup_warnings_go_only_with_answers_that_need_the_token() -> void:
+	var bridge := _bridge()
+	bridge.set_startup_warnings(["Custom command res://gdcli_commands/x.gd was skipped"])
+
+	var ping := _http_get(bridge, "/v1/ping", {"nonce": NONCE})
+	var listing := _http_get(bridge, "/v1/commands")
+	var answer := _http_post(bridge, "probe_read")
+
+	equal(ping["envelope"]["warnings"], [], "the handshake names no project files")
+	check(str(listing["envelope"]["warnings"]).contains("x.gd"), "the command list carries them")
+	check(str(answer["envelope"]["warnings"]).contains("x.gd"), "and so does every command")
+	check(answer["envelope"]["warnings"].has("a warning"), "next to the command's own warnings")

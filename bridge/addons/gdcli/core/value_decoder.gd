@@ -60,6 +60,8 @@ const _SCRIPT_PROPERTY := "script"
 const SAVED_USAGE := PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_STORAGE
 const ANY_USAGE := -1
 const _STRUCTURAL_USAGE := PROPERTY_USAGE_CATEGORY | PROPERTY_USAGE_GROUP | PROPERTY_USAGE_SUBGROUP
+# How str() spells the floats JSON has no number for.
+const _FLOAT_WORDS := {"nan": NAN, "inf": INF, "-inf": -INF}
 # Not stored and not in the inspector, because each is another way of writing
 # a property that is: setting one of them changes what is saved.
 const _DERIVED: Array[String] = [
@@ -210,7 +212,25 @@ func _decode_tagged(value: Dictionary, type: int, info: Dictionary, depth: int) 
 		return _mismatch("Unknown or incomplete $type.", "", "a known type name with a value")
 	if type != TYPE_NIL and type != tagged_type:
 		return _mismatch_type(type)
-	return decode(value["value"], tagged_type, info, depth + 1)
+	# What the encoder writes as text because JSON cannot: integers past 2^53,
+	# NaN and the infinities.
+	var text: Variant = value["value"]
+	if tagged_type == TYPE_INT and text is String and text.is_valid_int():
+		# to_int() would quietly clamp a number past 64 bits.
+		if not _fits_int64(text):
+			return _mismatch("The integer does not fit in 64 bits.", "", "-9223372036854775808 to 9223372036854775807")
+		return _ok(text.to_int())
+	if tagged_type == TYPE_FLOAT and text is String and text in _FLOAT_WORDS:
+		return _ok(_FLOAT_WORDS[text])
+	return decode(text, tagged_type, info, depth + 1)
+
+
+static func _fits_int64(text: String) -> bool:
+	var negative := text.begins_with("-")
+	var digits := text.trim_prefix("-").trim_prefix("+").lstrip("0")
+	var limit := "9223372036854775808" if negative else "9223372036854775807"
+	# Same length: decimal digits compare like the numbers they spell.
+	return digits.length() < limit.length() or (digits.length() == limit.length() and digits <= limit)
 
 
 # For Variant-typed targets: tagged forms are honoured, plain JSON stays as it is.

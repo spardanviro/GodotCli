@@ -434,3 +434,17 @@ func test_node_move_keeps_the_node_where_it_is_on_screen() -> void:
 	equal(moved, [_root, Vector2(110, 5)], "same place on screen under the new parent")
 	equal(undone, [player, Vector2(10, 5)], "undo restores parent and local position")
 	equal(sprite.position, Vector2(10, 5), "the local values are kept when asked")
+
+
+func test_node_attach_script_dry_run_does_not_load_a_tool_script() -> void:
+	_scene()
+	var path := "res://tests/tmp/dry_tool_%d.gd" % Time.get_ticks_usec()
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(path.get_base_dir()))
+	FileAccess.open(path, FileAccess.WRITE).store_string("@tool\nextends Node2D\n")
+
+	var plan := _call("node_attach_script", {"path": "Player", "script": path}, true)
+
+	equal(plan["ok"], true, "the plan is made")
+	equal(plan["data"]["would"].get("runs_in_editor"), true, "and says the script runs in the editor")
+	check(not ResourceLoader.has_cached(path), "without loading it, which would run its static code")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
