@@ -875,10 +875,11 @@ async function runTask(task, options, attempt) {
     gd(env, project, ["host", "stop"]);
     running.delete(root);
     result.seconds = Math.round((Date.now() - started) / 100) / 10;
-    if (result.passed && !options.keep) {
-      // Godot may still be letting go of the folder; a leftover in the temp folder does no harm.
+    // A failed run's project is kept to look into; an idle run is meant to fail, so nothing to see there.
+    if ((result.passed || options.agent === "idle") && !options.keep) {
+      // Godot (on Windows) may still be letting go of the folder for a few seconds.
       try {
-        rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
+        rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 500 });
       } catch {
         result.notes.push(`could not remove ${root}`);
       }
@@ -939,7 +940,7 @@ function report(results, summary, options) {
         lines.push(`    . ${note}`);
       }
     }
-    if (!result.passed) {
+    if (!result.passed && existsSync(result.root)) {
       lines.push(`    kept: ${result.root}`);
     }
   }
