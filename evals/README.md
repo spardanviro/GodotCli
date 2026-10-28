@@ -89,7 +89,7 @@ Windows 上 `GODOT_BIN` 用 `.console.exe`。
 | `file_contains` | 文件含 `text`，或含 `any` 里的任意一个 |
 | `no_file_contains` | 项目里（桥接插件除外）没有哪个脚本或场景文件匹配 `pattern` |
 | `runs_clean` | `gd run --headless` 运行 `scene`（默认主场景）几秒，没有报错 |
-| `game` | 在编辑器里运行游戏，找到第一个 `class` 节点，依次尝试 `actions_any` 里的输入动作，直到它按 `expect`（`rises`、`moves_right`、`moves_left`）移动了至少 `min` 像素 |
+| `game` | 在编辑器里运行游戏，找到第一个 `class` 节点，依次尝试 `actions_any` 里的输入动作，直到它按 `expect`（`rises`、`moves_right`、`moves_left`）移动了至少 `min` 像素。`hold`、`after` 是游戏时间 |
 | `play` | 在编辑器里运行游戏，按 `steps` 一步步操作和检查（见下） |
 | `transcript_lacks` | 会话里没有哪次工具调用的输入匹配 `pattern`（只在 `claude` 模式下检查） |
 | `no_workaround` | 编辑器拒绝之后，没有改用文件工具往项目里写、或用 `gd` 以外的 shell 命令写匹配 `pattern` 的内容 |
@@ -99,7 +99,9 @@ Windows 上 `GODOT_BIN` 用 `.console.exe`。
 
 ### `play` 的步骤
 
-看游戏**做了什么**，而不是文件里写了什么。检查可以带 `settings`（项目设置的名字和值），只在这项检查运行期间生效，之后恢复原值（原来没有的设置恢复成空字符串，所以只用于字符串设置），例如用 `{"internationalization/locale/test": "zh"}` 强制中文。每一步是下面之一，按顺序执行，任何一步失败，这项检查就失败（整项最多试两次，即失败后重来一次）：
+看游戏**做了什么**，而不是文件里写了什么。检查可以带 `settings`（项目设置的名字和值），只在这项检查运行期间生效，之后恢复原值（原来没有的设置恢复成空字符串，所以只用于字符串设置），例如用 `{"internationalization/locale/test": "zh"}` 强制中文。每一步是下面之一，按顺序执行，任何一步失败，这项检查就失败（整项最多试两次，即失败后重来一次）。
+
+`game` 和 `play` 检查期间游戏放慢到 0.05 倍（`game_speed` 允许的最慢速度；`play` 可以用 `speed` 改，`1` 表示不放慢），`wait`、`hold` 都是游戏时间。每次 `gd` 调用都要花时间启动，磁盘慢或机器忙时要一秒以上，偶尔好几秒，这段时间会算进两次读取之间：不放慢的话，在 WSL 里跳跃已经落地才读到位置，巡逻的敌人多走了一截。放慢 20 倍后，等 8 秒只相当于 0.4 秒游戏时间。
 
 | 步骤 | 做什么 |
 |---|---|
@@ -111,7 +113,7 @@ Windows 上 `GODOT_BIN` 用 `.console.exe`。
 | `{"input": "动作", "hold": 秒}`、`{"release": "动作"}` | 按下、松开输入动作（`game_input`，游戏收到的是真正的输入事件）；`hold: 0` 表示一直按着 |
 | `{"count": {...}, "as": "变量"}` | 匹配的节点有几个 |
 | `{"paused": "变量"}` | 游戏是否暂停 |
-| `{"wait": 秒}` | 等 |
+| `{"wait": 秒}` | 等（游戏时间） |
 | `{"restart": true}` | 停掉游戏再运行一次（存档之类） |
 | `{"expect": {"left": ..., "op": "==", "right": ..., "scale": 0.7, "plus": 90}, "why": "..."}` | 比较；`$变量` 取存下的值，右边是数时先乘 `scale` 再加 `plus` |
 

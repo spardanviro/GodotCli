@@ -27,6 +27,14 @@ const INSPECT_TIMEOUT_MS = 120_000;
 const GAME_TRIES = 2;
 const GAME_START_TIMEOUT_MS = 30_000;
 const GAME_POLL_MS = 1000;
+/**
+ * Engine.time_scale while a game or play check runs (the slowest game_speed allows).
+ * Each gd call takes a while to start, a second or more on a slow disk or a busy
+ * machine and several at times, and that time passes in the game between two reads:
+ * a jump would be over before the read after it. Slowed down 20 times, 8 seconds of
+ * waiting are 0.4 seconds of game time.
+ */
+const CHECK_GAME_SPEED = 0.05;
 const AGENT_TIMEOUT_MS = 30 * 60_000;
 const DEFAULT_MAX_TURNS = 60;
 const MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
@@ -105,6 +113,11 @@ function resPath(project, path) {
 
 // ---------------------------------------------------------------------------
 // gd and Godot
+
+/** Slows the running game down to `scale`. Returns the time scale the game runs at: 1 if it could not be set. */
+function slowGame(env, project, scale) {
+  return scale < 1 && gd(env, project, ["command", "game_speed", "--scale", String(scale)]).success ? scale : 1;
+}
 
 function gd(env, project, argv) {
   const result = spawnSync(process.execPath, [GD, "--json", ...argv], { cwd: project, env, encoding: "utf8", timeout: COMMAND_TIMEOUT_MS, maxBuffer: MAX_OUTPUT_BYTES });
@@ -449,13 +462,18 @@ async function gameCheckOnce(check, project, env) {
     const seen = [];
     // The agent names the actions: try the likely names until one is bound.
     for (const action of check.actions_any ?? []) {
+      // A jump is over in under a second: slowed down, the read after it still
+      // sees the move. hold and after are in game time.
+      const scale = slowGame(env, project, CHECK_GAME_SPEED);
       const before = read();
       const input = gd(env, project, ["command", "game_input", "--action", action, "--hold", String(check.hold ?? 0.2)]);
       if (!input.success) {
+        if (scale < 1) gd(env, project, ["command", "game_speed", "--scale", "1"]);
         continue;
       }
-      await sleep((check.after ?? 0.4) * 1000);
+      await sleep(((check.after ?? 0.4) / scale) * 1000);
       const after = read();
+      if (scale < 1) gd(env, project, ["command", "game_speed", "--scale", "1"]);
       if (!Array.isArray(before) || !Array.isArray(after)) {
         return `could not read the position of ${node}`;
       }
@@ -464,7 +482,7 @@ async function gameCheckOnce(check, project, env) {
       if (passed) {
         return null;
       }
-      seen.push(`${action}: (${dx.toFixed(1)}, ${dy.toFixed(1)})`);
+      seen.push(`${action}: (${dx.toFixed(1)}, ${dy.toFixed(1)}) from (${before.map((n) => n.toFixed(1))}) at speed ${scale}`);
       await sleep((check.settle ?? 1.5) * 1000); // Let it land again before the next try.
     }
     return seen.length === 0
@@ -592,20 +610,24 @@ async function playCheck(check, project, env) {
   }
 }
 
+/**
+ * Starts the game and slows it down (to check.speed, default CHECK_GAME_SPEED).
+ * Returns an error, or the time scale the game runs at.
+ */
 async function startGame(check, project, env) {
   const play = gd(env, project, ["command", "editor_play", ...(check.scene === undefined ? [] : ["--scene", check.scene])]);
   if (!play.success) {
-    return `editor_play: ${describeFailure(play)}`;
+    return { error: `editor_play: ${describeFailure(play)}` };
   }
   for (const started = Date.now(); Date.now() - started < GAME_START_TIMEOUT_MS; ) {
     await sleep(GAME_POLL_MS);
     const tree = gameTree(env, project);
     if (tree !== null && flatten(tree.tree).length > 1) {
       await sleep((check.settle ?? 1) * 1000);
-      return null;
+      return { scale: slowGame(env, project, check.speed ?? CHECK_GAME_SPEED) };
     }
   }
-  return "the game did not start";
+  return { error: "the game did not start" };
 }
 
 async function playCheckOnce(check, project, env) {
@@ -614,23 +636,24 @@ async function playCheckOnce(check, project, env) {
   const vars = { rand: 1000 + Math.floor(Math.random() * 9000) };
   const pathOf = (alias) => found[alias] ?? alias;
   try {
-    const started = await startGame(check, project, env);
-    if (started !== null) {
-      return started;
+    let started = await startGame(check, project, env);
+    if (started.error !== undefined) {
+      return started.error;
     }
     for (const [index, step] of (check.steps ?? []).entries()) {
       const at = `step ${index + 1}`;
       if (step.wait !== undefined) {
-        await sleep(step.wait * 1000);
+        // Waits are in game time.
+        await sleep((step.wait / started.scale) * 1000);
       } else if (step.restart === true) {
         gd(env, project, ["command", "editor_stop"]);
         // The old game must be gone first, or its tree would pass for the new one's.
         for (const begun = Date.now(); gameTree(env, project) !== null && Date.now() - begun < GAME_START_TIMEOUT_MS; ) {
           await sleep(GAME_POLL_MS);
         }
-        const again = await startGame(check, project, env);
-        if (again !== null) {
-          return `${at}: ${again}`;
+        started = await startGame(check, project, env);
+        if (started.error !== undefined) {
+          return `${at}: ${started.error}`;
         }
       } else if (step.find !== undefined) {
         let node;
