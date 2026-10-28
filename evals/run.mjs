@@ -236,10 +236,12 @@ function claude(task, env, project, options) {
         child.stdout.emit("data", Buffer.from("\n"));
       }
       const notes = final.isError ? [`the session ended in an error${stderr === "" ? "" : `: ${stderr.slice(-300)}`}`] : [];
-      // A session that never got going (signed out, out of quota, no network) says nothing about the task.
-      // What the session said counts only when it did nothing: a model may well write "rate limit" in an answer.
+      // A session that never got going (signed out, out of quota, no network) says nothing about the task,
+      // nor does one they cut short: its work may be half done. What the session said counts only when it
+      // did nothing or ended in an error: a model may well write "rate limit" in an answer.
       const idle = transcript.length === 0 && final.turns <= 1;
-      const infra = (final.isError && final.turns === 0 && transcript.length === 0) || (idle && NOT_RUNNING.test(`${stderr}\n${final.finalText}`));
+      const stopped = (idle || final.isError) && NOT_RUNNING.test(`${stderr}\n${final.finalText}`);
+      const infra = (final.isError && final.turns === 0 && transcript.length === 0) || stopped;
       resolvePromise({ notes, transcript, finalText: final.finalText, turns: final.turns, costUsd: final.costUsd, infra });
     });
   });
