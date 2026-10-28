@@ -21,6 +21,8 @@ const STEP_TIMEOUT_MS = 180_000;
 const STARTUP_TIMEOUT_MS = 120_000;
 const SCENE_TIMEOUT_MS = 60_000;
 const REQUEST_TIMEOUT_MS = 10_000;
+// Moving a file to the recycle bin on a fresh Windows runner can take longer than any other command.
+const SLOW_REQUEST_TIMEOUT_MS = 60_000;
 const POLL_INTERVAL_MS = 200;
 // The default of 1 MiB turns a chatty import into a spurious ENOBUFS failure.
 const MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
@@ -72,14 +74,14 @@ function runGodot(godot, args) {
  * @param {{ method?: string, path: string, headers?: Record<string, string>, body?: string }} options
  * @returns {Promise<Response>}
  */
-function request(port, { method = "GET", path, headers = {}, body }) {
+function request(port, { method = "GET", path, headers = {}, body, timeout = REQUEST_TIMEOUT_MS }) {
   return new Promise((resolve, reject) => {
     const allHeaders = { ...headers };
     if (body !== undefined) {
       allHeaders["Content-Length"] = String(Buffer.byteLength(body));
     }
     const req = http.request(
-      { host: LOOPBACK, port, method, path, headers: allHeaders, agent: false, timeout: REQUEST_TIMEOUT_MS },
+      { host: LOOPBACK, port, method, path, headers: allHeaders, agent: false, timeout },
       (res) => {
         const chunks = [];
         res.on("data", (chunk) => chunks.push(chunk));
@@ -188,6 +190,7 @@ function command(instance, name, args = {}, options = {}) {
     path: `/v1/commands/${name}`,
     headers: { Authorization: `Bearer ${instance.token}`, "Content-Type": "application/json" },
     body: JSON.stringify({ args, ...options }),
+    timeout: name === "fs_delete" ? SLOW_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS,
   });
 }
 
