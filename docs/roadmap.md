@@ -40,7 +40,7 @@
 
 - **`gd mcp`**：标准输入输出上的 MCP 服务器，编辑器的命令（有编辑器时取它列出的，含项目自定义命令；没有时取随包发布的内置清单）加 10 个不需要编辑器的 `gd_*` 工具。在真实无头编辑器上用模拟客户端走通了"无编辑器 → 启动无头编辑器 → 建场景和节点 → 读场景树 → 保存 → 运行"。规则见 [protocol.md](protocol.md) 第 6.8 节；第 4.3 节如实写明了只接 MCP 的客户端能让代码在游戏进程里运行。
 - **`gd mcp configure`**：给 Claude Code、Codex、Cursor、VS Code、Gemini CLI 写配置，先预览、`--yes` 才写，不经符号链接。
-- **`gd skills install`**：把插件的技能（当时十个，现在 13 个）装进 Codex（同一种 `SKILL.md` 格式）或任意目录。工具经 `gd mcp` 或 shell 到达其他智能体，技能经这一条。
+- **`gd skills install`**：把插件的技能（当时十个，现在 16 个）装进 Codex（同一种 `SKILL.md` 格式）或任意目录。工具经 `gd mcp` 或 shell 到达其他智能体，技能经这一条。
 - **评测集**（[../evals/README.md](../evals/README.md)）：当时 23 个任务（现在 34 个），含路线图点名的"全新会话完成平台跳跃角色"（检查运行无报错，并在游戏里按键验证跳起和右移）和"被拒绝后不绕路"。`node evals/run.mjs` 回放参考答案 23/23 通过，`--agent idle`（什么都不做）只有那个"不绕路"任务通过；两者都进了持续集成（Godot 4.3 和 4.7）。`--agent claude` 每个任务开一个全新的 Claude Code 会话。
 - **Codex 实测连上 `gd mcp`**（2026-10-20，codex-cli 0.163）：`gd mcp configure codex --yes` 只在 `~/.codex/config.toml` 末尾加了 `gdcli` 一节；`codex exec` 只用 gdcli 的工具完成了"查状态 → 启动无头编辑器 → 建场景 → 加 Sprite2D → 保存 → 读场景树 → 停编辑器"，磁盘上的场景与预期一致。实测发现 Codex 不把 `GODOT_BIN` 传给 MCP 服务器，于是 `configure` 改为把找到的 Godot 以 `--godot` 写进条目。
 - **第一次基线**（[../evals/results/claude-baseline-2026-10-20.json](../evals/results/claude-baseline-2026-10-20.json)，2026-10-20，23 个任务，每个跑一次）：23/23 通过，333 轮，7.18 美元。一次就全部通过，说明这套任务已经到顶，于是有了下面的第二次。
