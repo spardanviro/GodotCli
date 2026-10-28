@@ -744,7 +744,9 @@ func test_project_input_map_set_reads_modifiers_as_modifiers() -> void:
 	var nothing: Variant = commands._event_from({"key": "Ctrl+Foo"})
 	var plain: InputEventKey = commands._event_from({"key": "Space"})
 
-	equal([save.physical_keycode, save.ctrl_pressed], [KEY_S, true], "S with Ctrl held, not one key code with the Ctrl bit in it")
+	# Up to 4.4 the engine reads "Ctrl" as Cmd-or-Ctrl (Ctrl off macOS); later versions as Ctrl itself.
+	equal(save.physical_keycode, KEY_S, "S, not one key code with the modifier bit in it")
+	check(save.ctrl_pressed or save.command_or_control_autoremap, "with Ctrl held")
 	equal(nothing, null, "modifiers alone name no key")
 	equal([plain.physical_keycode, plain.ctrl_pressed], [KEY_SPACE, false], "a plain key is unchanged")
 

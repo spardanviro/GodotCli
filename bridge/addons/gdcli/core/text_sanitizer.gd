@@ -15,15 +15,20 @@ const _UNSAFE_RANGES: Array[int] = [
 	0xAD, 0xAD,  # soft hyphen
 	0x34F, 0x34F,  # combining grapheme joiner
 	0x61C, 0x61C,  # Arabic letter mark
-	0x180E, 0x180E,  # Mongolian vowel separator
+	0x115F, 0x1160,  # Hangul choseong and jungseong fillers
+	0x17B4, 0x17B5,  # Khmer inherent vowels, drawn as nothing
+	0x180B, 0x180F,  # Mongolian variation selectors and vowel separator
 	0x200B, 0x200F,  # zero-width characters and directional marks
 	0x2028, 0x202E,  # line/paragraph separators, bidirectional embeddings and overrides
 	0x2060, 0x206F,  # word joiner, invisible operators, bidirectional isolates
+	0x2800, 0x2800,  # blank Braille pattern
 	0x3164, 0x3164,  # Hangul filler
 	0xFE00, 0xFE0F,  # variation selectors
 	0xFEFF, 0xFEFF,  # byte order mark
+	0xFFA0, 0xFFA0,  # halfwidth Hangul filler
 	0xFFF9, 0xFFFB,  # interlinear annotation controls
 	0xE0000, 0xE007F,  # tag characters, usable to smuggle invisible ASCII
+	0xE0100, 0xE01EF,  # variation selectors supplement
 ]
 
 static var _unsafe_regex: RegEx
