@@ -10,183 +10,383 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0"></a>
 </p>
 
-<p align="center"><b>从命令行和编码智能体里驾驶 Godot 编辑器。</b></p>
+<p align="center"><b>Let Claude Code, Codex, Cursor or any MCP agent build your Godot 4 game through the real editor.</b></p>
 
-> **In English:** gdcli lets coding agents (Claude Code, Codex, Cursor and any MCP client) and people at a terminal build Godot 4 games through the real editor: read and change the open scene with every step on the editor's undo stack, run the game and inspect, steer and debug it while it runs, check scripts and run scenes without an editor, and look up the engine's API and manual. Changes that would run code inside the editor wait for a person to approve them. It is three parts: a bridge plugin in the editor, the `gd` command line (`npm install -g @spardanviro/gdcli`), and a Claude Code plugin with 17 skills. The documentation is in Chinese.
+<p align="center"><b>English</b> | <a href="README.zh-CN.md">简体中文</a></p>
 
 ---
 
-## 它解决什么问题
+gdcli connects a coding agent to a running Godot editor. You describe a game feature in plain words ("a 2D
+character that runs and jumps, with ground to stand on"). The agent builds it the way a person would: it creates
+nodes, sets properties, writes and attaches scripts, paints tiles and makes animations. Every step is on the
+editor's undo stack. Then it runs the game, presses keys and reads values in the running game to check that the
+character really jumps.
 
-让 AI 写 Godot 游戏，常见的做法是让它直接改 `.tscn` 和 `.gd` 文件。这样做的问题很多：场景文件的格式容易写坏，改动不进编辑器的撤销栈，看不到游戏实际跑起来是什么样，而且任何代码都可能被写进编辑器里运行。
+It works with the official Godot 4.3 to 4.7 builds, standard or .NET, on Windows, macOS and Linux. Nothing is
+compiled into the engine and no API key goes into Godot: the agent you already use does the thinking, and gdcli
+gives it hands and eyes in the editor.
 
-gdcli 换了一条路：**智能体通过编辑器来做事**，和人点编辑器的效果一样。
+```text
+You:   Make a 2D platformer character that moves left and right and jumps, with ground under it. Run it to check.
 
-- **改场景走编辑器**：建节点、改属性、挂脚本、连信号、做动画、画瓦片，每一步都是编辑器撤销栈里的一步，`Ctrl+Z` 能撤销。
-- **能看见游戏在干什么**：从编辑器运行游戏后，可以读运行中节点的属性、模拟按键、调用方法、读报错和输出、下断点、单步、看局部变量。
-- **不开编辑器也能做的事**：运行场景并拿到结构化的报错、检查脚本、导入、导出、查当前引擎版本的接口和官方手册。
-- **危险的改动要人点头**：会让代码进入编辑器进程的改动（`@tool` 脚本、`addons/`、自动加载、C#、`eval` 等）会在编辑器里弹窗，人同意才执行；没有窗口的编辑器一律拒绝。
-- **一套命令，多种用法**：人在终端里用，Claude Code 通过插件用，Codex、Cursor、VS Code、Gemini CLI 通过 MCP 用。
+Agent: gd command scene_new --path res://main.tscn --root-type Node2D
+       gd command node_create --type CharacterBody2D --name Player --properties '{"position": [200, 300]}'
+       gd command node_create --type CollisionShape2D --parent Player --properties '{"shape": {"$new": "RectangleShape2D", ...}}'
+       gd command fs_write_text --path res://player.gd --text-file /tmp/player.gd
+       gd command node_attach_script --path Player --script res://player.gd
+       gd command project_input_map_set --action jump --events '[{"key": "Space"}]' --yes
+       gd command scene_save
+       gd command editor_play
+       gd command game_input --action jump --hold 0.1
+       gd command game_node_get --path Main/Player --properties '["velocity", "position"]'   # it went up: done
+```
 
-## 组成
+## Why
 
-| 部分 | 是什么 | 从哪里装 |
+The usual way to let an AI write a Godot game is to have it edit `.tscn` and `.gd` files directly. That breaks in
+several ways:
+
+- Scene files are easy to corrupt.
+- Changes skip the editor's undo stack.
+- The model never sees how the game actually behaves.
+- Any code it writes may end up running inside your editor.
+
+gdcli takes the other road: **the agent works through the editor.**
+
+| | Editing files directly | With gdcli |
 |---|---|---|
-| **桥接**（`addons/gdcli`） | 编辑器插件（GDScript）。在 `127.0.0.1` 上监听，执行命令，管撤销栈和人工批准 | `gd bridge install`，或 [Godot 资源库](https://godotengine.org/asset-library/asset/5539) |
-| **`gd` 命令行** | 找到编辑器、发命令、输出结果；也能自己启动 Godot 做离线的事；还是一个 MCP 服务器 | `npm install -g @spardanviro/gdcli` |
-| **Claude 插件**（`godot@gdcli`） | 17 个技能（怎么用 `gd`、Godot 的坑和做法），3 个钩子 | `claude plugin install godot@gdcli` |
+| Scenes and nodes | hand-written `.tscn` text, ids and paths by guesswork | 72 structured commands; the editor writes the files |
+| Undo | none | every change is a step of the editor's undo stack, `Ctrl+Z` works |
+| Seeing the result | at best, the text the game prints | read and set values in the running game, press inputs, take screenshots, breakpoints, locals |
+| Unsaved work in the editor | overwritten or ignored | the same scene the person sees, live |
+| Code running in the editor | whatever was written | `@tool` scripts, addons, autoloads, C# and `eval` wait for a person to click Allow |
+| Engine knowledge | whatever the model remembers | 17 skills with Godot 4 pitfalls, the API of your installed version, and the official manual |
 
+## What you can do with it
+
+- **Build scenes**: nodes, properties, scripts, signals, groups, resources, animations (players, state machines,
+  blend spaces, sprite frames), tile sets and tile maps with terrains, navigation meshes, import settings.
+- **Change the project**: project settings, input actions, moving and renaming files with references updated
+  across scenes and scripts.
+- **Run and look inside**: start the game from the editor and read its node tree and live values, press input
+  actions, call methods, read errors and output with script stack traces, take screenshots, read the frame rate,
+  memory, draw calls and orphan nodes.
+- **Debug**: set breakpoints, pause, step, read the call stack and local variables of a stopped game.
+- **Without an editor**: run a scene and get its errors with file and line, check scripts, run GUT or gdUnit4
+  tests, import, export, run a SceneTree script, look up any class of your Godot version, search the manual.
+- **From any agent**: the same commands as a CLI (`gd`), as a Claude Code plugin, and as an MCP server for Codex,
+  Cursor, VS Code, Gemini CLI and others.
+
+## The three parts
+
+| Part | What it is | Required? | Install |
+|---|---|---|---|
+| **Bridge** (`addons/gdcli`) | An editor plugin in GDScript. Listens on `127.0.0.1`, runs the commands, keeps the undo stack, asks a person when needed | Yes, for anything that touches the open editor | `gd bridge install`, the [Godot Asset Library](https://godotengine.org/asset-library/asset/5539), or the zip on [Releases](https://github.com/spardanviro/GodotCli/releases) |
+| **`gd` command line** | Finds the editor, sends commands, prints results; starts Godot itself for offline work; an MCP server | Yes | `npm install -g @spardanviro/gdcli` |
+| **Claude plugin** (`godot@gdcli`) | 17 skills (how to use `gd`, how Godot 4 is meant to be used) and 3 hooks (start-of-session hint, guards against writing project files behind the editor's back) | Optional, recommended with Claude; other agents get the same skills with `gd skills install` | the plugin marketplace, or upload the zip from [Releases](https://github.com/spardanviro/GodotCli/releases) in the Claude app |
+
+```text
+ agent / terminal                     Godot editor
+┌──────────────┐   HTTP (loopback)   ┌──────────────────────────────┐
+│ gd command … │ ──────────────────▶ │ bridge addons/gdcli          │──▶ scenes, undo stack, files
+│ gd mcp       │   token + handshake │   asks a person when needed  │──▶ running game (debugger)
+└──────┬───────┘                     └──────────────────────────────┘
+       │ starts Godot directly (no editor)
+       └──▶ gd run / check / test / import / export / api / docs
 ```
- 智能体 / 终端                       Godot 编辑器
-┌──────────────┐   HTTP（本机）    ┌────────────────────────┐
-│ gd command … │ ───────────────▶ │ 桥接 addons/gdcli        │──▶ 场景、撤销栈、文件
-│ gd mcp       │   令牌 + 握手     │   需要时弹窗请人批准       │──▶ 运行中的游戏（调试器）
-└──────┬───────┘                  └────────────────────────┘
-       │ 直接启动 Godot（不经过编辑器）
-       └──▶ gd run / check / import / export / api / docs
-```
 
-桥接只监听本机回环地址，令牌保存在用户目录（`~/.gdcli`）里，每次连接都先用 HMAC 握手，确认对方真的持有令牌。细节见 [docs/protocol.md](docs/protocol.md)。
+The bridge listens on the loopback address only. Its token is kept in your home folder (`~/.gdcli`), and every
+connection starts with an HMAC handshake that proves the other side holds the token. Details:
+[docs/protocol.md](docs/protocol.md) (in Chinese).
 
-## 快速开始
+## Getting started
 
-需要 **Node.js 22** 以上和 **Godot 4.3** 以上（4.3 到 4.7 在持续集成里测试，Windows、macOS、Linux 和 .NET 版都有）。
+### 1. What you need
+
+- **Godot 4.3 or newer**, any official build (standard or .NET). gdcli does not install Godot.
+- **Node.js 22 or newer**, for the `gd` command line.
+- For the agent part: [Claude Code](https://claude.com/claude-code), or any MCP client (Codex, Cursor, VS Code,
+  Gemini CLI, ...).
+
+### 2. Install the command line and point it at Godot
 
 ```bash
 npm install -g @spardanviro/gdcli
-gd doctor                       # 找到 Godot 了吗、还缺什么
+gd doctor
 ```
 
-`gd` 按这个顺序找 Godot：`--godot <路径>` → 环境变量 `GODOT_BIN` → `~/.gdcli/config.json` 里的 `godot_bin` → PATH 上的 `godot`、`godot4`。Windows 上请指向 `*_console.exe`。
+`gd doctor` says which Godot it found and what is missing. `gd` looks for Godot in this order:
 
-装好后 `gd` 和 `gdcli` 是同一个命令。如果 `gd` 被 shell 别名占用（oh-my-zsh 的 git 插件把它设成了 `git diff`），就用 `gdcli`。
+1. `--godot <path>`
+2. the `GODOT_BIN` environment variable
+3. `godot_bin` in `~/.gdcli/config.json`
+4. `godot`, then `godot4`, on the PATH
 
-### 新项目
+On Windows, point it at the `*_console.exe` next to the editor, so that its output can be read.
+
+`gd` and `gdcli` are the same command. If `gd` is taken by a shell alias (oh-my-zsh's git plugin makes it
+`git diff`), use `gdcli` or `unalias gd`.
+
+### 3. Put the bridge into your project
+
+Pick one of these:
+
+**a. With `gd` (recommended)**: it always installs the bridge of the same version as `gd`.
 
 ```bash
-gd new my-game --renderer mobile      # 建项目并装好桥接（渲染器：forward_plus / mobile / gl_compatibility）
-cd my-game
-gd open                               # 打开编辑器；没有显示器时用 gd host start 起一个无头编辑器
-gd status                             # 编辑器连上了吗
-```
-
-### 已有项目
-
-```bash
+gd new my-game --renderer mobile   # a new project with the bridge already in it
+                                   # (renderers: forward_plus, mobile, gl_compatibility)
+# or, for a project you already have:
 cd your-game
-gd bridge install                     # 把桥接装进项目并启用（换版本时加 --force）
-gd open
+gd bridge install                  # copies addons/gdcli and enables it; --force to replace another version
 ```
 
-### 试几条命令
+**b. From the Godot Asset Library, inside the editor**:
+
+1. Open your project in Godot and switch to the **AssetLib** tab at the top.
+2. Search for **gdcli**, open "gdcli bridge", click **Download**, then **Install**. Keep `addons/gdcli` ticked.
+3. **Project > Project Settings > Plugins**: tick **Enable** next to gdcli. This also adds its small `GdcliGame`
+   autoload, which lets `gd` look into the running game.
+
+The page is [godotengine.org/asset-library/asset/5539](https://godotengine.org/asset-library/asset/5539). The
+Asset Library can be a version behind while a new release waits for review. `gd` warns when the bridge in a
+project differs from its own; `gd bridge install --force` brings them in line.
+
+**c. From a release zip**: download `gdcli-bridge-<version>.zip` from
+[Releases](https://github.com/spardanviro/GodotCli/releases). Copy the `addons/gdcli` folder inside it into
+your project's `addons/` folder, then enable it as in b.3.
+
+### 4. Open the editor and check the connection
+
+```bash
+gd open          # starts the editor on the project (or open it yourself as usual)
+gd status        # lists the editors gd can reach: you should see your project
+```
+
+On a machine without a display (a server, CI, WSL without a desktop), `gd host start` runs a headless editor
+instead, and `gd host stop` ends it.
+
+### 5. Try a few commands yourself
 
 ```bash
 gd command scene_new --path res://main.tscn --root-type Node2D --root-name Main
 gd command node_create --type Sprite2D --name Logo --properties '{"position": [100, 50]}'
 gd command scene_tree
-gd command edit_undo                  # 撤销上一步，和在编辑器里按 Ctrl+Z 一样
+gd command edit_undo                  # the same as Ctrl+Z in the editor
+gd command edit_redo
 gd command scene_save
-gd run --headless --seconds 3         # 不开编辑器跑 3 秒，把报错整理好返回
+gd run --headless --seconds 3         # runs the project for 3 seconds without an editor and reports its errors
 ```
 
-`gd list` 列出编辑器提供的全部命令、参数和说明（加 `--json` 是完整的参数结构）。
+You see each change appear in the editor as it happens. `gd list` lists every command the editor offers, with
+its arguments (`--json` gives the full schemas).
 
-## 配合 Claude Code 使用
+### 6. Hand it to an agent
+
+#### Claude Code
+
+Install the plugin (optional, but it is what teaches Claude how to use `gd` well):
 
 ```bash
 claude plugin marketplace add spardanviro/GodotCli
 claude plugin install godot@gdcli
 ```
 
-然后在项目文件夹里打开 Claude Code，直接说要做什么，比如：
+Without the marketplace, use `gdcli-claude-plugin-<version>.zip` from
+[Releases](https://github.com/spardanviro/GodotCli/releases):
 
-> 做一个 2D 平台跳跃角色，能左右移动和跳跃，脚下有地面可以站，做完后运行确认。
+- **Claude desktop app**: Customize > Plugins > Add > **Upload plugin**, and pick the zip. The skills and hooks
+  work in sessions that run on your machine (Cowork, Claude Code), where `gd` is installed. Chat on claude.ai
+  loads only the skills and cannot reach your editor.
+- **Claude Code, for one session**: `claude --plugin-dir gdcli-claude-plugin-<version>.zip`, or
+  `claude --plugin-url <the zip's release URL>`.
 
-插件带来三样东西：
+See [plugin/README.md](plugin/README.md) for the details.
 
-- **技能**：模型需要时自动加载。
+Then open Claude Code in the project folder and say what you want. For example:
 
-  | 技能 | 内容 |
-  |---|---|
-  | `godot-cli` | 怎么用 `gd`：命令地图、值的写法、脚本怎么写进项目、人工批准、运行与检查、调试运行中的游戏 |
-  | `godot-gdscript` | GDScript 里真正会出错的写法、场景与脚本的分工、信号、自动加载 |
-  | `godot-physics-gameplay` | 角色移动、刚体、区域、碰撞层、射线、输入、相机、导航 |
-  | `godot-ui` | Control、锚点、容器、主题、HUD 和菜单、焦点、分辨率适配 |
-  | `godot-3d-rendering` | 3D 场景、材质、灯光、三种渲染器、着色器、导入 |
-  | `godot-animation-audio` | AnimationPlayer、补间、动画树、粒子、音频 |
-  | `godot-new-project` | 从零开始一个项目：先定下以后难改的几件事 |
-  | `godot-troubleshooting` | 从症状找原因：掉出地面、不动、信号不触发、黑屏…… |
-  | `godot-tilemap` | 瓦片集、画关卡、瓦片碰撞、地形自动拼接 |
-  | `godot-sprite-animation` | 图集切帧动画、动画状态机、像素风设置 |
-  | `godot-localization` | 翻译表、`tr()`、切换语言、中日韩字体 |
-  | `godot-export` | 导出模板与预设、`gd export`、Web 导出 |
-  | `godot-audio-buses` | 总线布局、效果器、设置菜单里的音量 |
-  | `godot-shaders` | 着色器语言、ShaderMaterial 和参数、2D 特效、全屏效果、3D 表面 |
-  | `godot-multiplayer` | 建主机与加入、权威、RPC、MultiplayerSpawner 和 MultiplayerSynchronizer、多实例测试 |
-  | `godot-addons` | 选择和启用第三方插件、检查是否正常、测试框架（GUT、gdUnit4） |
-  | `godot-migrate-3-to-4` | 把 Godot 3 项目或旧教程里的代码迁到 Godot 4：转换器、常见改名、转换后怎么查 |
+> Make a 2D platformer character that runs and jumps, with ground to stand on. Run it and check that jumping works.
 
-- **会话开始时的钩子**：在 Godot 项目里开始的会话，会被告知先用这些技能、通过 `gd` 操作。需求里不提 Godot 也一样。
-- **写入钩子**：拦住 Claude 用自己的文件工具或 shell 直接改项目里的脚本、场景和项目文件，让改动都经过编辑器。这是护栏，不是沙箱；要有真正的约束，请配合 Claude Code 的沙箱，见 [plugin/README.md](plugin/README.md)。
+> The enemy walks through walls. Find out why and fix it.
 
-## 配合其他智能体使用（MCP）
+> Add a pause menu with Resume and Quit, opened with Escape, and check that the game really stops.
 
-`gd mcp` 是一个标准输入输出上的 MCP 服务器：编辑器的每条命令是一个同名工具，另有 `gd_run`、`gd_check`、`gd_test`、`gd_api_*`、`gd_docs_*`、`gd_host_start` 等不需要编辑器的工具。
+> Translate the main menu into Chinese and Japanese, and add a language switch.
+
+What happens:
+
+- The skills load when they are needed: `godot-cli` for the commands, plus the topic or task one (tile maps, UI,
+  shaders, multiplayer, troubleshooting, ...).
+- Claude builds through `gd command ...`, and you watch the editor change. `Ctrl+Z` in the editor undoes its
+  steps like your own.
+- When a change would run code inside the editor (a `@tool` script, an addon, an autoload, C#), a dialog appears
+  in the editor showing the full content. Nothing happens until you click **Allow**.
+- It checks its work: `gd run` for errors, and the game commands to see the behaviour.
+- The plugin's hooks stop Claude from writing scripts and scenes straight to disk behind the editor's back. That
+  is a guard rail, not a sandbox: for a real boundary, use Claude Code's sandbox as described in
+  [plugin/README.md](plugin/README.md).
+
+#### Codex, Cursor, VS Code, Gemini CLI and other MCP clients
+
+`gd mcp` is an MCP server on standard input and output. Every editor command is a tool of the same name, plus
+`gd_run`, `gd_check`, `gd_test`, `gd_api_*`, `gd_docs_*`, `gd_host_start` and others that work without an editor.
 
 ```bash
-gd mcp configure codex                # 先显示要写进 ~/.codex/config.toml 的条目
-gd mcp configure codex --yes          # 写入
-gd mcp configure cursor --yes         # cursor、vscode、gemini、claude 写进项目里对应的配置文件
-gd skills install codex --yes         # 把 17 个技能装进 ~/.codex/skills（同一种 SKILL.md 格式）
-gd skills install --dir <目录> --yes   # 其他读 SKILL.md 的智能体
+gd mcp configure codex                # shows the entry it would add to ~/.codex/config.toml
+gd mcp configure codex --yes          # writes it
+gd mcp configure cursor --yes         # cursor, vscode, gemini, claude: the project's own config file
+gd skills install codex --yes         # the 17 skills into ~/.codex/skills (the same SKILL.md format)
+gd skills install --dir <folder> --yes   # for any other agent that reads SKILL.md
 ```
 
-工具让智能体能做事，技能告诉它怎么做才对。人工批准的规则对这些客户端同样生效。
+The tools let the agent act; the skills tell it how to do it right. Person approval works the same for every
+client.
 
-## 命令速查
+## A walkthrough: a jumping character, by hand
 
-**需要编辑器**（桥接在运行中的编辑器里）
+The same flow the agent follows, step by step, so you can see what each command does. Start in a project with the
+bridge and the editor open.
 
-| 命令 | 作用 |
+```bash
+# A scene with a character and a floor.
+gd command scene_new --path res://main.tscn --root-type Node2D --root-name Main
+gd command node_create --type CharacterBody2D --name Player --properties '{"position": [200, 200]}'
+gd command node_create --type ColorRect --parent Player \
+  --properties '{"position": [-50, -50], "size": [100, 100], "color": "#4a90d9"}'
+gd command node_create --type CollisionShape2D --parent Player \
+  --properties '{"shape": {"$new": "RectangleShape2D", "properties": {"size": [100, 100]}}}'
+gd command node_create --type StaticBody2D --name Floor --properties '{"position": [400, 500]}'
+gd command node_create --type CollisionShape2D --parent Floor \
+  --properties '{"shape": {"$new": "RectangleShape2D", "properties": {"size": [800, 40]}}}'
+
+# Input actions the script will read.
+gd command project_input_map_set --action move_left --events '[{"key": "A"}, {"key": "Left"}]' --yes
+gd command project_input_map_set --action move_right --events '[{"key": "D"}, {"key": "Right"}]' --yes
+gd command project_input_map_set --action jump --events '[{"key": "Space"}]' --yes
+```
+
+Write the script to a scratch file (`player.gd`):
+
+```gdscript
+extends CharacterBody2D
+
+const SPEED := 300.0
+const JUMP_VELOCITY := -600.0
+
+
+func _physics_process(delta: float) -> void:
+	if not is_on_floor():
+		velocity += get_gravity() * delta
+	if Input.is_action_just_pressed("jump") and is_on_floor():
+		velocity.y = JUMP_VELOCITY
+	velocity.x = Input.get_axis("move_left", "move_right") * SPEED
+	move_and_slide()
+```
+
+```bash
+# Into the project, onto the node, and saved.
+gd command fs_write_text --path res://player.gd --text-file player.gd
+gd command node_attach_script --path Player --script res://player.gd
+gd command project_settings_set --name application/run/main_scene --value '"res://main.tscn"' --yes
+gd command scene_save
+
+# Does it compile and run without errors?
+gd check res://player.gd
+gd run --seconds 3 --headless
+
+# Does it behave? Run it from the editor and look inside.
+gd command editor_play
+gd command game_node_get --path Main/Player --properties '["position", "velocity"]'
+gd command game_input --action jump --hold 0.1
+gd command game_node_get --path Main/Player --properties '["position", "velocity"]'   # velocity.y < 0: it jumped
+gd command game_performance                                                           # fps, frame times, nodes
+gd command editor_stop
+```
+
+Something wrong? Stop at a line and look:
+
+```bash
+gd command editor_play
+gd command game_breakpoint --path res://player.gd --line 12
+gd command game_debug        # stopped? where, and why
+gd command game_locals       # the local variables at that line (delta)
+gd command game_breakpoint --path res://player.gd --line 12 --enabled false
+gd command game_continue
+gd command editor_stop
+```
+
+`--yes` on the input actions and the main scene: they change project settings, which the bridge counts as
+destructive and wants confirmed.
+
+A fuller version, with tiles and checks, is in
+[plugin/skills/godot-cli/references/walkthrough-platformer.md](plugin/skills/godot-cli/references/walkthrough-platformer.md).
+
+## gdcli and Godot AI
+
+gdcli has the same author as [Godot AI](https://github.com/spardanviro/Godot_AI), and the two take different
+roads to the same goal.
+
+| | gdcli (this project) | Godot AI |
+|---|---|---|
+| What it is | An editor addon (GDScript), a command line (`gd`, npm) and a Claude Code plugin | A native C++ module, compiled into a custom build of the engine |
+| Godot version | Official builds, 4.3 to 4.7, standard and .NET | 4.7+ from source (godot-master) |
+| Install | Asset Library or `gd bridge install`; `npm install` | Build the editor from source with the module |
+| Where the AI is | Outside the editor: the agent you already use (Claude Code, Codex, Cursor, Gemini CLI, any MCP client), with its own account | A chat panel docked inside the editor; you enter an API key for Anthropic, OpenAI, Gemini, DeepSeek or GLM |
+| How changes are made | Structured commands, each one an undoable editor step; free code (`eval`) is off by default and needs a person's approval each time | Tool calls and generated `EditorScript` code run in the editor, with permissions, checkpoints and a safety check |
+| The running game | Inspect, steer and debug it: values, inputs, calls, screenshots, breakpoints, locals, performance | Error monitoring and fixes inside the panel |
+| Without an editor | `gd run`, `check`, `test`, `import`, `export`, `api`, `docs` | Lives in the editor |
+| Good for | Using stable Godot with a coding agent in the terminal or an IDE, automation and CI | An assistant panel inside the editor, with a model of your choice |
+
+They share their Godot knowledge: the pitfalls collected for Godot AI became references in gdcli's skills.
+
+## Command reference
+
+**With an editor** (the bridge runs in an open or headless editor)
+
+| Command | What it does |
 |---|---|
-| `gd status` / `gd list` | 能连上的编辑器 / 它提供的命令 |
-| `gd command <名字> [--参数 值]` | 执行一条编辑器命令，参数也可以用 `--args '<json>'` 或 `--<参数>-file <文件>` 给 |
-| `gd host start` / `gd host stop` | 没开编辑器时起一个无头编辑器 / 关掉它 |
-| `gd eval <代码>` | 在编辑器里执行 GDScript（默认关闭，要在编辑器设置里打开，每次都要人批准） |
+| `gd status` / `gd list` | the editors gd can reach / the commands the editor offers |
+| `gd command <name> [--arg value]` | runs one editor command; arguments also as `--args '<json>'` or `--<arg>-file <file>` |
+| `gd host start` / `gd host stop` | a headless editor when none is open / stop it |
+| `gd eval <code>` | runs GDScript in the editor (off by default, enabled in the editor settings, approved by a person each time) |
 
-编辑器命令按类别：
+Editor commands by area:
 
-| 类别 | 命令 |
+| Area | Commands |
 |---|---|
-| 场景 | `scene_new` `scene_open` `scene_save` `scene_tree` `scene_list_open` |
-| 节点 | `node_create` `node_get` `node_set` `node_find` `node_move` `node_rename` `node_duplicate` `node_delete` `node_instantiate_scene` `node_attach_script` `node_connect_signal` `node_add_to_group` |
-| 文件与资源 | `fs_list` `fs_read_text` `fs_write_text` `fs_move` `fs_delete` `fs_scan` `resource_create` `resource_set` |
-| 项目 | `project_settings_get` `project_settings_set` `project_input_map` `project_input_map_set` |
-| 动画 | `animation_create` `animation_list` `animation_state_machine_create` `animation_blend_space_create` `sprite_frames_create` |
-| 瓦片与导航 | `tileset_add_atlas` `tileset_set_collision` `tileset_set_terrain` `tilemap_set_cells` `tilemap_get` `navigation_bake` |
-| 编辑器 | `editor_status` `editor_play` `editor_stop` `editor_errors` `editor_selection` `editor_screenshot` `edit_undo` `edit_redo` |
-| 运行中的游戏 | `game_tree` `game_node_get` `game_node_set` `game_call` `game_input` `game_output` `game_errors` `game_screenshot` |
-| 调试 | `game_breakpoint` `game_pause` `game_step` `game_continue` `game_debug` `game_locals` |
+| Scenes | `scene_new` `scene_open` `scene_save` `scene_tree` `scene_list_open` |
+| Nodes | `node_create` `node_get` `node_set` `node_find` `node_move` `node_rename` `node_duplicate` `node_delete` `node_instantiate_scene` `node_attach_script` `node_connect_signal` `node_disconnect_signal` `node_connections` `node_add_to_group` `node_remove_from_group` |
+| Files and resources | `fs_list` `fs_read_text` `fs_write_text` `fs_move` `fs_delete` `fs_scan` `resource_create` `resource_get` `resource_set` `import_settings_get` `import_settings_set` |
+| Project | `project_settings_get` `project_settings_set` `project_input_map` `project_input_map_set` |
+| Animation | `animation_create` `animation_list` `animation_state_machine_create` `animation_blend_space_create` `sprite_frames_create` |
+| Tiles and navigation | `tileset_add_atlas` `tileset_set_collision` `tileset_set_terrain` `tilemap_set_cells` `tilemap_get` `navigation_bake` |
+| Editor | `editor_status` `editor_play` `editor_stop` `editor_errors` `editor_selection` `editor_select` `editor_screenshot` `edit_undo` `edit_redo` |
+| Running game | `game_tree` `game_node_get` `game_node_set` `game_call` `game_input` `game_output` `game_errors` `game_screenshot` `game_performance` |
+| Debugger | `game_breakpoint` `game_pause` `game_step` `game_continue` `game_debug` `game_locals` |
 
-**不需要编辑器**（`gd` 自己启动 Godot）
+A project can add commands of its own in `res://gdcli_commands/`.
 
-| 命令 | 作用 |
+**Without an editor** (`gd` starts Godot itself)
+
+| Command | What it does |
 |---|---|
-| `gd run [场景] [--seconds N] [--headless]` | 运行项目或某个场景，返回整理好的报错（文件、行号、调用栈） |
-| `gd check <脚本>…` | 检查脚本能否编译 |
-| `gd import` / `gd export <预设> <输出> [--debug\|--pack]` | 导入资源 / 导出游戏 |
-| `gd exec <脚本>` | 无头运行一个 SceneTree 脚本 |
-| `gd test [路径…] [--framework gut\|gdunit4] [--select 文字] [--junit 文件]` | 无头运行项目里的 GUT 或 gdUnit4 测试，列出每个失败的测试，可另存 JUnit 报告 |
-| `gd api class <类名> [--member 成员]` / `gd api search <文字>` | 查当前 Godot 版本的接口 |
-| `gd docs install` / `search` / `page` | 下载当前版本的官方手册（只取文本）并检索 |
+| `gd run [scene] [--seconds N] [--headless]` | runs the project or a scene and reports its errors with file, line and stack |
+| `gd check <script>...` | compiles scripts and reports their errors |
+| `gd test [paths] [--framework gut\|gdunit4] [--select text] [--junit file]` | runs the project's GUT or gdUnit4 tests and lists each failure |
+| `gd import` / `gd export <preset> <output> [--debug\|--pack]` | imports resources / exports the game |
+| `gd exec <script> [-- args]` | runs a SceneTree script headless |
+| `gd api class <Name> [--member m]` / `gd api search <text>` | the API of your installed Godot version |
+| `gd docs install` / `search` / `page` | downloads the official manual for your version (text only) and searches it |
 
-**项目与安装**：`gd new`、`gd bridge install`、`gd bridge status`、`gd open`、`gd doctor`。
+**Project and setup**: `gd new`, `gd bridge install`, `gd bridge status`, `gd open`, `gd doctor`.
 
-**全局选项**：`--json`、`--project <路径>`、`--godot <路径>`、`--instance <id>`（同一项目开着多个编辑器时选一个）、`--timeout <秒>`、`--yes`（确认覆盖或删除）、`--dry-run`（只说会改什么，不改）。
+**Global options**: `--json`, `--project <path>`, `--godot <path>`, `--instance <id>` (when several editors have
+the project open), `--timeout <seconds>`, `--yes` (confirm overwriting or deleting), `--dry-run` (say what would
+change, change nothing).
 
-## 输出格式
+## Output
 
-任何命令加 `--json`，标准输出就是一个固定结构的信封，失败时也是：
+With `--json`, every command prints one envelope of a fixed shape on standard output, on failure too:
 
 ```json
 {
@@ -199,106 +399,102 @@ gd skills install --dir <目录> --yes   # 其他读 SKILL.md 的智能体
 }
 ```
 
-失败时 `errors` 里每一项都有 `code`、`message`、`hint`、`details`。退出码：
+On failure each entry of `errors` has a `code`, `message`, `hint` and `details`. Exit codes: 0 success, 1 internal
+error, 2 usage, 3 authentication, 4 precondition (no editor, confirmation needed, a person declined), 5 retry
+later, 6 the command failed.
 
-| 退出码 | 含义 |
-|---|---|
-| 0 | 成功 |
-| 1 | 内部错误 |
-| 2 | 用法或参数错误 |
-| 3 | 认证失败 |
-| 4 | 前置条件不满足（比如没有编辑器、要确认、人拒绝了） |
-| 5 | 暂时性失败，稍后重试 |
-| 6 | 命令执行失败 |
+## Safety
 
-## 调试运行中的游戏
+- **Ordinary changes** (nodes, properties, plain scripts) run at once and go on the undo stack.
+- **Destructive changes** (deleting, overwriting, project settings) need `--yes` from the caller. That is a speed
+  bump, not an authorization.
+- **Changes that would bring code into the editor process** always wait for a person: `@tool` scripts, scenes and
+  resources with embedded scripts, any C# file, `addons/`, autoloads and other settings that decide which code
+  loads, files a .NET build reads, and `eval`. The dialog shows the full content; what the caller says does not
+  count. A headless editor has no one to ask and refuses.
+- **Access modes** live in the editor settings, per user and not in the project: `standard` (default), `ask` (a
+  person approves every destructive change), `readonly`, and `full` (asks no one; for unattended headless editors
+  and CI).
+- The game's own code runs with your rights, as when you press F5 yourself. To limit that, do not let your agent
+  client auto-approve writing files and running the game.
 
-```bash
-gd command editor_play
-gd command game_tree --max-depth 3
-gd command game_node_get --path Main/Player --properties '["velocity", "global_position"]'
-gd command game_input --action jump --hold 0.1       # 发送真正的输入事件，_input 和按钮也能收到
-gd command game_call --path Main/Player --method take_damage --arguments '[1]'
-gd command game_errors                               # 运行以来的报错，带脚本调用栈
-gd command game_breakpoint --path res://player.gd --line 42
-gd command game_debug                                # 停住了吗、为什么、调用栈
-gd command game_locals                               # 停住处的局部变量
-gd command game_continue
-gd command editor_stop
-```
+The full rules: [docs/protocol.md](docs/protocol.md), section 4 (in Chinese).
 
-## 安全模型
+## Troubleshooting
 
-- **一般的改动**（建节点、改属性、写普通脚本）直接执行，并进入撤销栈。
-- **破坏性的改动**（删除、覆盖、改项目设置）要调用方带上 `--yes`。这是减速带，不是授权。
-- **会让代码进入编辑器进程的改动**，一律弹窗请人批准，调用方说什么都不算数。包括：`@tool` 脚本、内嵌脚本的场景和资源、任何 C# 文件、`addons/`、自动加载和其他决定加载哪些代码的项目设置、.NET 构建会读取的文件，以及 `eval`。无头编辑器没人可问，一律拒绝。
-- **访问模式**存在编辑器设置里（每个用户一份，不随项目走）：`standard`（默认）、`ask`（每个破坏性操作都要人批准）、`readonly`（不做任何修改），以及 `full`（谁都不问，给无人值守的无头编辑器和持续集成用；上面"无头编辑器一律拒绝"在 `full` 下不成立）。
-- 游戏本身的代码以用户权限运行，这和自己按 F5 一样。要限制它，请在智能体客户端里不要自动放行写文件和运行类工具。
+**`gd` cannot find Godot**: run `gd doctor`. Set it with `--godot`, `GODOT_BIN` or `~/.gdcli/config.json`; on
+Windows point it at `*_console.exe`.
 
-完整说明见 [docs/protocol.md](docs/protocol.md) 第 4 节。
+**`NO_EDITOR`**: no editor is open, or the project has no bridge. `gd bridge install`, then `gd open`; without a
+display, `gd host start`.
 
-## 常见问题
+**`NOT_APPROVED`**: the change needs a person's approval in the editor, and they declined, or the editor has no
+window. Try again in an editor with a window, or do it another way that needs no approval. Do not work around it.
 
-**`gd` 找不到 Godot**：运行 `gd doctor`。用 `--godot`、`GODOT_BIN` 或 `~/.gdcli/config.json` 指定；Windows 上要指向 `*_console.exe`。
+**`MULTIPLE_EDITORS`**: more than one editor has the project open; pick one with `--instance <id>` (from
+`gd status`).
 
-**`NO_EDITOR`**：编辑器没开，或者没装桥接。先 `gd bridge install`，再 `gd open`；没有显示器时用 `gd host start`。
+**The bridge version differs from `gd`**: `gd bridge install --force` installs the bridge that matches.
 
-**`NOT_APPROVED`**：这个改动需要人在编辑器里批准，而人拒绝了，或者编辑器没有窗口。到有窗口的编辑器里再试，或者换一种不需要批准的做法；不要绕过。
+**Exporting fails**: export templates and presets are set up in the editor first (Editor > Manage Export
+Templates, Project > Export). The `godot-export` skill explains it.
 
-**`MULTIPLE_EDITORS`**：同一个项目开着不止一个编辑器，用 `--instance <id>` 选一个（`gd status` 里有 id）。
+## Evals
 
-**`gd` 被别名占用**：用 `gdcli`，或者在 shell 配置里 `unalias gd`。
+`evals/` holds 34 tasks: scenes, scripts, UI, gameplay, 3D, animation, tiles, localization, audio buses,
+debugging, and requests written in Chinese. 11 of them are hard ones checked by behaviour in the running game: a
+patrol-and-chase state machine, saving and loading, a pause menu, a logic bug that prints no error.
 
-**导出失败**：导出模板和预设要先在编辑器里准备好（Editor > Manage Export Templates，Project > Export）。见 `godot-export` 技能。
-
-## 评测
-
-`evals/` 里有 34 个任务，覆盖场景、脚本、界面、玩法、3D、动画、瓦片、本地化、音频总线、排错、中文需求等。其中 11 个是难题，在运行中的游戏里检查实际行为，比如巡逻和追击的状态机、存档读档、暂停菜单、没有报错的逻辑 bug。
-
-- 回放参考答案时全部通过，什么都不做时全部失败（只有"被拒绝后不绕路"例外），两者都跑在持续集成里。
-- 用真实 Claude 跑的第二次基线：31 个任务各跑 3 次，**93/93 通过**，结果见 [evals/results/claude-baseline.json](evals/results/claude-baseline.json)。
-
-一条命令就能重跑，并和以前的结果比较通过率、轮数和花费：
+- Replaying the reference answers passes every task; doing nothing fails them all (except "do not work around a
+  refusal"). Both run in CI.
+- With real Claude, the second baseline ran 31 tasks 3 times each: **93/93 passed**
+  ([evals/results/claude-baseline.json](evals/results/claude-baseline.json)).
 
 ```bash
 GODOT_BIN=/path/to/godot node evals/run.mjs --agent claude --repeat 3 --baseline evals/results/claude-baseline.json
 ```
 
-详见 [evals/README.md](evals/README.md)。
+Details in [evals/README.md](evals/README.md).
 
-## 文档
+## Documentation
 
-| 文档 | 内容 |
+The detailed documents are in Chinese.
+
+| Document | Contents |
 |---|---|
-| [docs/protocol.md](docs/protocol.md) | 两条通道、线上协议、返回信封、错误码、安全规则、每条命令的约定 |
-| [docs/architecture.md](docs/architecture.md) | 设计决策、同类项目、差异点 |
-| [docs/roadmap.md](docs/roadmap.md) | 各阶段与验收结果 |
-| [docs/releasing.md](docs/releasing.md) | 发布流程（npm、GitHub Release、资源库） |
-| [plugin/README.md](plugin/README.md) | Claude 插件、钩子、沙箱设置 |
-| [evals/README.md](evals/README.md) | 评测集 |
+| [docs/protocol.md](docs/protocol.md) | the two channels, the wire protocol, the envelope, error codes, safety rules, every command's contract |
+| [docs/architecture.md](docs/architecture.md) | design decisions, similar projects, how this one differs |
+| [docs/roadmap.md](docs/roadmap.md) | phases and their acceptance results |
+| [docs/releasing.md](docs/releasing.md) | releasing (npm, GitHub Release, Asset Library) |
+| [plugin/README.md](plugin/README.md) | the Claude plugin, its hooks, sandbox settings |
+| [evals/README.md](evals/README.md) | the eval set |
 
-## 仓库结构
+## Repository layout
 
-| 目录 | 内容 |
+| Folder | Contents |
 |---|---|
-| `bridge/` | 开发测试用的 Godot 项目；`bridge/addons/gdcli/` 是桥接插件（GDScript，Godot 4.3 起） |
-| `cli/` | `gd` 命令行（TypeScript，Node 22 起，运行时零依赖） |
-| `plugin/` | Claude 插件：技能、参考资料、钩子 |
-| `evals/` | 评测集：任务、检查、运行器、基线结果 |
-| `scripts/` | 测试与检查脚本、生成插件参考资料的脚本 |
+| `bridge/` | a Godot project for development and tests; `bridge/addons/gdcli/` is the bridge (GDScript, Godot 4.3+) |
+| `cli/` | the `gd` command line (TypeScript, Node 22+, no runtime dependencies) |
+| `plugin/` | the Claude plugin: skills, references, hooks |
+| `evals/` | the eval set: tasks, checks, runner, baseline results |
+| `scripts/` | test and check scripts, and the scripts that generate the plugin's references |
 
-## 开发
+The three parts are released together with the same version number, from this one repository: the plugin's
+command reference is generated from the bridge, so they cannot drift apart.
+
+## Development
 
 ```bash
 npm install
-npm run verify                              # 版本一致、插件检查、钩子测试、类型、代码检查、单元测试、构建
-GODOT_BIN=/path/to/godot npm run test:bridge  # 桥接的单元测试和端到端测试
-GODOT_BIN=/path/to/godot npm run test:e2e     # 构建后的 gd 对真实编辑器的端到端测试
-npm run test:package                        # 打包后装进空目录再运行
+npm run verify                                 # versions, plugin check, hook tests, types, lint, unit tests, build
+GODOT_BIN=/path/to/godot npm run test:bridge   # the bridge's unit and end-to-end tests
+GODOT_BIN=/path/to/godot npm run test:e2e      # the built gd against a real editor
+npm run test:package                           # pack, install into an empty folder, run
 ```
 
-持续集成在 Linux 上测 Godot 4.3 到 4.7，在 Windows、macOS 和 .NET 版上测 4.7，命令行在三个系统上都测。
+CI tests Godot 4.3 to 4.7 on Linux, and 4.7 on Windows, macOS and the .NET build; the command line on all three
+systems.
 
-## 许可证
+## License
 
-[Apache-2.0](LICENSE)。
+[Apache-2.0](LICENSE).

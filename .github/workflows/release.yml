@@ -156,6 +156,47 @@ jobs:
           fi
           gh release upload "${TAG}" "${ZIP}" --clobber
 
+  # The Claude plugin as a zip, for the Claude app's "Upload plugin" and for
+  # claude --plugin-dir / --plugin-url: one top folder holding
+  # .claude-plugin/plugin.json, the skills and the hooks.
+  plugin-zip:
+    # After bridge-zip, which creates the draft release when there is none.
+    needs: [check, bridge-zip]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+      - name: Zip the plugin
+        run: |
+          set -euo pipefail
+          top="godot"
+          mkdir -p "${RUNNER_TEMP}/${top}"
+          # The plugin's own tests stay out: they are not part of the plugin.
+          cp -R plugin/.claude-plugin plugin/hooks plugin/skills plugin/README.md plugin/sandbox-settings.example.json "${RUNNER_TEMP}/${top}/"
+          cp LICENSE "${RUNNER_TEMP}/${top}/LICENSE"
+          test -f "${RUNNER_TEMP}/${top}/.claude-plugin/plugin.json"
+          name="gdcli-claude-plugin-${VERSION}.zip"
+          (cd "${RUNNER_TEMP}" && zip -qr "${name}" "${top}")
+          echo "ZIP=${RUNNER_TEMP}/${name}" >> "${GITHUB_ENV}"
+          echo "ZIP_NAME=${name}" >> "${GITHUB_ENV}"
+      - name: Attach it to the release
+        run: |
+          set -euo pipefail
+          draft="$(gh release view "${TAG}" --json isDraft --jq .isDraft)"
+          present="$(gh release view "${TAG}" --json assets --jq "[.assets[].name] | index(\"${ZIP_NAME}\") != null")"
+          if [ "${draft}" != "true" ] && [ "${present}" = "true" ]; then
+            echo "${ZIP_NAME} is already on the published release ${TAG}; left as it is."
+            exit 0
+          fi
+          gh release upload "${TAG}" "${ZIP}" --clobber
+
   npm:
     needs: check
     # Only for a tag: the npm environment admits nothing else, so a manual run

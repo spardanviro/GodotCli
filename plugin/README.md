@@ -1,6 +1,6 @@
 # Claude 插件
 
-让 Claude Code 通过 `gd` 命令行在 Godot 项目里干活：十三个技能；一个会话开始时的钩子，在 Godot 项目里提醒 Claude 用这些技能；两个拦住"直接改项目脚本"的钩子。
+让 Claude Code 通过 `gd` 命令行在 Godot 项目里干活：17 个技能；一个会话开始时的钩子，在 Godot 项目里提醒 Claude 用这些技能；两个拦住"直接改项目脚本"的钩子。
 
 ## 安装
 
@@ -28,6 +28,15 @@ claude plugin update godot@gdcli
 ```
 
 Claude Code 按 `plugin.json` 里的版本号判断有没有新版本，所以每次改动插件都要提升版本号（`npm run check:versions` 保证它与命令行、桥接的版本一致）。这条安装路径在 WSL 的 Claude Code 2.1 上实测过：装上后技能和钩子都在（当时 8 个技能，现在 17 个）。
+
+### 不走插件市场：用 Release 里的 zip
+
+每个版本的 [Release](https://github.com/spardanviro/GodotCli/releases) 上都有 `gdcli-claude-plugin-<版本>.zip`（顶层文件夹 `godot/`，里面是 `.claude-plugin/plugin.json`、技能和钩子）。
+
+- **Claude 桌面应用**：自定义（Customize）> 插件（Plugins）> 添加（Add）> 上传插件（Upload plugin），选这个 zip。技能和钩子在本机运行的会话里生效（Cowork、Claude Code），那里能用到本机装的 `gd`；claude.ai 网页版的聊天只加载技能，钩子被忽略，而且连不到你电脑上的编辑器。
+- **Claude Code，只用于一次会话**：`claude --plugin-dir gdcli-claude-plugin-<版本>.zip`，或 `claude --plugin-url <zip 在 Release 上的地址>`。已经从插件市场装了同名插件时，这次会话里以这份为准。
+
+不用插件也行：技能也可以用 `gd skills install --dir <目录> --yes` 装给任何读 `SKILL.md` 的智能体，只是没有钩子。
 
 从本地源码试用：
 
