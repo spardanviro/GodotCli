@@ -13,6 +13,8 @@ import { type Envelope, errorOf, failure, isEnvelopeError } from "../envelope.js
 import { messageOf, sanitize } from "../text.js";
 import { BUILTIN_COMMANDS } from "./builtin-commands.js";
 import { type Descriptor, isDescriptor } from "./descriptor.js";
+import { type ToolGroup, groupOf } from "./groups.js";
+import { RESOURCE_TEMPLATES, RESOURCES, listed, resolveResource } from "./resources.js";
 import { CONFIRM_ARG, DRY_RUN_ARG, OFFLINE_TOOLS, type OfflineTool, toolOf } from "./tools.js";
 
 /** Newest first; an unknown version asked for by the client gets the newest. */
@@ -30,6 +32,8 @@ const INVALID_REQUEST = -32600;
 const METHOD_NOT_FOUND = -32601;
 const INVALID_PARAMS = -32602;
 const INTERNAL_ERROR = -32603;
+/** MCP: a resource address that names nothing. */
+const RESOURCE_NOT_FOUND = -32002;
 
 const INSTRUCTIONS = [
   "Tools for a Godot project. Tools named like the editor's commands (scene_tree, node_create, fs_write_text, ...) need the editor open",
@@ -50,6 +54,8 @@ const STARTS_GODOT = new Set(["gd_run", "gd_check", "gd_test", "gd_host_start", 
 export interface McpServerOptions {
   readonly context: Context;
   readonly globals: GlobalOptions;
+  /** The tool groups offered (`gd mcp --tools`); all when left out. */
+  readonly groups?: ReadonlySet<ToolGroup>;
   /** The client's messages, one per line. Serving ends when they end. */
   readonly lines: AsyncIterable<string>;
 }
@@ -177,10 +183,42 @@ export class McpServer {
   private readonly running = new Set<Id>();
   private startedHost = false;
   private offlineRunning = 0;
+  private readonly groups: ReadonlySet<ToolGroup> | undefined;
 
   constructor(options: Omit<McpServerOptions, "lines">) {
     this.context = options.context;
     this.globals = options.globals;
+    this.groups = options.groups;
+  }
+
+  private offered(name: string): boolean {
+    if (this.groups === undefined) {
+      return true;
+    }
+    const custom = this.commands.find((descriptor) => descriptor.name === name)?.custom === true;
+    return this.groups.has(groupOf(name, custom));
+  }
+
+  /** A batch is offered only with steps of the groups offered: it is not a way around them. */
+  private batchOutsideGroups(args: Readonly<Record<string, unknown>>): string | undefined {
+    if (this.groups === undefined || !Array.isArray(args["steps"])) {
+      return undefined;
+    }
+    for (const step of args["steps"] as unknown[]) {
+      const command = typeof step === "object" && step !== null ? (step as Record<string, unknown>)["command"] : undefined;
+      if (typeof command === "string" && !this.offered(command)) {
+        return command;
+      }
+    }
+    return undefined;
+  }
+
+  /** The tools as the client sees them: the editor's commands, then gd's own, in the groups offered. */
+  private tools(): unknown[] {
+    return [
+      ...this.commands.filter((descriptor) => this.offered(descriptor.name)).map(toolOf),
+      ...OFFLINE_TOOLS.filter((entry) => this.offered(entry.tool.name)).map((entry) => entry.tool),
+    ];
   }
 
   /** Handles one line from the client; returns the line to send back, if any. */
@@ -259,7 +297,7 @@ export class McpServer {
   }
 
   private toolNames(): string {
-    return JSON.stringify([...this.commands.map(toolOf), ...OFFLINE_TOOLS.map((entry) => entry.tool)]);
+    return JSON.stringify(this.tools());
   }
 
   private async dispatch(request: Request): Promise<unknown> {
@@ -282,9 +320,15 @@ export class McpServer {
         await this.refreshTools();
         this.announced = this.toolNames();
         this.canAnnounce = true;
-        return { tools: [...this.commands.map(toolOf), ...OFFLINE_TOOLS.map((entry) => entry.tool)] };
+        return { tools: this.tools() };
       case "tools/call":
         return this.call(objectOf(request.params), request.id);
+      case "resources/list":
+        return { resources: RESOURCES.filter((entry) => this.offered(entry.command)).map((entry) => ({ uri: entry.uri, ...listed(entry) })) };
+      case "resources/templates/list":
+        return { resourceTemplates: RESOURCE_TEMPLATES.filter((entry) => this.offered(entry.command)).map((entry) => ({ uriTemplate: entry.uri, ...listed(entry) })) };
+      case "resources/read":
+        return this.readResource(objectOf(request.params));
       default:
         throw new RpcError(METHOD_NOT_FOUND, "Unknown method.");
     }
@@ -295,7 +339,7 @@ export class McpServer {
     const protocolVersion = (PROTOCOL_VERSIONS as readonly unknown[]).includes(asked) ? asked : PROTOCOL_VERSIONS[0];
     return {
       protocolVersion,
-      capabilities: { tools: { listChanged: true } },
+      capabilities: { tools: { listChanged: true }, resources: {} },
       serverInfo: { name: "gdcli", version: this.context.readVersion() },
       instructions: INSTRUCTIONS,
     };
@@ -341,6 +385,13 @@ export class McpServer {
       throw new RpcError(INVALID_PARAMS, "tools/call arguments must be an object.");
     }
     const args = objectOf(given);
+    if (!this.offered(name)) {
+      throw new RpcError(INVALID_PARAMS, `This server does not offer ${groupOf(name, this.commands.find((descriptor) => descriptor.name === name)?.custom === true)} tools: it was started with gd mcp --tools.`);
+    }
+    const outside = name === "batch" ? this.batchOutsideGroups(args) : undefined;
+    if (outside !== undefined) {
+      throw new RpcError(INVALID_PARAMS, `A step of the batch (${outside}) is a tool this server does not offer: it was started with gd mcp --tools.`);
+    }
     const offline = OFFLINE_TOOLS.find((entry) => entry.tool.name === name);
     if (offline !== undefined) {
       const counted = STARTS_GODOT.has(name);
@@ -384,6 +435,30 @@ export class McpServer {
       id !== undefined && this.cancelled.has(id) ? Promise.resolve(failure(name, [errorOf("COMMAND_FAILED", "Cancelled by the client before it started.")])) : run();
     const envelope = (descriptor.risk ?? "write") === "read" ? await run() : await this.inOrder(runUnlessCancelled);
     return this.resultOf(envelope);
+  }
+
+  /** A resource is a read command's answer, as the same envelope a tool call gives. */
+  private async readResource(params: Readonly<Record<string, unknown>>): Promise<unknown> {
+    const uri = params["uri"];
+    const found = typeof uri === "string" ? resolveResource(uri) : undefined;
+    if (typeof uri !== "string" || found === undefined || !this.offered(found.entry.command)) {
+      throw new RpcError(RESOURCE_NOT_FOUND, "No such resource.");
+    }
+    const offline = OFFLINE_TOOLS.find((entry) => entry.tool.name === found.entry.command);
+    let envelope: Envelope;
+    if (offline === undefined) {
+      envelope = (await invokeBridge(this.context, { ...this.globals, yes: false, dryRun: false }, found.entry.command, found.args)).envelope;
+    } else if (STARTS_GODOT.has(offline.tool.name) && this.offlineRunning >= MAX_OFFLINE_RUNNING) {
+      envelope = failure(offline.tool.name, [errorOf("EDITOR_BUSY", "Two Godot processes started by gd tools are already running.", "Wait for one of them to finish, then read again.")]);
+    } else {
+      const counted = STARTS_GODOT.has(offline.tool.name);
+      this.offlineRunning += counted ? 1 : 0;
+      envelope = await this.callOffline(offline, found.args).finally(() => {
+        this.offlineRunning -= counted ? 1 : 0;
+      });
+    }
+    const cleaned = sanitizeEnvelope(envelope, false);
+    return { contents: [{ uri, mimeType: "application/json", text: JSON.stringify(cleaned, null, JSON_INDENT) }] };
   }
 
   private async callOffline(entry: OfflineTool, args: Readonly<Record<string, unknown>>): Promise<Envelope> {

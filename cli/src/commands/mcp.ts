@@ -4,6 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import type { CommandHandler, CommandResult, Context, GlobalOptions } from "../context.js";
 import { errorOf, isEnvelopeError, success } from "../envelope.js";
 import { GODOT_ENV, locateGodot } from "../godot.js";
+import { type ToolGroup, parseToolGroups } from "../mcp/groups.js";
 import { serveMcp } from "../mcp/server.js";
 import { findProject, nonEmpty } from "../project.js";
 import { mergeToml, tomlKeysDropped } from "./mcp-toml.js";
@@ -92,13 +93,13 @@ export const MCP_CLIENTS = Object.keys(CLIENTS);
  * and script), so it works whether or not gd is on the PATH the client sees;
  * --command gd writes the bare name instead, for a file shared with others.
  */
-function entryFor(context: Context, project: string, bareName: boolean, godot: string | undefined, userScope: boolean): ServerEntry {
+function entryFor(context: Context, project: string, bareName: boolean, godot: string | undefined, userScope: boolean, tools: string | undefined): ServerEntry {
   // A shared project file (--command gd) names no path of this machine, not
   // even the project's: gd finds the project from the folder the client starts
   // it in. A user-level file is not shared and serves every project, so it
   // keeps naming this one.
   const projectArgs = bareName && !userScope ? [] : ["--project", project];
-  const own = ["mcp", ...projectArgs, ...(godot === undefined ? [] : ["--godot", godot])];
+  const own = ["mcp", ...(tools === undefined ? [] : ["--tools", tools]), ...projectArgs, ...(godot === undefined ? [] : ["--godot", godot])];
   if (bareName || context.launcher === undefined || context.launcher.length === 0) {
     return { command: "gd", args: own };
   }
@@ -163,9 +164,14 @@ function writeAtomically(path: string, text: string, mode: number): void {
 }
 
 async function configure(context: Context, globals: GlobalOptions, args: readonly string[]): Promise<CommandResult> {
-  const parsed = parseCommandArgs(args, { dir: { type: "string" }, command: { type: "string" } });
+  const parsed = parseCommandArgs(args, { dir: { type: "string" }, command: { type: "string" }, tools: { type: "string" } });
   if (typeof parsed === "string") {
     return usage("mcp", parsed);
+  }
+  const tools = typeof parsed.values["tools"] === "string" ? parsed.values["tools"] : undefined;
+  const groups = tools === undefined ? undefined : parseToolGroups(tools);
+  if (typeof groups === "string") {
+    return usage("mcp", groups);
   }
   const client = parsed.positionals[0];
   if (client === undefined || !Object.hasOwn(CLIENTS, client) || parsed.positionals.length > 1) {
@@ -198,7 +204,7 @@ async function configure(context: Context, globals: GlobalOptions, args: readonl
   // A shared file (--command gd) names no path of this machine.
   const { godot, warning } = bare === "gd" ? {} : godotFor(context, globals);
   const warnings = warning === undefined ? [] : [warning];
-  const entry = entryFor(context, project, bare === "gd", godot, format.userScope);
+  const entry = entryFor(context, project, bare === "gd", godot, format.userScope, groups === undefined ? undefined : [...groups].join(","));
   let old = "";
   let mode = format.userScope ? OWNER_ONLY : NEW_FILE;
   if (existsSync(file)) {
@@ -243,14 +249,23 @@ export const mcpCommand: CommandHandler = async (context, globals, args) => {
   if (args[0] === "configure") {
     return configure(context, globals, args.slice(1));
   }
-  if (args.length > 0) {
-    return usage("mcp", 'gd mcp takes no arguments (or "configure <client>").');
+  const parsed = parseCommandArgs(args, { tools: { type: "string" } });
+  if (typeof parsed === "string" || parsed.positionals.length > 0) {
+    return usage("mcp", typeof parsed === "string" ? parsed : 'gd mcp takes only --tools (or "configure <client>").');
+  }
+  let groups: ReadonlySet<ToolGroup> | undefined;
+  if (typeof parsed.values["tools"] === "string") {
+    const chosen = parseToolGroups(parsed.values["tools"]);
+    if (typeof chosen === "string") {
+      return usage("mcp", chosen);
+    }
+    groups = chosen;
   }
   const lines = context.io.readLines;
   if (lines === undefined) {
     return fail("mcp", errorOf("INTERNAL_ERROR", "Standard input cannot be read line by line here."));
   }
-  await serveMcp({ context, globals, lines: lines() });
+  await serveMcp({ context, globals, lines: lines(), ...(groups === undefined ? {} : { groups }) });
   // Standard output belongs to the protocol: nothing is printed after it.
   return { envelope: success("mcp", { served: true }), human: "", printed: true };
 };

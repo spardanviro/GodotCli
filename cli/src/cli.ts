@@ -78,8 +78,9 @@ The manual (a copy of the Godot documentation on this machine):
   docs use <folder> | docs where
 
 For other agents (Model Context Protocol):
-  mcp                        Serve the editor's commands and gd's own as MCP tools on stdin/stdout
-  mcp configure <client> [--dir <folder>] [--command gd]
+  mcp [--tools <groups>]     Serve the editor's commands and gd's own as MCP tools and resources on stdin/stdout
+                             (--tools core,game,...: only those groups; see docs/protocol.md 6.8)
+  mcp configure <client> [--dir <folder>] [--command gd] [--tools <groups>]
                              Add that server to claude, codex, cursor, vscode or gemini
                              (shows the change; writes it with --yes)
   skills list                The skills gd ships (the Claude plugin's), for other agents

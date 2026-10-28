@@ -5,6 +5,7 @@ import { describe, expect, test } from "vitest";
 
 import { run } from "../src/cli.js";
 import { mergeToml } from "../src/commands/mcp-toml.js";
+import { TOOL_GROUPS, groupOf, parseToolGroups } from "../src/mcp/groups.js";
 import { MAX_LINE_CHARS, McpServer, PROTOCOL_VERSIONS } from "../src/mcp/server.js";
 import { OFFLINE_TOOLS, toolOf } from "../src/mcp/tools.js";
 import { ExitCode } from "../src/protocol.js";
@@ -68,7 +69,7 @@ describe("gd mcp: the protocol", () => {
 
     const notJson = JSON.parse((await server.handleLine("{oops")) ?? "null") as Answer;
     const batch = JSON.parse((await server.handleLine("[]")) ?? "null") as Answer;
-    const unknownMethod = await ask(server, 3, "resources/list");
+    const unknownMethod = await ask(server, 3, "prompts/list");
     const notification = await server.handleLine(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }));
     const blank = await server.handleLine("   ");
     const ping = await ask(server, 4, "ping");
@@ -721,5 +722,104 @@ describe("gd mcp configure: Codex's config.toml", () => {
     expect(readFileSync(join(broken.project, ".mcp.json"), "utf8")).toBe("{ not json");
     expect(unknownResult.exitCode).toBe(ExitCode.Usage);
     expect(otherResult.exitCode).toBe(ExitCode.Usage);
+  });
+});
+
+describe("gd mcp --tools: tool groups", () => {
+  test("offers only the groups asked for, and refuses a call outside them", async () => {
+    const { home, project, h } = setup();
+    await fakeBridge({ home, project, commands: [...COMMANDS, { name: "game_tree", risk: "read", summary: "Game tree" }, { name: "level_spawn", risk: "write", summary: "A project's own" }] });
+    const server = new McpServer({ context: h.context, globals: { format: "json", yes: false, dryRun: false }, groups: new Set(["core"] as const) });
+
+    const names = toolNames(await ask(server, 1, "tools/list"));
+    const refused = await ask(server, 2, "tools/call", { name: "game_tree", arguments: {} });
+
+    expect(names).toEqual(expect.arrayContaining(["node_create", "scene_tree", "gd_run", "gd_status"]));
+    expect(names).not.toEqual(expect.arrayContaining(["game_tree"]));
+    expect(names.some((name) => name === "game_tree" || name === "level_spawn" || name.startsWith("gd_docs") || name === "gd_test")).toBe(false);
+    expect(refused.error?.message).toContain("does not offer game tools");
+  });
+
+  test("names the groups when one is unknown, and takes all", async () => {
+    expect(parseToolGroups("core,nope")).toContain("Unknown tool group nope");
+    expect([...(parseToolGroups("all") as Set<string>)]).toEqual([...TOOL_GROUPS]);
+    expect([...(parseToolGroups(" Core , GAME ") as Set<string>)]).toEqual(["core", "game"]);
+    expect(groupOf("tilemap_get")).toBe("level");
+    expect(groupOf("my_tool")).toBe("custom");
+  });
+
+  test("configure writes --tools into the client's entry", async () => {
+    const { project, run } = configured("claude");
+
+    await run("--tools", "core,game", "--yes");
+    const written = JSON.parse(readFileSync(join(project, ".mcp.json"), "utf8")) as Record<string, Record<string, { args: string[] }>>;
+
+    expect(written["mcpServers"]?.["gdcli"]?.args).toEqual(["/opt/gdcli/dist/main.js", "mcp", "--tools", "core,game", "--project", project]);
+    expect((await run("--tools", "nope")).exitCode).toBe(ExitCode.Usage);
+  });
+});
+
+describe("gd mcp: resources", () => {
+  test("lists the addresses and reads one through its read command", async () => {
+    const { home, project, server } = setup();
+    const bridge = await fakeBridge({ home, project, commands: [{ name: "node_get", risk: "read" }, { name: "scene_tree", risk: "read" }], onCommand: (name) => okEnvelope(name, { path: "Player", type: "CharacterBody2D" }) });
+
+    const list = await ask(server, 1, "resources/list");
+    const templates = await ask(server, 2, "resources/templates/list");
+    const read = await ask(server, 3, "resources/read", { uri: "godot://node/Main%2FPlayer" });
+    const contents = (read.result?.["contents"] as { uri: string; text: string }[])[0];
+
+    expect((list.result?.["resources"] as { uri: string }[]).map((entry) => entry.uri)).toContain("godot://scene/tree");
+    expect((templates.result?.["resourceTemplates"] as { uriTemplate: string }[]).map((entry) => entry.uriTemplate)).toContain("godot://node/{path}");
+    expect(contents?.uri).toBe("godot://node/Main%2FPlayer");
+    expect(JSON.parse(contents?.text ?? "{}")).toMatchObject({ success: true, data: { type: "CharacterBody2D" } });
+    expect(bridge.requests.some((request) => request.url.endsWith("/node_get") && JSON.parse(request.body).args.path === "Main/Player")).toBe(true);
+  });
+
+  test("refuses an address that names nothing, and one of a group not offered", async () => {
+    const { h, server } = setup();
+    const limited = new McpServer({ context: h.context, globals: { format: "json", yes: false, dryRun: false }, groups: new Set(["core"] as const) });
+
+    expect((await ask(server, 1, "resources/read", { uri: "godot://nothing" })).error?.code).toBe(-32002);
+    expect((await ask(server, 2, "resources/read", { uri: "godot://node/-x" })).error?.code).toBe(-32002);
+    expect((await ask(limited, 3, "resources/read", { uri: "godot://game/tree" })).error?.code).toBe(-32002);
+    expect(((await ask(limited, 4, "resources/list")).result?.["resources"] as { uri: string }[]).map((entry) => entry.uri)).not.toContain("godot://game/tree");
+  });
+
+  test("says it has resources", async () => {
+    const { server } = setup();
+
+    const answer = await ask(server, 1, "initialize", { protocolVersion: PROTOCOL_VERSIONS[0] });
+
+    expect(answer.result?.["capabilities"]).toMatchObject({ resources: {} });
+  });
+});
+
+describe("gd mcp --tools: what the review asked for", () => {
+  test("a project's own command is custom whatever its name, and a batch keeps to the groups", async () => {
+    const { home, project, h } = setup();
+    await fakeBridge({ home, project, commands: [...COMMANDS, { name: "node_wipe", risk: "destructive", custom: true }, { name: "batch", risk: "write" }], onCommand: (name) => okEnvelope(name, {}) });
+    const server = new McpServer({ context: h.context, globals: { format: "json", yes: false, dryRun: false }, groups: new Set(["core"] as const) });
+
+    const names = toolNames(await ask(server, 1, "tools/list"));
+    const outside = await ask(server, 2, "tools/call", { name: "batch", arguments: { steps: [{ command: "animation_create", args: {} }] } });
+    const inside = await ask(server, 3, "tools/call", { name: "batch", arguments: { steps: [{ command: "node_create", args: { type: "Node2D" } }] } });
+
+    expect(names).toContain("batch");
+    expect(names).not.toContain("node_wipe");
+    expect(outside.error?.message).toContain("animation_create");
+    expect(inside.error).toBeUndefined();
+  });
+
+  test("a resource address cannot climb out or pass an option", async () => {
+    const { server } = setup();
+
+    for (const uri of ["godot://file/../x.gd", "godot://file/a/%2e%2e/b", "godot://file/%2Fetc", "godot://file/a%5Cb", "godot://class/-x", "godot://file/res://x"]) {
+      expect((await ask(server, 1, "resources/read", { uri })).error?.code, uri).toBe(-32002);
+    }
+  });
+
+  test("all with an unknown group is still an error", () => {
+    expect(parseToolGroups("all,nope")).toContain("Unknown tool group nope");
   });
 });
