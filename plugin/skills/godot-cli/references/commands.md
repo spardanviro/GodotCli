@@ -825,7 +825,7 @@ Add a ready-made effect: 2D particles (explosion, fire, smoke, sparks, rain, dus
 - `target` (string, required) Particles and camera: the parent node. Animations: the Node2D or Control to animate.
 - `color` (string) Particles: tint the effect, e.g. #66ccff.
 - `name` (string) Name of the new node or animation; defaults to the preset's.
-- `player` (string) Animations: the AnimationPlayer that gets the animation.
+- `player` (string) Animations: the AnimationPlayer that gets the animation; omit to use one beside the target, made when there is none.
 
 Returns: What node_create or animation_create returns; meta.undo names the undo step. One-shot particles (explosion, sparks, dust) play when emitting is set to true, e.g. from a script: $Explosion.restart(). shake and bob move a Sprite2D or AnimatedSprite2D by its offset, so the node can be moved later; on other nodes they key the position it has now.
 

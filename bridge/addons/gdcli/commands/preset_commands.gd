@@ -6,6 +6,7 @@ extends RefCounted
 
 const AccessPolicy = preload("../core/access_policy.gd")
 const NodeRef = preload("../core/node_ref.gd")
+const Edit = preload("../core/edit.gd")
 const Reply = preload("../core/reply.gd")
 const Schema = preload("../core/schema.gd")
 const TextSanitizer = preload("../core/text_sanitizer.gd")
@@ -71,7 +72,7 @@ func register(registry: RefCounted) -> void:
 			"properties": {
 				"preset": {"type": "string", "enum": _PARTICLES.keys() + _ANIMATIONS + _CAMERAS},
 				"target": {"type": "string", "description": "Particles and camera: the parent node. Animations: the Node2D or Control to animate."},
-				"player": {"type": "string", "description": "Animations: the AnimationPlayer that gets the animation."},
+				"player": {"type": "string", "description": "Animations: the AnimationPlayer that gets the animation; omit to use one beside the target, made when there is none."},
 				"name": {"type": "string", "description": "Name of the new node or animation; defaults to the preset's."},
 				"color": {"type": "string", "description": "Particles: tint the effect, e.g. #66ccff."},
 			},
@@ -122,14 +123,31 @@ func _particles(preset: String, args: Dictionary, options: Dictionary) -> Dictio
 
 
 func _animation(preset: String, args: Dictionary, options: Dictionary) -> Dictionary:
-	if not args.get("player") is String:
-		return Reply.fail("INVALID_ARGS", "An animation preset needs player: the AnimationPlayer that gets it.", "Create one with node_create --type AnimationPlayer.")
 	var root: Node = _context.scene_root()
 	var target := NodeRef.resolve(root, args["target"])
 	if target == null:
 		return Reply.fail("NODE_NOT_FOUND", "The node does not exist.", "Use scene_tree to see the node paths.", {"path": TextSanitizer.clean_line(args["target"])})
 	if not (target is Node2D or target is Control):
 		return Reply.fail("TYPE_MISMATCH", "Animation presets move, scale or fade a Node2D or a Control.", "", {"class": target.get_class()})
+	var warnings := []
+	if not args.get("player") is String:
+		# An AnimationPlayer beside the target, or a new one there (its own undo step).
+		var parent := target.get_parent() if target != root else root
+		var found: Node = null
+		for sibling in parent.get_children():
+			if sibling is AnimationPlayer:
+				found = sibling
+				break
+		if found == null:
+			var made := _call("node_create", {"type": "AnimationPlayer", "parent": NodeRef.path_of(root, parent), "name": "AnimationPlayer"}, options)
+			if not made.get("ok", false) or made.has("later"):
+				return made
+			if options["dry_run"]:
+				return Edit.planned({"player": "a new AnimationPlayer beside the target", "preset": preset})
+			found = parent.get_node("AnimationPlayer")
+			warnings.append("Made an AnimationPlayer beside the target: that is an undo step of its own.")
+		args = args.duplicate()
+		args["player"] = NodeRef.path_of(root, found)
 	var node := TextSanitizer.clean_line(args["target"])
 	var color: Color = target.modulate
 	# A sprite moves by its offset, which is relative to where the node is:
@@ -156,6 +174,8 @@ func _animation(preset: String, args: Dictionary, options: Dictionary) -> Dictio
 			plan = {"length": 0.4, "loop": "none", "tracks": [_track(node, "modulate", [[0.0, color], [0.1, dim], [0.2, color], [0.3, dim], [0.4, color]], "nearest")]}
 	var create := {"player": args["player"], "name": args.get("name", preset), "length": plan["length"], "loop": plan["loop"], "tracks": plan["tracks"]}
 	var reply := _call("animation_create", create, options)
+	if reply.get("ok", false) and not reply.has("later"):
+		reply["warnings"] = reply.get("warnings", []) + warnings
 	if reply.get("ok", false) and not reply.has("later") and moved == "position" and preset in ["shake", "bob"]:
 		reply["warnings"] = reply.get("warnings", []) + ["The animation moves the node's position from where it is now: if the node is placed elsewhere later, make the preset again, or put it on a child that does not move (a Sprite2D child animates its offset instead)."]
 	return reply

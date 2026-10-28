@@ -83,7 +83,7 @@ func test_preset_create_makes_a_following_camera_and_refuses_what_does_not_fit()
 
 	check(_preset({"preset": "camera_follow", "target": "Hero"})["ok"], "camera")
 	check((_root.get_node("Hero/Camera2D") as Camera2D).position_smoothing_enabled, "that follows smoothly")
-	equal(_preset({"preset": "pulse", "target": "Hero"})["error"]["code"], "INVALID_ARGS", "an animation needs a player")
+	check(_preset({"preset": "pulse", "target": "Hero"})["ok"] and (_root.get_node("Anim") as AnimationPlayer).has_animation("pulse"), "without player, the AnimationPlayer beside it")
 	equal(_preset({"preset": "pulse", "target": "Anim", "player": "Anim"})["error"]["code"], "TYPE_MISMATCH", "an AnimationPlayer has no position to move")
 	equal(_preset({"preset": "fireworks", "target": "Hero"})["error"]["code"], "INVALID_ARGS", "an unknown preset")
 	equal(_preset({"preset": "fire", "target": "Hero", "color": "blue-ish"})["error"]["code"], "INVALID_ARGS", "a colour it cannot read")
@@ -100,3 +100,13 @@ func test_preset_create_says_when_it_keys_a_position() -> void:
 	var reply := _preset({"preset": "shake", "target": "Marker", "player": "Anim"})
 
 	check(reply["ok"] and reply["warnings"].any(func(text: String) -> bool: return text.contains("make the preset again")), "warned: %s" % reply)
+
+
+func test_preset_create_makes_an_animation_player_when_there_is_none() -> void:
+	_setup()
+	_root.get_node("Anim").free()
+
+	var reply := _preset({"preset": "blink", "target": "Hero"})
+
+	check(reply["ok"] and _root.has_node("AnimationPlayer"), "made beside the target: %s" % reply)
+	check((_root.get_node("AnimationPlayer") as AnimationPlayer).has_animation("blink"), "with the animation")

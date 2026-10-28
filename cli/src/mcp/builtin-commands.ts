@@ -1770,7 +1770,7 @@ export const BUILTIN_COMMANDS: readonly Descriptor[] = [
           "type": "string"
         },
         "player": {
-          "description": "Animations: the AnimationPlayer that gets the animation.",
+          "description": "Animations: the AnimationPlayer that gets the animation; omit to use one beside the target, made when there is none.",
           "type": "string"
         },
         "preset": {

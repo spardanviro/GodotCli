@@ -870,3 +870,17 @@ func test_fs_edit_text_keeps_windows_line_ends_and_refuses_text_that_is_not_utf8
 	equal(FileAccess.get_file_as_bytes(latin), bytes, "and not touched")
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(windows))
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(latin))
+
+
+func test_input_events_are_described_in_english_whatever_the_editor_language() -> void:
+	var InputText = load("res://addons/gdcli/core/input_text.gd")
+	var save := InputEventKey.new()
+	save.keycode = KEY_S
+	save.ctrl_pressed = true
+	var physical := InputEventKey.new()
+	physical.physical_keycode = KEY_W
+	var stick := InputEventJoypadMotion.new()
+	stick.axis = JOY_AXIS_LEFT_X
+	stick.axis_value = -1.0
+
+	equal([InputText.describe(save), InputText.describe(physical), InputText.describe(stick)], ["Ctrl+S", "W (physical)", "Joypad axis 0 -"], "fixed words")

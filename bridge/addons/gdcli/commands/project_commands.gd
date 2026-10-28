@@ -2,6 +2,7 @@ extends RefCounted
 
 const AccessPolicy = preload("../core/access_policy.gd")
 const Reply = preload("../core/reply.gd")
+const InputText = preload("../core/input_text.gd")
 const TextSanitizer = preload("../core/text_sanitizer.gd")
 const ValueCodec = preload("../core/value_codec.gd")
 
@@ -71,7 +72,7 @@ func _input_map(_args: Dictionary) -> Dictionary:
 		var events := []
 		for event in action.get("events", []):
 			if event is InputEvent:
-				events.append(TextSanitizer.clean_line(event.as_text()))
+				events.append(TextSanitizer.clean_line(InputText.describe(event)))
 		actions.append({
 			"name": TextSanitizer.clean_line(property_name.substr(INPUT_PREFIX.length())),
 			"deadzone": action.get("deadzone", 0.5),

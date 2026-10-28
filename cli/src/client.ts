@@ -133,7 +133,7 @@ export async function resolveInstance(context: Context, globals: GlobalOptions):
   return errorOf(
     "NO_EDITOR",
     "No running editor with the gd bridge was found for this project.",
-    "Open the project in Godot (`gd open`). If it is open, check `gd doctor`.",
+    "Open the project in Godot (`gd open`), or start a headless editor (`gd host start`; one stops by itself after 30 minutes without commands). If an editor is open, check `gd doctor`.",
     { project },
   );
 }

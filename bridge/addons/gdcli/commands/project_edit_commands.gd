@@ -5,6 +5,7 @@ extends RefCounted
 const AccessPolicy = preload("../core/access_policy.gd")
 const Edit = preload("../core/edit.gd")
 const Reply = preload("../core/reply.gd")
+const InputText = preload("../core/input_text.gd")
 const TextSanitizer = preload("../core/text_sanitizer.gd")
 const ValueDecoder = preload("../core/value_decoder.gd")
 
@@ -123,7 +124,7 @@ func _input_map_set(args: Dictionary, options: Dictionary) -> Dictionary:
 		return Reply.fail("COMMAND_FAILED", "project.godot could not be saved.", "", {"error": error_string(result)})
 	var described := []
 	for event in events:
-		described.append(TextSanitizer.clean_line(event.as_text()))
+		described.append(TextSanitizer.clean_line(InputText.describe(event)))
 	return Reply.ok({"action": TextSanitizer.clean_line(action), "events": described}, [Edit.NOT_UNDOABLE])
 
 
