@@ -24,6 +24,8 @@ const _CLASS_NAME_PATTERN := "(?m)^[ \\t]*class_name[ \\t]+(\\w+)[ \\t]*"
 const _LOADS_PATTERN := "\\bpreload\\s*\\(|(?m)^[ \\t]*(?:class_name[ \\t]+\\w+[ \\t]+)?extends[ \\t]+[\"']"
 const _ANONYMOUS_SCRIPT := "gdscript://"
 const _BINARY_EXTENSIONS: Array[String] = ["scn", "res"]
+const MAX_EDITS := 50
+const _MAX_EDITED_BYTES := 2 * 1024 * 1024
 
 var _context: RefCounted
 
@@ -48,6 +50,24 @@ func register(registry: RefCounted) -> void:
 		},
 		"returns": "{path, bytes, created, check?: {compiles, errors?} or {skipped}}. A script that is not a tool script is compiled after writing; it is written even when it does not compile. Not undoable.",
 	}, _write_text)
+	registry.register({
+		"name": "fs_edit_text",
+		"summary": "Change parts of an existing text file, such as a script: each old text, found exactly once, is replaced by its new text.",
+		"risk": AccessPolicy.RISK_WRITE,
+		"params": {
+			"type": "object",
+			"properties": {
+				"path": {"type": "string"},
+				"edits": {
+					"type": "array",
+					"items": {"type": "object"},
+					"description": "[{\"old\": \"exact text now in the file\", \"new\": \"its replacement\"}], applied in order, at most 50. Include enough of the lines around it for old to be found only once.",
+				},
+			},
+			"required": ["path", "edits"],
+		},
+		"returns": "As fs_write_text, with edits: how many were applied. The whole new text goes through the same checks: a tool script or a sensitive file still needs a person. Not undoable.",
+	}, _edit_text)
 	registry.register({
 		"name": "fs_scan",
 		"summary": "Make the editor notice files changed outside it.",
@@ -106,6 +126,57 @@ func register(registry: RefCounted) -> void:
 		},
 		"returns": "{path, set}. Not undoable.",
 	}, _resource_set)
+
+
+func _edit_text(args: Dictionary, options: Dictionary) -> Dictionary:
+	var checked := PathPolicy.check(args["path"], PathPolicy.ACCESS_WRITE)
+	if not checked["ok"]:
+		return checked
+	var path: String = checked["path"]
+	if not FileAccess.file_exists(path):
+		return Reply.fail("RESOURCE_NOT_FOUND", "There is no file at this path.", "Write a new file with fs_write_text.", {"path": path})
+	if path.get_extension().to_lower() in _BINARY_EXTENSIONS:
+		return Reply.fail("INVALID_ARGS", "Binary scene and resource files are not edited as text.", "", {"path": path})
+	var edits: Array = args["edits"]
+	if edits.is_empty() or edits.size() > MAX_EDITS:
+		return Reply.fail("INVALID_ARGS", "Give from 1 to %d edits." % MAX_EDITS)
+	var bytes := FileAccess.get_file_as_bytes(path)
+	if bytes.size() > _MAX_EDITED_BYTES:
+		return Reply.fail("INVALID_ARGS", "The file is too large to edit this way.", "Replace it with fs_write_text.", {"path": path, "bytes": bytes.size()})
+	var text := bytes.get_string_from_utf8()
+	# Text that is not UTF-8 would come back changed: it is not edited here.
+	if text.to_utf8_buffer() != bytes:
+		return Reply.fail("INVALID_ARGS", "The file is not plain UTF-8 text, so editing it would change other parts.", "Replace it with fs_write_text.", {"path": path})
+	# A byte order mark is not part of the text anyone quotes; it is kept as it was.
+	var bom := text.begins_with(char(0xfeff))
+	if bom:
+		text = text.substr(1)
+	# Quoted with \n, the old text of a file with Windows line ends is found, and the new keeps them.
+	var crlf := text.contains("\r\n")
+	for index in edits.size():
+		var edit: Variant = edits[index]
+		if not (edit is Dictionary and edit.get("old") is String and edit.get("new") is String) or edit["old"] == "":
+			return Reply.fail("INVALID_ARGS", "Each edit is {\"old\": text, \"new\": text}, with old not empty.", "", {"edit": index})
+		var old: String = edit["old"].replace("\r\n", "\n").replace("\n", "\r\n") if crlf else edit["old"]
+		var replacement: String = edit["new"].replace("\r\n", "\n").replace("\n", "\r\n") if crlf else edit["new"]
+		var found := text.count(old)
+		if found != 1:
+			return Reply.fail(
+				"INVALID_ARGS",
+				"The old text of an edit is not in the file." if found == 0 else "The old text of an edit is in the file more than once.",
+				"Read the file again (fs_read_text) and quote it exactly, with more of the lines around it." if found == 0 else "Include more of the lines around it so that it is found only once.",
+				{"edit": index, "found": found},
+			)
+		text = text.replace(old, replacement)
+	# The file is only changed, never created or replaced as a whole here: what
+	# the old text already was is the caller's confirmation.
+	var write_args := {"path": path, "text": (char(0xfeff) if bom else "") + text, "overwrite": true}
+	var write_options := options.duplicate()
+	write_options["confirm"] = true
+	var reply := _write_text(write_args, write_options)
+	if reply["ok"] and not reply.has("later") and reply.get("data") is Dictionary:
+		reply["data"]["edits"] = edits.size()
+	return reply
 
 
 func _write_text(args: Dictionary, options: Dictionary) -> Dictionary:

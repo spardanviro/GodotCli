@@ -11,6 +11,7 @@ const LockFile = preload("core/lock_file.gd")
 const Registry = preload("core/registry.gd")
 const AnimationCommands = preload("commands/animation_commands.gd")
 const AnimationTreeCommands = preload("commands/animation_tree_commands.gd")
+const BatchCommands = preload("commands/batch_commands.gd")
 const EditorCommands = preload("commands/editor_commands.gd")
 const EditorControlCommands = preload("commands/editor_control_commands.gd")
 const FsCommands = preload("commands/fs_commands.gd")
@@ -97,6 +98,7 @@ func _enter_tree() -> void:
 		ImportCommands.new(context),
 		NodeLinkCommands.new(context),
 		ResourceCommands.new(),
+		BatchCommands.new(context, registry),
 		GameCommands.new(context),
 		GameDebugCommands.new(context),
 	]

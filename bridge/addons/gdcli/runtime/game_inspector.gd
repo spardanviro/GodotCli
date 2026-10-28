@@ -9,6 +9,7 @@ const Reply = preload("../core/reply.gd")
 const TextSanitizer = preload("../core/text_sanitizer.gd")
 const ValueCodec = preload("../core/value_codec.gd")
 const ValueDecoder = preload("../core/value_decoder.gd")
+const GamePlay = preload("game_play.gd")
 
 const DEFAULT_MAX_DEPTH := 8
 const MAX_DEPTH_LIMIT := 64
@@ -46,10 +47,12 @@ const _MAX_CUSTOM_MONITORS := 200
 const _DECIMALS := 0.001
 
 var _tree: SceneTree
+var _play: GamePlay
 
 
 func _init(tree: SceneTree) -> void:
 	_tree = tree
+	_play = GamePlay.new(tree)
 
 
 ## Returns a reply (see reply.gd). Paths are relative to the root window, so
@@ -70,6 +73,14 @@ func handle(method: String, args: Dictionary) -> Dictionary:
 			return _call_method(args)
 		"performance":
 			return _performance()
+		"input_events":
+			return _play.input_events(args)
+		"speed":
+			return _play.speed(args)
+		"ui":
+			return _play.ui(args)
+		"expect":
+			return _play.expect(args)
 	return Reply.fail("INVALID_ARGS", "The game helper does not know this request.")
 
 

@@ -53,6 +53,31 @@ gd command game_input --action jump --hold 0.1
 gd command game_screenshot                                # path of a PNG you can open; not in a headless game
 ```
 
+A combination, a click or a gamepad, as one sequence (each event held for its `hold`, then the next starts; all in
+game time, returns at once):
+
+```bash
+gd command game_input_events --events '[{"action": "move_right", "hold": 0.6}, {"key": "Space"}, {"wait": 0.3},
+  {"mouse_button": "left", "position": [640, 360]}, {"joypad_button": 0}, {"joypad_axis": 0, "value": -1, "hold": 0.5}]'
+```
+
+Mouse positions are in the window's pixels; `game_ui` gives each control's `rect` ([x, y, width, height]), so click
+its middle. `game_speed --scale 0.25` slows the game to watch a collision, `--scale 4` gets through a long wait;
+put it back to 1 afterwards. Holds and waits stretch with it.
+
+### Check what it shows and holds
+
+```bash
+gd command game_ui                     # every visible Control: text, rect, disabled, pressed, value, focused
+gd command game_expect --checks '[{"path": "Main/Player", "property": "position:y", "op": "less", "value": 300},
+  {"path": "Main/HUD/Lives", "property": "text", "op": "equals", "value": "3"},
+  {"text": "Game Over", "op": "missing"}]'
+```
+
+`game_expect` judges every check and answers `passed` (all held) with each check's `actual` value; it succeeds even
+when checks fail, so read `passed`. Ops: equals, not_equals, approx (`tolerance`, default 0.01), less, greater,
+contains, exists, missing. `"position:y"` reads one component. A text check looks only at visible controls.
+
 ### How fast it runs
 
 ```bash

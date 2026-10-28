@@ -68,17 +68,18 @@ arguments. Search that file for the command you need.
 | See what is there | `editor_status`, `scene_tree`, `node_get`, `node_find`, `node_connections`, `resource_get`, `fs_list`, `fs_read_text`, `project_settings_get`, `project_input_map` |
 | Work on a scene | `scene_new`, `scene_open`, `scene_save`, `scene_list_open` |
 | Build the node tree | `node_create`, `node_set`, `node_rename`, `node_move`, `node_duplicate`, `node_delete`, `node_instantiate_scene`, `node_add_to_group`, `node_remove_from_group` |
-| Add behaviour | `fs_write_text` (the script), `node_attach_script`, `node_connect_signal`, `node_disconnect_signal` |
+| Add behaviour | `fs_write_text` / `fs_edit_text` (the script), `node_attach_script`, `node_connect_signal`, `node_disconnect_signal` |
 | Make resources | inline in a property (`{"$new": ...}`), or as files with `resource_create`, `resource_set` |
 | Animate | `animation_create`, `animation_list`, `sprite_frames_create`, `animation_state_machine_create`, `animation_blend_space_create` |
 | Build a tile level | `tileset_add_atlas`, `tileset_set_collision`, `tileset_set_terrain`, `tilemap_set_cells`, `tilemap_get` |
 | Bake navigation | `navigation_bake` |
 | Change how a file is imported | `import_settings_get`, `import_settings_set` (texture compression and mipmaps, a sound's loop, a model's root type) |
 | Change the project | `project_settings_set`, `project_input_map_set`, `fs_move`, `fs_delete`, `fs_scan` |
+| Several steps at once | `batch` (node, animation and tile steps, and reads; if one fails, the ones done are undone) |
 | Take a step back | `edit_undo`, `edit_redo` |
 | Show the person a node | `editor_select` (selects it in the Scene dock and opens it in the Inspector) |
 | Run and check | `gd run`, `gd check`, `gd test`, `editor_play`, `editor_stop`, `editor_errors` |
-| Look into the running game | `game_tree`, `game_node_get`, `game_output`, `game_errors`, `game_input`, `game_call`, `game_screenshot`, `game_performance`, the debugger commands |
+| Look into the running game | `game_tree`, `game_node_get`, `game_output`, `game_errors`, `game_input`, `game_input_events`, `game_speed`, `game_ui`, `game_expect`, `game_call`, `game_screenshot`, `game_performance`, the debugger commands |
 | Look up the engine's API | `gd api class <Name>`, `gd api class <Name> --member <m>`, `gd api search <text>` |
 | Read the manual | `gd docs search <words>`, `gd docs page <page> --section <heading>`; `gd docs install` the first time |
 
@@ -87,6 +88,10 @@ Things worth knowing before you use them:
 - Changing commands act on the **scene being edited**. To work on another scene, `scene_open` it first. Node paths
   are relative to that scene's root (`.` is the root, `Player/Sprite2D` a grandchild).
 - **Nothing is saved until `scene_save`.** `gd run` and the game read files from disk, so save before you run.
+- A dozen steps that belong together (a character: body, sprite, shape, script attached) go in one `batch`:
+  `gd command batch --steps '[{"command": "node_create", "args": {"type": "CharacterBody2D", "name": "Player"}},
+  {"command": "node_create", "args": {"type": "CollisionShape2D", "parent": "Player"}}]'`. A failed step undoes the
+  ones before it, so there is no half-built node to clean up. Files, settings and deletions are not batch steps.
 - `node_create` takes the properties in the same call. Set what the Inspector shows (position, size, text, colours,
   shapes, textures) there or with `node_set`, not in a script's `_ready()`.
 - Values: JSON where JSON can say it, `[x, y]` or `"Vector2(x, y)"` for vectors, `"#rrggbb"` for colours,
@@ -131,8 +136,15 @@ New script:
 3. Read the answer: `check.compiles` says whether the script compiles (`check.errors` has the lines when it does
    not; the file is written either way). `check.skipped` means it could not be judged there: run `gd check res://scripts/player.gd`.
 
-Changing an existing script: read it (`fs_read_text`, or your own read tool), put the complete new version in the
-scratch file, and send it with `--overwrite true --yes`. Small edits are easiest on a scratch copy of the file.
+Changing an existing script: for a few lines, `fs_edit_text` with the exact old text and its replacement (each old
+text must be in the file exactly once; quote a line or two around it to make it so):
+
+```bash
+gd command fs_edit_text --path res://scripts/player.gd --edits '[{"old": "const SPEED := 100.0", "new": "const SPEED := 250.0"}]'
+```
+
+For a rewrite, read it (`fs_read_text`), put the complete new version in the scratch file, and send it with
+`fs_write_text --overwrite true --yes`.
 
 Reading is not restricted. Files that are not code or scenes (Markdown, JSON data, shaders, images) you write as usual;
 run `gd command fs_scan` afterwards so the editor notices them.

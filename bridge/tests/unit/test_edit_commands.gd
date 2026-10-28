@@ -802,3 +802,71 @@ func test_fs_move_tells_the_file_itself_from_another_of_the_new_name() -> void:
 
 	equal([itself, other_case], [true, false], "only an entry of exactly that name is another file")
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+
+func test_fs_edit_text_replaces_parts_of_a_script() -> void:
+	_setup()
+	var path := "res://tests/tmp/edit_probe.gd"
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://tests/tmp"))
+	FileAccess.open(path, FileAccess.WRITE).store_string("extends Node\n\nconst SPEED := 100.0\n\n\nfunc _ready() -> void:\n\tprint(SPEED)\n")
+
+	var reply := _call("fs_edit_text", {"path": path, "edits": [
+		{"old": "SPEED := 100.0", "new": "SPEED := 250.0"},
+		{"old": "\tprint(SPEED)", "new": "\tprint(\"speed \", SPEED)"},
+	]})
+	var after := FileAccess.get_file_as_string(path)
+
+	check(reply["ok"], "edited: %s" % reply)
+	equal(reply["data"].get("edits"), 2, "both applied")
+	check(after.contains("SPEED := 250.0") and after.contains("print(\"speed \", SPEED)") and after.begins_with("extends Node"), "the rest is as it was: %s" % after)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+
+func test_fs_edit_text_refuses_an_edit_it_cannot_place() -> void:
+	_setup()
+	var path := "res://tests/tmp/edit_probe2.gd"
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://tests/tmp"))
+	FileAccess.open(path, FileAccess.WRITE).store_string("extends Node\nvar a := 1\nvar b := 1\n")
+
+	equal(_code("fs_edit_text", {"path": path, "edits": [{"old": ":= 1", "new": ":= 2"}]}), "INVALID_ARGS", "found twice")
+	equal(_code("fs_edit_text", {"path": path, "edits": [{"old": "var c", "new": "var d"}]}), "INVALID_ARGS", "not found")
+	equal(_code("fs_edit_text", {"path": path, "edits": [{"old": "", "new": "x"}]}), "INVALID_ARGS", "empty old text")
+	equal(_code("fs_edit_text", {"path": "res://tests/tmp/none.gd", "edits": [{"old": "a", "new": "b"}]}), "RESOURCE_NOT_FOUND", "no file")
+	equal(FileAccess.get_file_as_string(path), "extends Node\nvar a := 1\nvar b := 1\n", "the file was not touched")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+
+func test_fs_edit_text_that_makes_a_tool_script_asks_a_person() -> void:
+	_setup()
+	_context.answer = "denied"
+	var path := "res://tests/tmp/edit_probe3.gd"
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://tests/tmp"))
+	FileAccess.open(path, FileAccess.WRITE).store_string("extends Node\n")
+
+	var reply := _call("fs_edit_text", {"path": path, "edits": [{"old": "extends Node", "new": "@tool\nextends Node"}]})
+
+	equal(reply.get("error", {}).get("code"), "NOT_APPROVED", "the new whole text is what the person judges")
+	equal(FileAccess.get_file_as_string(path), "extends Node\n", "nothing written")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+
+func test_fs_edit_text_keeps_windows_line_ends_and_refuses_text_that_is_not_utf8() -> void:
+	_setup()
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://tests/tmp"))
+	var windows := "res://tests/tmp/edit_crlf.gd"
+	FileAccess.open(windows, FileAccess.WRITE).store_string("extends Node\r\nvar a := 1\r\nvar b := 2\r\n")
+	var latin := "res://tests/tmp/edit_latin.gd"
+	var bytes := "extends Node\n# caf".to_utf8_buffer()
+	bytes.append(0xE9)
+	bytes.append_array("\nvar a := 1\n".to_utf8_buffer())
+	FileAccess.open(latin, FileAccess.WRITE).store_buffer(bytes)
+
+	var edited := _call("fs_edit_text", {"path": windows, "edits": [{"old": "var a := 1\nvar b", "new": "var a := 5\nvar b"}]})
+	var refused := _code("fs_edit_text", {"path": latin, "edits": [{"old": "var a := 1", "new": "var a := 2"}]})
+
+	check(edited["ok"], "found with \\n: %s" % edited)
+	equal(FileAccess.get_file_as_string(windows), "extends Node\r\nvar a := 5\r\nvar b := 2\r\n", "Windows line ends kept")
+	equal(refused, "INVALID_ARGS", "a file that is not UTF-8 is not edited")
+	equal(FileAccess.get_file_as_bytes(latin), bytes, "and not touched")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(windows))
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(latin))

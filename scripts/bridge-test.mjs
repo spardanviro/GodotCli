@@ -487,6 +487,18 @@ async function checkEdits(instance) {
   await command(instance, "edit_undo");
   check((await treePaths()).includes("Boss2"), "undoing a delete brings the node back");
 
+  const built = await command(instance, "batch", { steps: [
+    { command: "node_create", args: { type: "Node2D", name: "BatchA" } },
+    { command: "node_create", args: { type: "Sprite2D", parent: "BatchA", name: "Look" } },
+  ] });
+  check(built.status === 200 && built.body?.data?.undo?.length === 2 && (await treePaths()).includes("BatchA/Look"), "batch runs its steps", built.body);
+  const broken = await command(instance, "batch", { steps: [
+    { command: "node_create", args: { type: "Node2D", name: "BatchB" } },
+    { command: "node_set", args: { path: "Nowhere", properties: { visible: false } } },
+  ] });
+  check(broken.body?.errors?.[0]?.details?.undone === 1 && !(await treePaths()).includes("BatchB"), "a failed batch undoes its earlier steps", broken.body);
+  await command(instance, "node_delete", { path: "BatchA" });
+
   // A script written, attached, and a new scene saved to disk.
   const script = `${TMP_DIR}/e2e_boss.gd`;
   const written = await command(instance, "fs_write_text", { path: script, text: BOSS_SCRIPT });
@@ -654,6 +666,20 @@ async function checkGame(instance) {
   check(missing.status === 422 && missing.body?.errors?.[0]?.code === "NODE_NOT_FOUND", "a node the game does not have", missing.body);
   const input = await command(instance, "game_input", { action: "ui_accept", hold: 0.1 });
   check(input.status === 200 && input.body?.data?.pressed === true, "game_input", input.body);
+  const sequence = await command(instance, "game_input_events", { events: [{ key: "Space" }, { wait: 0.1 }, { action: "ui_accept", hold: 0.1 }, { mouse_move: [10, 10] }] });
+  check(sequence.status === 200 && sequence.body?.data?.events === 4 && sequence.body?.data?.duration === 0.25, "game_input_events plays a sequence", sequence.body);
+  const slowed = await command(instance, "game_speed", { scale: 0.5 });
+  const restored = await command(instance, "game_speed", { scale: 1 });
+  check(slowed.body?.data?.scale === 0.5 && restored.body?.data?.was === 0.5, "game_speed sets the game's time scale", [slowed.body, restored.body]);
+  const ui = await command(instance, "game_ui");
+  check(ui.status === 200 && Array.isArray(ui.body?.data?.elements), "game_ui lists the visible controls", ui.body);
+  const expected = await command(instance, "game_expect", { checks: [
+    { path: "Main/Player", property: "position", op: "approx", value: [50, 60], tolerance: 200 },
+    { path: "Main/Nope", op: "missing" },
+    { path: "Main/Player", op: "missing" },
+  ] });
+  const verdicts = expected.body?.data?.results?.map((result) => result.passed);
+  check(expected.status === 200 && JSON.stringify(verdicts) === "[true,true,false]" && expected.body?.data?.passed === false, "game_expect judges each check", expected.body);
   const performance = await command(instance, "game_performance");
   check(
     performance.status === 200 && performance.body?.data?.objects?.nodes >= 1 && typeof performance.body?.data?.time?.fps === "number" && performance.body?.data?.headless === true,

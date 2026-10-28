@@ -127,6 +127,9 @@ static func person_gate(context: RefCounted, options: Dictionary, what: Dictiona
 	# A dry run changes nothing; a person who has said yes is not asked again.
 	if options.get("dry_run", false) or options.get("approved", false):
 		return {}
+	# A batch runs without stopping for anyone: the step is refused, and the batch undoes what it did.
+	if options.get("in_batch", false):
+		return Reply.fail("PRECONDITION_FAILED", "This step needs a person's approval, which a batch does not ask for.", "Run that command on its own.")
 	return Reply.later(Approval.new(context, what, retry), true)
 
 

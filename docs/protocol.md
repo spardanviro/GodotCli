@@ -540,8 +540,8 @@ JSON 能直接表示的类型原样传。其余类型：
 | navigation | `navigation_bake`（可撤销） | write | 4.5 |
 | import | `import_settings_get` | read | 6 |
 | import | `import_settings_set`（第 6.5.1 节） | write | 6 |
-| game | `game_tree`、`game_node_get`、`game_errors`、`game_output`、`game_debug`、`game_locals`、`game_performance`（第 6.7 节） | read | 3 |
-| game | `game_node_set`、`game_call`、`game_input`、`game_screenshot`、`game_breakpoint`、`game_pause`、`game_step`、`game_continue`（第 6.7 节） | write | 3 |
+| game | `game_tree`、`game_node_get`、`game_errors`、`game_output`、`game_debug`、`game_locals`、`game_performance`、`game_ui`、`game_expect`（第 6.7 节） | read | 3 / 6 |
+| game | `game_node_set`、`game_call`、`game_input`、`game_input_events`、`game_speed`、`game_screenshot`、`game_breakpoint`、`game_pause`、`game_step`、`game_continue`（第 6.7 节） | write | 3 |
 
 表里是命令的基础等级。目标落在第 4.4 节的敏感路径上时，`fs_write_text` 等命令按 `destructive` 处理；覆盖已有文件同样如此。
 
@@ -597,6 +597,11 @@ JSON 能直接表示的类型原样传。其余类型：
 - 敏感位置（`addons/`、`gdcli_commands/`）下的文件不能改，桥接自己的文件也不能。
 - 风险等级 `write`，不进撤销栈；应答里的 `previous` 是改之前的值，原样传回去就是撤销。导入器没有采用某个值时（小数按近似相等比较），在 `warnings` 里点名。编辑器正在扫描文件时返回 `EDITOR_BUSY`。
 
+### 6.5.2 批量与局部修改
+
+- `batch`：一个请求里按顺序跑多条命令，`steps` 是 `[{"command": 名字, "args": {...}}]`，最多 100 条。只收撤销栈里的命令（`undoable`）和只读命令；写文件、改项目设置、删文件这类一律拒绝。执行前先逐条检查命令名和参数，一条不对就什么都不做。执行中某一步失败，已经做完的步骤按相反顺序撤销，返回失败那一步自己的错误，`details` 里带 `step`（从 0 数）和 `undone`（撤销了几步）。每一步仍是撤销栈里单独的一步。需要人批准的步骤（例如挂工具脚本）在批量里直接拒绝，不弹对话框，前面的步骤同样撤销。空跑只检查命令名和参数。
+- `fs_edit_text`：改已有文本文件的一部分。`edits` 是 `[{"old": 原文, "new": 新文}]`，按顺序套用，每段原文在文件里必须正好出现一次，否则整个请求不改任何东西（`details` 里带第几处、找到几次）。改完的全文走 `fs_write_text` 的同一套检查：变成工具脚本、落在敏感位置、在 ask 模式下，照样要人批准，人看到的是改后的全文。风险等级是 `write`，不需要 `confirm`：调用方引用的原文就是确认。文件开头的 BOM 保持原样。
+
 ### 6.6 项目自定义命令
 
 项目可以在 `res://gdcli_commands/` 放脚本来注册自己的命令。自定义命令是项目自己的编辑器代码，信任等级与项目里任何 `@tool` 脚本相同。
@@ -640,6 +645,10 @@ gd ──HTTP──▶ 桥接（编辑器进程）──调试器消息 gdcli:re
 - **节点路径相对根窗口**，主场景通常是第一段：`Main/Player`。`game_tree` 返回的 `current_scene` 给出当前场景的路径和文件。自动加载项也在这棵树里。
 - `game_node_get` 能读到检视面板不显示的属性（`velocity`、`global_position`、脚本变量）；不带 `properties` 时返回检视面板属性加脚本变量。`game_node_set` 同样能写这些属性，值按第 6.4 节转换；改的只是运行中的游戏，场景文件和编辑器里的场景都不变。
 - `game_input` 按下或松开输入映射里的一个动作，相当于玩家操作。它发送一个输入事件（`InputEventAction`），游戏在下一帧处理：用 `Input.is_action_pressed` 轮询的代码、写在 `_input` 或 `_unhandled_input` 里的处理、有焦点的按钮（`ui_accept`）都能收到。游戏停在断点上时，事件等继续运行后才处理，不在断点里执行游戏脚本；`hold` 是按住的秒数（游戏时间，0 表示一直按着直到再发一次 `pressed=false`），上限 10 秒。
+- `game_input_events` 按顺序发一串真实的输入事件：按键（`"Ctrl+S"` 这类组合，修饰键由桥接自己解析）、输入动作、鼠标按键（带窗口里的坐标）、鼠标移动、手柄按键和摇杆、等待。每个事件按下后保持 `hold` 秒（游戏时间，默认 0.05 秒，鼠标移动默认 0）再松开，下一个接着开始；最多 100 个、总长 30 秒。命令立刻返回，事件在之后的游戏时间里发出；游戏暂停时按住的键保持按住。
+- `game_speed` 读或设 `Engine.time_scale`（0.05 到 10）。按住和等待按游戏时间算，会随它拉长或缩短。
+- `game_ui` 列出玩家现在看得见的所有 Control：路径、类型、屏幕上的矩形、文字（Label、按钮、输入框、富文本）、按钮是否禁用或按下、Range 的值、是否有焦点；最多 300 个。看得见只按各节点自己和上层的 `visible` 判断（无头游戏的窗口本身算隐藏）。
+- `game_expect` 一次判断多条检查（最多 50 条）：节点属性和期望值比较（equals、not_equals、approx、less、greater、contains；`position:y` 这类写法取一个分量），节点存在或不存在，屏幕上看得见的文字有没有。每条都判断，返回各自的结果和实际值；检查不通过时命令本身仍然成功，看 `passed`。
 - `game_performance` 读游戏里的 `Performance` 监视器，就是调试器“监视”页的那些：帧率（取最近一秒的平均）、每帧处理和物理用的毫秒数、内存、对象和节点数（孤立节点多半是泄漏）、每帧的绘制调用和图元、显存、2D 和 3D 物理的活动对象，以及游戏自己用 `Performance.add_custom_monitor` 加的监视器（只报数字，最多 200 个）。每次调用是一个瞬间的读数；要看变化，隔一段时间再读一次。无头运行时渲染相关的数都是 0，`headless` 为真。
 - `game_screenshot` 的图片由游戏发给编辑器、由编辑器写到 `~/.gdcli/screenshots/`（先检查是 PNG）；游戏不写文件。游戏以无头方式运行时没有画面，返回 `PRECONDITION_FAILED`。
 - **等待**：答案要过几帧才到，桥接保持 HTTP 连接，最多等 5 秒。游戏还没启动完（辅助节点还没报到）时会在这 5 秒内等它；始终没报到返回 `PRECONDITION_FAILED`，发出请求后没有回答返回 `TIMEOUT`。游戏停在调试器里时照常应答（见下）。
@@ -678,6 +687,8 @@ gd ──HTTP──▶ 桥接（编辑器进程）──调试器消息 gdcli:re
   - 桥接的每条命令一个工具，名字不变。有编辑器时取它列出的命令（含项目自定义命令）；没有时取随命令行发布的内置命令清单（`cli/src/mcp/builtin-commands.ts`，由 `scripts/bridge-test.mjs` 从真实桥接生成并核对）。
   - 修改类命令另有两个参数 `confirm` 和 `dry_run`，对应请求选项；命令自己声明了同名参数时按参数传。
   - `gd_` 开头的工具对应不需要编辑器的命令：`gd_run`、`gd_check`、`gd_api_class`、`gd_api_search`、`gd_docs_search`、`gd_docs_page`、`gd_status`、`gd_doctor`、`gd_host_start`、`gd_host_stop`。**`gd exec` 不提供**：它在桥接之外运行任意脚本。`gd_test` 提供：和 `gd_run` 一样运行的是项目里已有的代码，标为会运行项目代码。
+- **工具分组**：`gd mcp --tools core,game,...` 只提供列出的组，给有工具数上限的客户端和上下文小的模型用；不给时提供全部。组按工具名划分：`core`（场景、节点、文件、资源、项目设置、编辑器、撤销、`batch`、`gd_run`、`gd_check`、`gd_status`、`gd_doctor`、无头宿主）、`game`（运行中的游戏和调试器）、`animation`、`level`（瓦片、导航）、`import`、`docs`（`gd_api_*`、`gd_docs_*`）、`test`（`gd_test`）、`exec`（`eval`）、`custom`（项目自定义命令）。没提供的组的工具被调用时返回 `-32602`。`gd mcp configure ... --tools <组>` 把它写进客户端的条目。
+- **资源**：只读命令也以资源的形式提供，客户端可以直接把它们附进对话，不用模型调用工具。固定地址：`godot://editor/status`、`godot://scene/tree`、`godot://scene/selection`、`godot://editor/errors`、`godot://project/input-map`、`godot://game/tree`、`godot://game/performance`；模板：`godot://node/{path}`（`node_get`）、`godot://file/{path}`（`fs_read_text`，路径不带 `res://`）、`godot://resource/{path}`（`resource_get`）、`godot://class/{name}`（`gd_api_class`）。内容是对应命令的信封；地址不对，或所在的组没提供，返回 `-32002`。
 - **结果**：`content` 里是信封的 JSON 文本，`structuredContent` 里是同一个信封，`isError` 等于 `!success`。
 - **顺序与并发**：修改类调用按到达顺序依次送到编辑器；只读调用和 `ping` 立刻处理。启动 Godot 进程的 `gd_*` 工具同时最多两个，再多返回 `EDITOR_BUSY`。客户端取消的请求不再应答（已经开始的改动照常完成）。
 - **生命周期**：标准输入关闭即结束；本次会话用 `gd_host_start` 启动的无头编辑器随之停止。单行超过 32 MB 的消息只读到 32 MB 为止，其余丢弃，并回一个错误。支持 JSON-RPC 批量请求（一行一个数组，应答也是一个数组，一批最多 64 条）。协议版本按客户端要求的取 `2025-11-25`、`2025-06-18`、`2025-03-26`、`2024-11-05` 之一，都不认识时用最新的那个。`tools/call` 的 `arguments` 不是对象时返回 `-32602`。

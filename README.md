@@ -68,8 +68,8 @@ gdcli takes the other road: **the agent works through the editor.**
   blend spaces, sprite frames), tile sets and tile maps with terrains, navigation meshes, import settings.
 - **Change the project**: project settings, input actions, moving and renaming files with references updated
   across scenes and scripts.
-- **Run and look inside**: start the game from the editor and read its node tree and live values, press input
-  actions, call methods, read errors and output with script stack traces, take screenshots, read the frame rate,
+- **Run and look inside**: start the game from the editor and read its node tree and live values, play key,
+  mouse and gamepad sequences, slow it down or speed it up, list what its UI shows, check several values at once, call methods, read errors and output with script stack traces, take screenshots, read the frame rate,
   memory, draw calls and orphan nodes.
 - **Debug**: set breakpoints, pause, step, read the call stack and local variables of a stopped game.
 - **Without an editor**: run a scene and get its errors with file and line, check scripts, run GUT or gdUnit4
@@ -239,6 +239,11 @@ gd skills install codex --yes         # the 17 skills into ~/.codex/skills (the 
 gd skills install --dir <folder> --yes   # for any other agent that reads SKILL.md
 ```
 
+A client with a cap on tools, or a small model, can take only some groups:
+`gd mcp --tools core,game` (groups: core, game, animation, level, import, docs, test, exec, custom; `gd mcp configure`
+takes the same option). The read commands are also MCP resources (`godot://scene/tree`, `godot://node/{path}`,
+`godot://file/{path}`, `godot://class/{name}`, ...), which a client can attach to a conversation directly.
+
 The tools let the agent act; the skills tell it how to do it right. Person approval works the same for every
 client.
 
@@ -356,12 +361,13 @@ Editor commands by area:
 |---|---|
 | Scenes | `scene_new` `scene_open` `scene_save` `scene_tree` `scene_list_open` |
 | Nodes | `node_create` `node_get` `node_set` `node_find` `node_move` `node_rename` `node_duplicate` `node_delete` `node_instantiate_scene` `node_attach_script` `node_connect_signal` `node_disconnect_signal` `node_connections` `node_add_to_group` `node_remove_from_group` |
-| Files and resources | `fs_list` `fs_read_text` `fs_write_text` `fs_move` `fs_delete` `fs_scan` `resource_create` `resource_get` `resource_set` `import_settings_get` `import_settings_set` |
+| Files and resources | `fs_list` `fs_read_text` `fs_write_text` `fs_edit_text` `fs_move` `fs_delete` `fs_scan` `resource_create` `resource_get` `resource_set` `import_settings_get` `import_settings_set` |
 | Project | `project_settings_get` `project_settings_set` `project_input_map` `project_input_map_set` |
 | Animation | `animation_create` `animation_list` `animation_state_machine_create` `animation_blend_space_create` `sprite_frames_create` |
 | Tiles and navigation | `tileset_add_atlas` `tileset_set_collision` `tileset_set_terrain` `tilemap_set_cells` `tilemap_get` `navigation_bake` |
+| Several at once | `batch` (undoable steps and reads; a failure undoes the steps done) |
 | Editor | `editor_status` `editor_play` `editor_stop` `editor_errors` `editor_selection` `editor_select` `editor_screenshot` `edit_undo` `edit_redo` |
-| Running game | `game_tree` `game_node_get` `game_node_set` `game_call` `game_input` `game_output` `game_errors` `game_screenshot` `game_performance` |
+| Running game | `game_tree` `game_node_get` `game_node_set` `game_call` `game_input` `game_output` `game_errors` `game_input_events` `game_speed` `game_ui` `game_expect` `game_screenshot` `game_performance` |
 | Debugger | `game_breakpoint` `game_pause` `game_step` `game_continue` `game_debug` `game_locals` |
 
 A project can add commands of its own in `res://gdcli_commands/`.

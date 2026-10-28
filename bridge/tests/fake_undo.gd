@@ -46,6 +46,10 @@ func commit_action() -> void:
 	_building = {}
 
 
+func get_version() -> int:
+	return _position
+
+
 func has_undo() -> bool:
 	return _position > 0
 

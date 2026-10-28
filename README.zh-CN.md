@@ -62,7 +62,7 @@ gdcli 换了一条路：**智能体通过编辑器来做事。**
 
 - **搭场景**：节点、属性、脚本、信号、分组、资源、动画（AnimationPlayer、状态机、混合空间、帧动画）、带地形自动拼接的瓦片集和瓦片地图、导航网格、导入设置。
 - **改项目**：项目设置、输入动作，移动和重命名文件时自动更新场景和脚本里的引用。
-- **运行并往里看**：从编辑器运行游戏，读它的节点树和实时数值，按输入动作，调用方法，读带脚本调用栈的报错和输出，截图，看帧率、内存、绘制调用和孤立节点。
+- **运行并往里看**：从编辑器运行游戏，读它的节点树和实时数值，发送按键、鼠标、手柄的操作序列，放慢或加快游戏，列出界面上显示的内容，一次检查多个数值，调用方法，读带脚本调用栈的报错和输出，截图，看帧率、内存、绘制调用和孤立节点。
 - **调试**：下断点、暂停、单步，看停住时的调用栈和局部变量。
 - **不开编辑器**：运行场景并拿到带文件和行号的报错，检查脚本，运行 GUT 或 gdUnit4 测试，导入，导出，运行 SceneTree 脚本，查所装 Godot 版本的任意类，搜官方手册。
 - **任何智能体都能用**：同一套命令，是命令行（`gd`），是 Claude 插件，也是给 Codex、Cursor、VS Code、Gemini CLI 等用的 MCP 服务器。
@@ -208,6 +208,8 @@ gd skills install codex --yes         # 把 17 个技能装进 ~/.codex/skills�
 gd skills install --dir <目录> --yes   # 其他读 SKILL.md 的智能体
 ```
 
+有工具数上限的客户端或较小的模型，可以只取部分分组：`gd mcp --tools core,game`（分组：core、game、animation、level、import、docs、test、exec、custom；`gd mcp configure` 也接受这个选项）。只读命令同时以 MCP 资源的形式提供（`godot://scene/tree`、`godot://node/{path}`、`godot://file/{path}`、`godot://class/{name}` 等），客户端可以直接把它们附进对话。
+
 工具让智能体能做事，技能告诉它怎么做才对。人工批准的规则对所有客户端都一样。
 
 ## 手把手：做一个会跳的角色
@@ -320,12 +322,13 @@ gdcli 和 [Godot AI](https://github.com/spardanviro/Godot_AI) 是同一个作者
 |---|---|
 | 场景 | `scene_new` `scene_open` `scene_save` `scene_tree` `scene_list_open` |
 | 节点 | `node_create` `node_get` `node_set` `node_find` `node_move` `node_rename` `node_duplicate` `node_delete` `node_instantiate_scene` `node_attach_script` `node_connect_signal` `node_disconnect_signal` `node_connections` `node_add_to_group` `node_remove_from_group` |
-| 文件与资源 | `fs_list` `fs_read_text` `fs_write_text` `fs_move` `fs_delete` `fs_scan` `resource_create` `resource_get` `resource_set` `import_settings_get` `import_settings_set` |
+| 文件与资源 | `fs_list` `fs_read_text` `fs_write_text` `fs_edit_text` `fs_move` `fs_delete` `fs_scan` `resource_create` `resource_get` `resource_set` `import_settings_get` `import_settings_set` |
 | 项目 | `project_settings_get` `project_settings_set` `project_input_map` `project_input_map_set` |
 | 动画 | `animation_create` `animation_list` `animation_state_machine_create` `animation_blend_space_create` `sprite_frames_create` |
 | 瓦片与导航 | `tileset_add_atlas` `tileset_set_collision` `tileset_set_terrain` `tilemap_set_cells` `tilemap_get` `navigation_bake` |
+| 批量 | `batch`（可撤销的步骤和只读命令；一步失败就撤销已做的步骤） |
 | 编辑器 | `editor_status` `editor_play` `editor_stop` `editor_errors` `editor_selection` `editor_select` `editor_screenshot` `edit_undo` `edit_redo` |
-| 运行中的游戏 | `game_tree` `game_node_get` `game_node_set` `game_call` `game_input` `game_output` `game_errors` `game_screenshot` `game_performance` |
+| 运行中的游戏 | `game_tree` `game_node_get` `game_node_set` `game_call` `game_input` `game_output` `game_errors` `game_input_events` `game_speed` `game_ui` `game_expect` `game_screenshot` `game_performance` |
 | 调试 | `game_breakpoint` `game_pause` `game_step` `game_continue` `game_debug` `game_locals` |
 
 项目还可以在 `res://gdcli_commands/` 里加自己的命令。
