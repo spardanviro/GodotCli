@@ -45,6 +45,44 @@ jobs:
       # What npm would publish, installed into an empty prefix and run.
       - run: npm run test:package
 
+  # What only a game with a window shows: clicks at the positions game_ui gives,
+  # through stretch and a SubViewport, and saved screenshots. A virtual display
+  # (xvfb) with software OpenGL stands in for a screen.
+  windowed:
+    name: windowed (godot 4.7-stable, linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GODOT_TAG: 4.7-stable
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: godot-download
+          key: godot-4.7-stable-linux.x86_64.zip
+      - name: Download Godot from the official release
+        run: |
+          set -euo pipefail
+          base="https://github.com/godotengine/godot/releases/download/${GODOT_TAG}"
+          archive="Godot_v${GODOT_TAG}_linux.x86_64.zip"
+          mkdir -p godot-download
+          if [ ! -f "godot-download/${archive}" ]; then
+            curl -fsSL --retry 3 -o "godot-download/${archive}" "${base}/${archive}"
+          fi
+          curl -fsSL --retry 3 -o SHA512-SUMS.txt "${base}/SHA512-SUMS.txt"
+          (cd godot-download && grep " ${archive}\$" ../SHA512-SUMS.txt | sha512sum --check --strict -)
+          unzip -q "godot-download/${archive}" -d "${RUNNER_TEMP}/godot"
+          echo "GODOT_BIN=$(find "${RUNNER_TEMP}/godot" -type f -name '*_linux.x86_64' | head -n 1)" >> "${GITHUB_ENV}"
+      - name: A virtual display and software OpenGL
+        run: sudo apt-get update -q && sudo apt-get install -y -q xvfb libgl1-mesa-dri libglx-mesa0
+      - run: npm ci
+      - run: npm run build
+      - run: xvfb-run -a -s "-screen 0 1280x800x24" node scripts/windowed-test.mjs
+
   bridge:
     name: bridge (godot ${{ matrix.godot }}, ${{ matrix.build }})
     runs-on: ${{ matrix.os }}

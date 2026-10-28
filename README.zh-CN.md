@@ -438,10 +438,11 @@ npm install
 npm run verify                                 # 版本一致、插件检查、钩子测试、类型、代码检查、单元测试、构建
 GODOT_BIN=/path/to/godot npm run test:bridge   # 桥接的单元测试和端到端测试
 GODOT_BIN=/path/to/godot npm run test:e2e      # 构建后的 gd 对真实编辑器的端到端测试
+GODOT_BIN=/path/to/godot npm run test:windowed # 带窗口的游戏：按 game_ui 的位置点击、截图
 npm run test:package                           # 打包后装进空目录再运行
 ```
 
-持续集成在 Linux 上测 Godot 4.3 到 4.7，在 Windows、macOS 和 .NET 版上测 4.7，命令行在三个系统上都测。
+持续集成在 Linux 上测 Godot 4.3 到 4.7，在 Windows、macOS 和 .NET 版上测 4.7，命令行在三个系统上都测；另在虚拟显示上测带窗口的游戏。
 
 ## 许可证
 

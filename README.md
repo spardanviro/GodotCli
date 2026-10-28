@@ -501,11 +501,12 @@ npm install
 npm run verify                                 # versions, plugin check, hook tests, types, lint, unit tests, build
 GODOT_BIN=/path/to/godot npm run test:bridge   # the bridge's unit and end-to-end tests
 GODOT_BIN=/path/to/godot npm run test:e2e      # the built gd against a real editor
+GODOT_BIN=/path/to/godot npm run test:windowed # a game with a window: clicks at game_ui's positions, screenshots
 npm run test:package                           # pack, install into an empty folder, run
 ```
 
 CI tests Godot 4.3 to 4.7 on Linux, and 4.7 on Windows, macOS and the .NET build; the command line on all three
-systems.
+systems; and a game with a window on a virtual display.
 
 ## License
 
