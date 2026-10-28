@@ -458,7 +458,7 @@ patrol-and-chase state machine, saving and loading, a pause menu, a logic bug th
 
 - Replaying the reference answers passes every task; doing nothing fails them all (except "do not work around a
   refusal"). Both run in CI.
-- With real Claude, the second baseline ran 31 tasks 3 times each: **93/93 passed**
+- With real Claude (gdcli 0.4.1), all 40 tasks ran 3 times each: **120/120 passed**
   ([evals/results/claude-baseline.json](evals/results/claude-baseline.json)).
 
 ```bash
