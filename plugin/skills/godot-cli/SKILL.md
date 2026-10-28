@@ -65,10 +65,10 @@ arguments. Search that file for the command you need.
 
 | To | Use |
 |---|---|
-| See what is there | `editor_status`, `scene_tree`, `node_get`, `node_find`, `fs_list`, `fs_read_text`, `project_settings_get`, `project_input_map` |
+| See what is there | `editor_status`, `scene_tree`, `node_get`, `node_find`, `node_connections`, `resource_get`, `fs_list`, `fs_read_text`, `project_settings_get`, `project_input_map` |
 | Work on a scene | `scene_new`, `scene_open`, `scene_save`, `scene_list_open` |
-| Build the node tree | `node_create`, `node_set`, `node_rename`, `node_move`, `node_duplicate`, `node_delete`, `node_instantiate_scene`, `node_add_to_group` |
-| Add behaviour | `fs_write_text` (the script), `node_attach_script`, `node_connect_signal` |
+| Build the node tree | `node_create`, `node_set`, `node_rename`, `node_move`, `node_duplicate`, `node_delete`, `node_instantiate_scene`, `node_add_to_group`, `node_remove_from_group` |
+| Add behaviour | `fs_write_text` (the script), `node_attach_script`, `node_connect_signal`, `node_disconnect_signal` |
 | Make resources | inline in a property (`{"$new": ...}`), or as files with `resource_create`, `resource_set` |
 | Animate | `animation_create`, `animation_list`, `sprite_frames_create`, `animation_state_machine_create`, `animation_blend_space_create` |
 | Build a tile level | `tileset_add_atlas`, `tileset_set_collision`, `tileset_set_terrain`, `tilemap_set_cells`, `tilemap_get` |
@@ -76,6 +76,7 @@ arguments. Search that file for the command you need.
 | Change how a file is imported | `import_settings_get`, `import_settings_set` (texture compression and mipmaps, a sound's loop, a model's root type) |
 | Change the project | `project_settings_set`, `project_input_map_set`, `fs_move`, `fs_delete`, `fs_scan` |
 | Take a step back | `edit_undo`, `edit_redo` |
+| Show the person a node | `editor_select` (selects it in the Scene dock and opens it in the Inspector) |
 | Run and check | `gd run`, `gd check`, `gd test`, `editor_play`, `editor_stop`, `editor_errors` |
 | Look into the running game | `game_tree`, `game_node_get`, `game_output`, `game_errors`, `game_input`, `game_call`, `game_screenshot`, `game_performance`, the debugger commands |
 | Look up the engine's API | `gd api class <Name>`, `gd api class <Name> --member <m>`, `gd api search <text>` |
@@ -213,4 +214,6 @@ make. By topic: `godot-gdscript`, `godot-physics-gameplay`, `godot-ui`, `godot-3
 By task: `godot-new-project` (from nothing to a project that runs), `godot-tilemap` (levels made of tiles),
 `godot-sprite-animation` (sprite sheets, frame animation, pixel art), `godot-troubleshooting` (finding the cause
 of a bug from its symptom), `godot-localization` (more than one language), `godot-export` (builds, the web),
-`godot-audio-buses` (mixer buses and effects).
+`godot-audio-buses` (mixer buses and effects), `godot-shaders` (visual effects in the shading language),
+`godot-multiplayer` (hosting, joining, RPCs, spawning and synchronizing), `godot-addons` (choosing, enabling and
+checking third-party addons, and the test frameworks `gd test` runs).

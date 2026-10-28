@@ -467,6 +467,20 @@ async function checkEdits(instance) {
   check(copy.body?.data?.path === "Boss2" && connected.status === 200, "rename, move, duplicate, group, connect", [copy.body, connected.body]);
   const found = await command(instance, "node_find", { group: "bosses" });
   check(found.body?.data?.nodes?.[0]?.path === "Boss", "the group is set", found.body?.data);
+  const links = await command(instance, "node_connections", { path: "Boss" });
+  const link = links.body?.data?.connections?.[0];
+  check(links.body?.data?.connections?.length === 1 && link?.signal === "tree_entered" && link?.target === "." && link?.method === "_on_boss_entered", "node_connections lists the saved connection", links.body);
+  const cut = await command(instance, "node_disconnect_signal", { path: "Boss", signal: "tree_entered", target: ".", method: "_on_boss_entered" });
+  const afterCut = await command(instance, "node_connections", { path: "Boss" });
+  check(cut.status === 200 && afterCut.body?.data?.connections?.length === 0, "node_disconnect_signal", [cut.body, afterCut.body]);
+  await command(instance, "edit_undo");
+  check((await command(instance, "node_connections", { path: "Boss" })).body?.data?.connections?.length === 1, "undo connects it again");
+  const ungrouped = await command(instance, "node_remove_from_group", { path: "Boss", group: "bosses" });
+  check(ungrouped.status === 200 && (await command(instance, "node_find", { group: "bosses" })).body?.data?.nodes?.length === 0, "node_remove_from_group", ungrouped.body);
+  await command(instance, "edit_undo");
+  const picked = await command(instance, "editor_select", { paths: ["Boss"] });
+  const selected = await command(instance, "editor_selection");
+  check(picked.status === 200 && selected.body?.data?.nodes?.[0]?.path === "Boss", "editor_select", [picked.body, selected.body]);
 
   const deleted = await command(instance, "node_delete", { path: "Boss2" });
   check(deleted.status === 200 && !(await treePaths()).includes("Boss2"), "node_delete", deleted.body);
@@ -494,6 +508,8 @@ async function checkEdits(instance) {
   check(instanced.status === 200 && instanced.body?.data?.path === "Level", "node_instantiate_scene", instanced.body);
   const resource = await command(instance, "resource_create", { path: `${TMP_DIR}/e2e_box.tres`, type: "RectangleShape2D", properties: { size: [16, 8] } });
   check(resource.status === 200, "resource_create", resource.body);
+  const readBack = await command(instance, "resource_get", { path: `${TMP_DIR}/e2e_box.tres`, properties: ["size"] });
+  check(readBack.status === 200 && readBack.body?.data?.type === "RectangleShape2D" && Object.keys(readBack.body?.data?.properties ?? {}).join() === "size", "resource_get", readBack.body);
   const saved = await command(instance, "scene_save");
   const onDisk = await command(instance, "fs_read_text", { path: scene });
   const text = onDisk.body?.data?.text ?? "";

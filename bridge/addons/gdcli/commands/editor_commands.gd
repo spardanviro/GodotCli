@@ -1,6 +1,7 @@
 extends RefCounted
 
 const AccessPolicy = preload("../core/access_policy.gd")
+const Edit = preload("../core/edit.gd")
 const NodeRef = preload("../core/node_ref.gd")
 const Reply = preload("../core/reply.gd")
 const TextSanitizer = preload("../core/text_sanitizer.gd")
@@ -26,6 +27,18 @@ func register(registry: RefCounted) -> void:
 		"requires": ["scene_open"],
 		"returns": "nodes: [{path, type}]",
 	}, _selection)
+	registry.register({
+		"name": "editor_select",
+		"summary": "Select nodes in the editor, so the person sees them in the Scene dock and the Inspector.",
+		"risk": AccessPolicy.RISK_WRITE,
+		"requires": ["scene_open"],
+		"params": {
+			"type": "object",
+			"properties": {"paths": {"type": "array", "items": {"type": "string"}, "description": "Node paths relative to the scene root; [] clears the selection."}},
+			"required": ["paths"],
+		},
+		"returns": "nodes: [{path, type}] now selected",
+	}, _select)
 
 
 func _status(_args: Dictionary) -> Dictionary:
@@ -43,6 +56,20 @@ func _status(_args: Dictionary) -> Dictionary:
 		"allow_eval": _context.allow_eval(),
 		"capabilities": [] if headless else ["screenshot"],
 	})
+
+
+func _select(args: Dictionary, options: Dictionary) -> Dictionary:
+	var root: Node = _context.scene_root()
+	var nodes := []
+	for path in args["paths"]:
+		var node := NodeRef.resolve(root, str(path))
+		if node == null:
+			return Reply.fail("NODE_NOT_FOUND", "The node does not exist.", "Use scene_tree to see the node paths.", {"path": TextSanitizer.clean_line(str(path))})
+		nodes.append(node)
+	if options["dry_run"]:
+		return Edit.planned({"select": args["paths"].size()})
+	_context.select_nodes(nodes)
+	return _selection({})
 
 
 func _selection(_args: Dictionary) -> Dictionary:

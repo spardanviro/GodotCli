@@ -27,6 +27,10 @@ func selected_nodes() -> Array:
 	return selected
 
 
+func select_nodes(nodes: Array) -> void:
+	selected = nodes.duplicate()
+
+
 func is_playing() -> bool:
 	return playing
 

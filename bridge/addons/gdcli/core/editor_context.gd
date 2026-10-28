@@ -60,6 +60,16 @@ func selected_nodes() -> Array:
 	return EditorInterface.get_selection().get_selected_nodes()
 
 
+## Replaces the selection; the last node is shown in the Inspector.
+func select_nodes(nodes: Array) -> void:
+	var selection := EditorInterface.get_selection()
+	selection.clear()
+	for node in nodes:
+		selection.add_node(node)
+	if not nodes.is_empty():
+		EditorInterface.edit_node(nodes[-1])
+
+
 func is_playing() -> bool:
 	return EditorInterface.is_playing_scene()
 

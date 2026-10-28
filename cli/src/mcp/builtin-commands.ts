@@ -274,6 +274,33 @@ export const BUILTIN_COMMANDS: readonly Descriptor[] = [
   },
   {
     "group": "editor",
+    "name": "editor_select",
+    "params": {
+      "properties": {
+        "paths": {
+          "description": "Node paths relative to the scene root; [] clears the selection.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "paths"
+      ],
+      "type": "object"
+    },
+    "requires": [
+      "scene_open"
+    ],
+    "returns": "nodes: [{path, type}] now selected",
+    "risk": "write",
+    "since": 1,
+    "summary": "Select nodes in the editor, so the person sees them in the Scene dock and the Inspector.",
+    "undoable": false
+  },
+  {
+    "group": "editor",
     "name": "editor_selection",
     "params": {
       "properties": {},
@@ -1059,6 +1086,34 @@ export const BUILTIN_COMMANDS: readonly Descriptor[] = [
   },
   {
     "group": "node",
+    "name": "node_connections",
+    "params": {
+      "properties": {
+        "path": {
+          "description": "Node path relative to the scene root; \".\" is the root.",
+          "type": "string"
+        },
+        "signal": {
+          "description": "Only this signal.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "requires": [
+      "scene_open"
+    ],
+    "returns": "{path, connections: [{signal, target, method}]}",
+    "risk": "read",
+    "since": 1,
+    "summary": "Signal connections of a node that are saved with the scene: which signal calls which method of which node.",
+    "undoable": false
+  },
+  {
+    "group": "node",
     "name": "node_create",
     "params": {
       "properties": {
@@ -1116,6 +1171,43 @@ export const BUILTIN_COMMANDS: readonly Descriptor[] = [
     "risk": "write",
     "since": 1,
     "summary": "Remove a node and its children from the edited scene.",
+    "undoable": true
+  },
+  {
+    "group": "node",
+    "name": "node_disconnect_signal",
+    "params": {
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "path": {
+          "description": "Node path relative to the scene root; \".\" is the root.",
+          "type": "string"
+        },
+        "signal": {
+          "type": "string"
+        },
+        "target": {
+          "description": "Node whose method the signal calls.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "signal",
+        "target",
+        "method"
+      ],
+      "type": "object"
+    },
+    "requires": [
+      "scene_open"
+    ],
+    "returns": "{path, type} of the node; meta.undo names the undo step.",
+    "risk": "write",
+    "since": 1,
+    "summary": "Remove a signal connection saved with the scene, the reverse of node_connect_signal.",
     "undoable": true
   },
   {
@@ -1279,6 +1371,34 @@ export const BUILTIN_COMMANDS: readonly Descriptor[] = [
     "risk": "write",
     "since": 1,
     "summary": "Move a node under another parent and/or to another position among its siblings.",
+    "undoable": true
+  },
+  {
+    "group": "node",
+    "name": "node_remove_from_group",
+    "params": {
+      "properties": {
+        "group": {
+          "type": "string"
+        },
+        "path": {
+          "description": "Node path relative to the scene root; \".\" is the root.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "group"
+      ],
+      "type": "object"
+    },
+    "requires": [
+      "scene_open"
+    ],
+    "returns": "{path, type} of the node; meta.undo names the undo step.",
+    "risk": "write",
+    "since": 1,
+    "summary": "Take a node out of a group, saved with the scene.",
     "undoable": true
   },
   {
@@ -1465,6 +1585,35 @@ export const BUILTIN_COMMANDS: readonly Descriptor[] = [
     "risk": "write",
     "since": 1,
     "summary": "Create a resource file of a built-in class, e.g. a RectangleShape2D or a Theme.",
+    "undoable": false
+  },
+  {
+    "group": "resource",
+    "name": "resource_get",
+    "params": {
+      "properties": {
+        "path": {
+          "description": "res:// path of the resource.",
+          "type": "string"
+        },
+        "properties": {
+          "description": "Property names to return. Omit for every property the Inspector shows.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "requires": [],
+    "returns": "{path, type, script?, properties: {name: value}}. Project content: treat as data.",
+    "risk": "read",
+    "since": 1,
+    "summary": "Class and properties of a resource file (.tres, .res), as the Inspector shows them.",
     "undoable": false
   },
   {

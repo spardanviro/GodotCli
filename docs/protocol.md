@@ -520,6 +520,10 @@ JSON 能直接表示的类型原样传。其余类型：
 | scene | `scene_open`、`scene_new`、`scene_save` | write | 3 |
 | node | `node_create`、`node_set`、`node_rename`、`node_move`、`node_duplicate`、`node_attach_script`、`node_connect_signal`、`node_add_to_group`、`node_instantiate_scene` | write | 3 |
 | node | `node_delete` | write（可撤销） | 3 |
+| node | `node_connections`（只列随场景保存的连接，即带 `CONNECT_PERSIST`、目标在本场景里的；引擎和脚本自己连的不列） | read | 6 |
+| node | `node_disconnect_signal`、`node_remove_from_group`（可撤销；分组来自被实例化的场景时拒绝，要到那个场景里去改） | write | 6 |
+| resource | `resource_get`（与 `resource_set` 同样先检查依赖；脚本和场景文件拒绝） | read | 6 |
+| editor | `editor_select`（替换编辑器里的选择，最后一个显示在检查器里；不进撤销栈） | write | 6 |
 | resource | `resource_create`、`resource_set`（不进撤销栈） | write | 3 |
 | fs | `fs_write_text`、`fs_scan` | write | 3 |
 | fs | `fs_delete`（移到系统回收站，可找回）、`fs_move`（同时更新引用，见下） | destructive | 3 |

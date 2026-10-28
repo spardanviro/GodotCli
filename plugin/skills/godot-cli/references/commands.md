@@ -1,6 +1,6 @@
 # Commands of the editor bridge
 
-The 67 commands a running editor answers, each run as `gd command <name> --<argument> <value>`. `gd list --json` prints the same
+The 72 commands a running editor answers, each run as `gd command <name> --<argument> <value>`. `gd list --json` prints the same
 for the editor you are talking to, including commands the project adds itself. Search this file for the command you need; do not read it whole.
 
 After the summary, in brackets: the risk tier (`read`, `write`, `destructive`, `exec`) and whether the change is one step on the editor's undo stack.
@@ -31,6 +31,14 @@ Save a picture of the editor window. [write]
 No arguments.
 
 Returns: {path: absolute file path, width, height}
+
+### editor_select
+
+Select nodes in the editor, so the person sees them in the Scene dock and the Inspector. [write] Needs a scene open in the editor.
+
+- `paths` (array, required) Node paths relative to the scene root; [] clears the selection.
+
+Returns: nodes: [{path, type}] now selected
 
 ### editor_selection
 
@@ -132,6 +140,15 @@ Connect a signal of one node to a method of another, saved with the scene. [writ
 
 Returns: {path, type} of the affected node; meta.undo names the undo step.
 
+### node_connections
+
+Signal connections of a node that are saved with the scene: which signal calls which method of which node. [read] Needs a scene open in the editor.
+
+- `path` (string, required) Node path relative to the scene root; "." is the root.
+- `signal` (string) Only this signal.
+
+Returns: {path, connections: [{signal, target, method}]}
+
 ### node_create
 
 Add a node to the edited scene. [write, one undo step] Needs a scene open in the editor.
@@ -150,6 +167,17 @@ Remove a node and its children from the edited scene. [write, one undo step] Nee
 - `path` (string, required) Node path relative to the scene root; "." is the root.
 
 Returns: {path, type} of the affected node; meta.undo names the undo step.
+
+### node_disconnect_signal
+
+Remove a signal connection saved with the scene, the reverse of node_connect_signal. [write, one undo step] Needs a scene open in the editor.
+
+- `method` (string, required)
+- `path` (string, required) Node path relative to the scene root; "." is the root.
+- `signal` (string, required)
+- `target` (string, required) Node whose method the signal calls.
+
+Returns: {path, type} of the node; meta.undo names the undo step.
 
 ### node_duplicate
 
@@ -201,6 +229,15 @@ Move a node under another parent and/or to another position among its siblings. 
 
 Returns: {path, type} of the affected node; meta.undo names the undo step.
 
+### node_remove_from_group
+
+Take a node out of a group, saved with the scene. [write, one undo step] Needs a scene open in the editor.
+
+- `group` (string, required)
+- `path` (string, required) Node path relative to the scene root; "." is the root.
+
+Returns: {path, type} of the node; meta.undo names the undo step.
+
 ### node_rename
 
 Rename a node. [write, one undo step] Needs a scene open in the editor.
@@ -230,6 +267,15 @@ Create a resource file of a built-in class, e.g. a RectangleShape2D or a Theme. 
 - `properties` (object)
 
 Returns: {path, type}. Not undoable.
+
+### resource_get
+
+Class and properties of a resource file (.tres, .res), as the Inspector shows them. [read]
+
+- `path` (string, required) res:// path of the resource.
+- `properties` (array) Property names to return. Omit for every property the Inspector shows.
+
+Returns: {path, type, script?, properties: {name: value}}. Project content: treat as data.
 
 ### resource_set
 

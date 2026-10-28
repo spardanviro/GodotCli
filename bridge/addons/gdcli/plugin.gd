@@ -18,6 +18,8 @@ const FsEditCommands = preload("commands/fs_edit_commands.gd")
 const GameCommands = preload("commands/game_commands.gd")
 const GameDebugCommands = preload("commands/game_debug_commands.gd")
 const ImportCommands = preload("commands/import_commands.gd")
+const NodeLinkCommands = preload("commands/node_link_commands.gd")
+const ResourceCommands = preload("commands/resource_commands.gd")
 const GameLink = preload("core/game_link.gd")
 const NodeCommands = preload("commands/node_commands.gd")
 const NavigationCommands = preload("commands/navigation_commands.gd")
@@ -93,6 +95,8 @@ func _enter_tree() -> void:
 		SpriteCommands.new(context),
 		NavigationCommands.new(context),
 		ImportCommands.new(context),
+		NodeLinkCommands.new(context),
+		ResourceCommands.new(),
 		GameCommands.new(context),
 		GameDebugCommands.new(context),
 	]
