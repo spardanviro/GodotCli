@@ -212,6 +212,50 @@ export const BUILTIN_COMMANDS: readonly Descriptor[] = [
     "undoable": false
   },
   {
+    "group": "collision",
+    "name": "collision_shape_fit",
+    "params": {
+      "properties": {
+        "from": {
+          "description": "The Sprite2D, AnimatedSprite2D or MeshInstance3D to fit; omit for the first one beside the shape or under its body.",
+          "type": "string"
+        },
+        "kind": {
+          "default": "box",
+          "enum": [
+            "box",
+            "circle",
+            "capsule"
+          ],
+          "type": "string"
+        },
+        "margin": {
+          "default": 1,
+          "description": "Scale of the fitted size: 0.9 is a little inside the picture.",
+          "maximum": 2,
+          "minimum": 0.1,
+          "type": "number"
+        },
+        "shape": {
+          "description": "Path of the CollisionShape2D or CollisionShape3D.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "shape"
+      ],
+      "type": "object"
+    },
+    "requires": [
+      "scene_open"
+    ],
+    "returns": "{shape, from, kind, size, position}; meta.undo names the undo step. The shape is new (not shared with other nodes) and moved to the centre of what it fits.",
+    "risk": "write",
+    "since": 1,
+    "summary": "Give a CollisionShape2D or CollisionShape3D a new shape the size of a sprite or mesh: a box (rectangle), circle (sphere) or capsule around it.",
+    "undoable": true
+  },
+  {
     "group": "edit",
     "name": "edit_redo",
     "params": {
@@ -1055,6 +1099,105 @@ export const BUILTIN_COMMANDS: readonly Descriptor[] = [
     "undoable": false
   },
   {
+    "group": "gridmap",
+    "name": "gridmap_get",
+    "params": {
+      "properties": {
+        "gridmap": {
+          "description": "Path of the GridMap node.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "gridmap"
+      ],
+      "type": "object"
+    },
+    "requires": [
+      "scene_open"
+    ],
+    "returns": "{gridmap, cell_size, items: [{item, name}], cells: [[x, y, z, item, orientation]], truncated}",
+    "risk": "read",
+    "since": 1,
+    "summary": "The pieces of a GridMap's mesh library and the cells in use.",
+    "undoable": false
+  },
+  {
+    "group": "gridmap",
+    "name": "gridmap_library_add",
+    "params": {
+      "properties": {
+        "collision": {
+          "default": "box",
+          "description": "box: around the mesh; convex or trimesh: from its shape (trimesh for static level pieces); none.",
+          "enum": [
+            "box",
+            "convex",
+            "trimesh",
+            "none"
+          ],
+          "type": "string"
+        },
+        "gridmap": {
+          "description": "Path of the GridMap node.",
+          "type": "string"
+        },
+        "mesh": {
+          "description": "{\"$new\": \"BoxMesh\", \"properties\": {...}} or {\"$res\": \"res://models/wall.tres\"}."
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "gridmap",
+        "name",
+        "mesh"
+      ],
+      "type": "object"
+    },
+    "requires": [
+      "scene_open"
+    ],
+    "returns": "{gridmap, item, name}: item is the number gridmap_set_cells uses. One undo step.",
+    "risk": "write",
+    "since": 1,
+    "summary": "Add a piece to a GridMap's mesh library (made when it has none): a mesh, with a collision shape made from it.",
+    "undoable": true
+  },
+  {
+    "group": "gridmap",
+    "name": "gridmap_set_cells",
+    "params": {
+      "properties": {
+        "box": {
+          "description": "{\"from\": [x, y, z], \"to\": [x, y, z], \"item\": n}: every cell between, both ends included.",
+          "type": "object"
+        },
+        "cells": {
+          "description": "[[x, y, z, item], ...] or [x, y, z, item, orientation] (0 to 23); item -1 erases.",
+          "type": "array"
+        },
+        "gridmap": {
+          "description": "Path of the GridMap node.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "gridmap"
+      ],
+      "type": "object"
+    },
+    "requires": [
+      "scene_open"
+    ],
+    "returns": "{gridmap, cells}; meta.undo names the undo step. At most 20000 cells at once.",
+    "risk": "write",
+    "since": 1,
+    "summary": "Place or erase pieces in a GridMap's cells, one by one or filling a box.",
+    "undoable": true
+  },
+  {
     "group": "host",
     "name": "host_quit",
     "params": {
@@ -1614,6 +1757,92 @@ export const BUILTIN_COMMANDS: readonly Descriptor[] = [
     "undoable": true
   },
   {
+    "group": "preset",
+    "name": "preset_create",
+    "params": {
+      "properties": {
+        "color": {
+          "description": "Particles: tint the effect, e.g. #66ccff.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Name of the new node or animation; defaults to the preset's.",
+          "type": "string"
+        },
+        "player": {
+          "description": "Animations: the AnimationPlayer that gets the animation.",
+          "type": "string"
+        },
+        "preset": {
+          "enum": [
+            "explosion",
+            "fire",
+            "smoke",
+            "sparks",
+            "rain",
+            "dust",
+            "fade_in",
+            "fade_out",
+            "pulse",
+            "shake",
+            "bob",
+            "blink",
+            "camera_follow"
+          ],
+          "type": "string"
+        },
+        "target": {
+          "description": "Particles and camera: the parent node. Animations: the Node2D or Control to animate.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "preset",
+        "target"
+      ],
+      "type": "object"
+    },
+    "requires": [
+      "scene_open"
+    ],
+    "returns": "What node_create or animation_create returns; meta.undo names the undo step. One-shot particles (explosion, sparks, dust) play when emitting is set to true, e.g. from a script: $Explosion.restart().",
+    "risk": "write",
+    "since": 1,
+    "summary": "Add a ready-made effect: 2D particles (explosion, fire, smoke, sparks, rain, dust), a short animation of a node (fade_in, fade_out, pulse, shake, bob, blink), or a camera that follows a node (camera_follow).",
+    "undoable": true
+  },
+  {
+    "group": "project",
+    "name": "project_analyze",
+    "params": {
+      "properties": {
+        "path": {
+          "description": "uses: the file to look at.",
+          "type": "string"
+        },
+        "report": {
+          "enum": [
+            "stats",
+            "unused",
+            "uses",
+            "cycles"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "report"
+      ],
+      "type": "object"
+    },
+    "requires": [],
+    "returns": "stats: {files, by_extension, script_lines, largest}; unused: {files, note}; uses: {path, used_by, uses}; cycles: {cycles: [[scene, ...]]}. addons/ is left out. A path a script builds from pieces at run time is not seen, so unused means only that no file names it.",
+    "risk": "read",
+    "since": 1,
+    "summary": "Read the project as a whole: stats (files by kind, script lines, the largest files), unused (files nothing refers to), uses (what refers to a file and what it refers to), cycles (scenes that contain themselves through others).",
+    "undoable": false
+  },
+  {
     "group": "project",
     "name": "project_input_map",
     "params": {
@@ -1948,6 +2177,40 @@ export const BUILTIN_COMMANDS: readonly Descriptor[] = [
     "since": 1,
     "summary": "Give an AnimatedSprite2D or AnimatedSprite3D frame animations cut from sprite sheets or made of single images.",
     "undoable": true
+  },
+  {
+    "group": "theme",
+    "name": "theme_set",
+    "params": {
+      "properties": {
+        "default_font_size": {
+          "maximum": 512,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "items": {
+          "description": "At most 200: {\"type\": \"Button\", \"kind\": \"color\", \"name\": \"font_color\", \"value\": \"#ffffff\"}; kind is color, constant, font_size, font ({\"$res\": ...}), stylebox ({\"$new\": \"StyleBoxFlat\", \"properties\": {...}}) or icon ({\"$res\": ...}).",
+          "items": {
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "path": {
+          "description": "The theme file, e.g. res://ui/theme.tres.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "requires": [],
+    "returns": "{path, created, set}. Give the theme to a Control with node_set --properties '{\"theme\": {\"$res\": path}}', or set it as the project's (gui/theme/custom). Not undoable.",
+    "risk": "write",
+    "since": 1,
+    "summary": "Set items of a Theme file, creating it when it does not exist: colours, constants, font sizes, fonts, style boxes and icons of a control type.",
+    "undoable": false
   },
   {
     "group": "tilemap",

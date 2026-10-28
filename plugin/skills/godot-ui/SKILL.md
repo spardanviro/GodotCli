@@ -129,6 +129,22 @@ stops with the rest when `get_tree().paused` is true.
   opens.
 - UI gets input before the game. Game input in `_unhandled_input` does not fire for events the UI used.
 
+## A theme for the whole game
+
+Colours, sizes and style boxes shared by every control go in a Theme file, not in overrides on each node:
+
+```bash
+gd command theme_set --path res://ui/theme.tres --default-font-size 20 --items '[
+  {"type": "Button", "kind": "color", "name": "font_color", "value": "#f0f0f0"},
+  {"type": "Button", "kind": "stylebox", "name": "normal", "value": {"$new": "StyleBoxFlat", "properties": {"bg_color": "#2a2a40", "corner_radius_top_left": 6, "corner_radius_top_right": 6, "corner_radius_bottom_left": 6, "corner_radius_bottom_right": 6}}},
+  {"type": "Label", "kind": "font_size", "name": "font_size", "value": 22}]'
+gd command project_settings_set --name gui/theme/custom --value '"res://ui/theme.tres"' --yes
+```
+
+Kinds: color, constant, font_size, font (`{"$res": ...}`), stylebox (`{"$new": "StyleBoxFlat", ...}`), icon. Item
+names are the ones the Inspector's Theme Overrides list for that control (`gd docs search Button theme properties`
+finds them in the class reference). A theme for one part of the UI goes on that Control's `theme` instead.
+
 ## Screen sizes
 
 Set once per project, when the user asks for it or the game cannot work without it:

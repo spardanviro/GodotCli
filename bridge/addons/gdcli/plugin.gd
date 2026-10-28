@@ -12,6 +12,11 @@ const Registry = preload("core/registry.gd")
 const AnimationCommands = preload("commands/animation_commands.gd")
 const AnimationTreeCommands = preload("commands/animation_tree_commands.gd")
 const BatchCommands = preload("commands/batch_commands.gd")
+const PresetCommands = preload("commands/preset_commands.gd")
+const ShapeCommands = preload("commands/shape_commands.gd")
+const ThemeCommands = preload("commands/theme_commands.gd")
+const GridmapCommands = preload("commands/gridmap_commands.gd")
+const AnalysisCommands = preload("commands/analysis_commands.gd")
 const EditorCommands = preload("commands/editor_commands.gd")
 const EditorControlCommands = preload("commands/editor_control_commands.gd")
 const FsCommands = preload("commands/fs_commands.gd")
@@ -99,6 +104,11 @@ func _enter_tree() -> void:
 		NodeLinkCommands.new(context),
 		ResourceCommands.new(),
 		BatchCommands.new(context, registry),
+		PresetCommands.new(context, registry),
+		ShapeCommands.new(context),
+		ThemeCommands.new(context),
+		GridmapCommands.new(context),
+		AnalysisCommands.new(context),
 		GameCommands.new(context),
 		GameDebugCommands.new(context),
 	]

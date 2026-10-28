@@ -60,7 +60,7 @@ gdcli 换了一条路：**智能体通过编辑器来做事。**
 
 ## 能做什么
 
-- **搭场景**：节点、属性、脚本、信号、分组、资源、动画（AnimationPlayer、状态机、混合空间、帧动画）、带地形自动拼接的瓦片集和瓦片地图、导航网格、导入设置。
+- **搭场景**：节点、属性、脚本、信号、分组、资源、动画（AnimationPlayer、状态机、混合空间、帧动画）、带地形自动拼接的瓦片集和瓦片地图、GridMap 关卡、主题、导航网格、导入设置、现成的粒子效果和动画、按图形自动生成的碰撞形状。
 - **改项目**：项目设置、输入动作，移动和重命名文件时自动更新场景和脚本里的引用。
 - **运行并往里看**：从编辑器运行游戏，读它的节点树和实时数值，发送按键、鼠标、手柄的操作序列，放慢或加快游戏，列出界面上显示的内容，一次检查多个数值，调用方法，读带脚本调用栈的报错和输出，截图，看帧率、内存、绘制调用和孤立节点。
 - **调试**：下断点、暂停、单步，看停住时的调用栈和局部变量。
@@ -325,6 +325,9 @@ gdcli 和 [Godot AI](https://github.com/spardanviro/Godot_AI) 是同一个作者
 | 文件与资源 | `fs_list` `fs_read_text` `fs_write_text` `fs_edit_text` `fs_move` `fs_delete` `fs_scan` `resource_create` `resource_get` `resource_set` `import_settings_get` `import_settings_set` |
 | 项目 | `project_settings_get` `project_settings_set` `project_input_map` `project_input_map_set` |
 | 动画 | `animation_create` `animation_list` `animation_state_machine_create` `animation_blend_space_create` `sprite_frames_create` |
+| 效果与形状 | `preset_create` `collision_shape_fit` `theme_set` |
+| 3D 关卡 | `gridmap_library_add` `gridmap_set_cells` `gridmap_get` |
+| 项目分析 | `project_analyze` |
 | 瓦片与导航 | `tileset_add_atlas` `tileset_set_collision` `tileset_set_terrain` `tilemap_set_cells` `tilemap_get` `navigation_bake` |
 | 批量 | `batch`（可撤销的步骤和只读命令；一步失败就撤销已做的步骤） |
 | 编辑器 | `editor_status` `editor_play` `editor_stop` `editor_errors` `editor_selection` `editor_select` `editor_screenshot` `edit_undo` `edit_redo` |
@@ -423,6 +426,8 @@ GODOT_BIN=/path/to/godot node evals/run.mjs --agent claude --repeat 3 --baseline
 | `plugin/` | Claude 插件：技能、参考资料、钩子 |
 | `evals/` | 评测集：任务、检查、运行器、基线结果 |
 | `scripts/` | 测试与检查脚本、生成插件参考资料的脚本 |
+
+安全问题请按 [SECURITY.md](SECURITY.md) 私下报告。
 
 三个部分在同一个仓库里、用同一个版本号一起发布：插件里的命令参考是从桥接生成的，这样两者不会对不上。
 

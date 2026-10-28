@@ -124,6 +124,12 @@ For a character with many animations: a state machine (idle, run, jump, fall) or
 
 ## Particles
 
+Ready-made 2D effects, in one undo step: `gd command preset_create --preset explosion --target Player`
+(also fire, smoke, sparks, rain, dust; `--color "#66ccff"` tints it). One-shot effects (explosion, sparks, dust)
+are made ready but not fired: the game fires them with `$Explosion.restart()`. Adjust the result with `node_set`.
+Short animations of a Node2D or Control the same way, onto an AnimationPlayer: `preset_create --preset bob
+--target Coin --player Anim` (fade_in, fade_out, pulse, shake, bob, blink), keyed from where the node is now.
+
 `GPUParticles2D/3D` are the default, also in the Compatibility renderer (since Godot 4.2); `CPUParticles2D/3D` are
 for old or weak devices where GPU particles are slow, or when a script must read particle positions. GPU particles need a process material, or nothing appears:
 

@@ -23,6 +23,7 @@ const DESCRIPTIONS: Readonly<Record<ToolGroup, string>> = {
 const BY_NAME: Readonly<Record<string, ToolGroup>> = {
   eval: "exec",
   batch: "core",
+  preset_create: "core",
   gd_test: "test",
   gd_api_class: "docs",
   gd_api_search: "docs",
@@ -37,7 +38,10 @@ const BY_PREFIX: readonly (readonly [string, ToolGroup])[] = [
   ["animation_", "animation"],
   ["tileset_", "level"],
   ["tilemap_", "level"],
+  ["gridmap_", "level"],
+  ["theme_", "core"],
   ["import_", "import"],
+  ["collision_", "core"],
   ["scene_", "core"],
   ["node_", "core"],
   ["fs_", "core"],

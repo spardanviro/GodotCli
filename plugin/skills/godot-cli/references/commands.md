@@ -1,6 +1,6 @@
 # Commands of the editor bridge
 
-The 78 commands a running editor answers, each run as `gd command <name> --<argument> <value>`. `gd list --json` prints the same
+The 85 commands a running editor answers, each run as `gd command <name> --<argument> <value>`. `gd list --json` prints the same
 for the editor you are talking to, including commands the project adds itself. Search this file for the command you need; do not read it whole.
 
 After the summary, in brackets: the risk tier (`read`, `write`, `destructive`, `exec`) and whether the change is one step on the editor's undo stack.
@@ -494,6 +494,15 @@ Returns: {path, bytes, created, check?: {compiles, errors?} or {skipped}}. A scr
 
 ## project
 
+### project_analyze
+
+Read the project as a whole: stats (files by kind, script lines, the largest files), unused (files nothing refers to), uses (what refers to a file and what it refers to), cycles (scenes that contain themselves through others). [read]
+
+- `report` (string, required, one of stats, unused, uses, cycles)
+- `path` (string) uses: the file to look at.
+
+Returns: stats: {files, by_extension, script_lines, largest}; unused: {files, note}; uses: {path, used_by, uses}; cycles: {cycles: [[scene, ...]]}. addons/ is left out. A path a script builds from pieces at run time is not seen, so unused means only that no file names it.
+
 ### project_input_map
 
 Input actions defined in the project settings, with their events. [read]
@@ -733,6 +742,19 @@ Run several commands in order as one request; if one fails, the ones already don
 
 Returns: {steps: [{command, data}], undo: [undo step names]}. On failure: the failed step's error, with details.step (from 0) and details.undone (how many were taken back). A dry run checks the commands and their arguments only.
 
+## collision
+
+### collision_shape_fit
+
+Give a CollisionShape2D or CollisionShape3D a new shape the size of a sprite or mesh: a box (rectangle), circle (sphere) or capsule around it. [write, one undo step] Needs a scene open in the editor.
+
+- `shape` (string, required) Path of the CollisionShape2D or CollisionShape3D.
+- `from` (string) The Sprite2D, AnimatedSprite2D or MeshInstance3D to fit; omit for the first one beside the shape or under its body.
+- `kind` (string, default "box", one of box, circle, capsule)
+- `margin` (number, default 1, 0.1..2) Scale of the fitted size: 0.9 is a little inside the picture.
+
+Returns: {shape, from, kind, size, position}; meta.undo names the undo step. The shape is new (not shared with other nodes) and moved to the centre of what it fits.
+
 ## eval
 
 ### eval
@@ -742,6 +764,37 @@ Run GDScript in the editor process. Off unless enabled in the editor settings. N
 - `code` (string, required) Body of `func run(editor, scene)`: `editor` is EditorInterface, `scene` the edited scene root. Use `return` for a result.
 
 Returns: {result}. Fails with the printed errors when the code errors at run time (Godot 4.5+).
+
+## gridmap
+
+### gridmap_get
+
+The pieces of a GridMap's mesh library and the cells in use. [read] Needs a scene open in the editor.
+
+- `gridmap` (string, required) Path of the GridMap node.
+
+Returns: {gridmap, cell_size, items: [{item, name}], cells: [[x, y, z, item, orientation]], truncated}
+
+### gridmap_library_add
+
+Add a piece to a GridMap's mesh library (made when it has none): a mesh, with a collision shape made from it. [write, one undo step] Needs a scene open in the editor.
+
+- `gridmap` (string, required) Path of the GridMap node.
+- `mesh` (any JSON value, required) {"$new": "BoxMesh", "properties": {...}} or {"$res": "res://models/wall.tres"}.
+- `name` (string, required)
+- `collision` (string, default "box", one of box, convex, trimesh, none) box: around the mesh; convex or trimesh: from its shape (trimesh for static level pieces); none.
+
+Returns: {gridmap, item, name}: item is the number gridmap_set_cells uses. One undo step.
+
+### gridmap_set_cells
+
+Place or erase pieces in a GridMap's cells, one by one or filling a box. [write, one undo step] Needs a scene open in the editor.
+
+- `gridmap` (string, required) Path of the GridMap node.
+- `box` (object) {"from": [x, y, z], "to": [x, y, z], "item": n}: every cell between, both ends included.
+- `cells` (array) [[x, y, z, item], ...] or [x, y, z, item, orientation] (0 to 23); item -1 erases.
+
+Returns: {gridmap, cells}; meta.undo names the undo step. At most 20000 cells at once.
 
 ## import
 
@@ -761,3 +814,29 @@ Change import options of an imported file and import it again, like Reimport in 
 - `path` (string, required) The imported file, e.g. res://art/hero.png (not its .import).
 
 Returns: {path, importer, set, previous: {option: old value}}. Not undoable: pass previous back to undo it. When the import fails, the earlier settings are put back.
+
+## preset
+
+### preset_create
+
+Add a ready-made effect: 2D particles (explosion, fire, smoke, sparks, rain, dust), a short animation of a node (fade_in, fade_out, pulse, shake, bob, blink), or a camera that follows a node (camera_follow). [write, one undo step] Needs a scene open in the editor.
+
+- `preset` (string, required, one of explosion, fire, smoke, sparks, rain, dust, fade_in, fade_out, pulse, shake, bob, blink, camera_follow)
+- `target` (string, required) Particles and camera: the parent node. Animations: the Node2D or Control to animate.
+- `color` (string) Particles: tint the effect, e.g. #66ccff.
+- `name` (string) Name of the new node or animation; defaults to the preset's.
+- `player` (string) Animations: the AnimationPlayer that gets the animation.
+
+Returns: What node_create or animation_create returns; meta.undo names the undo step. One-shot particles (explosion, sparks, dust) play when emitting is set to true, e.g. from a script: $Explosion.restart().
+
+## theme
+
+### theme_set
+
+Set items of a Theme file, creating it when it does not exist: colours, constants, font sizes, fonts, style boxes and icons of a control type. [write]
+
+- `path` (string, required) The theme file, e.g. res://ui/theme.tres.
+- `default_font_size` (integer, 1..512)
+- `items` (array) At most 200: {"type": "Button", "kind": "color", "name": "font_color", "value": "#ffffff"}; kind is color, constant, font_size, font ({"$res": ...}), stylebox ({"$new": "StyleBoxFlat", "properties": {...}}) or icon ({"$res": ...}).
+
+Returns: {path, created, set}. Give the theme to a Control with node_set --properties '{"theme": {"$res": path}}', or set it as the project's (gui/theme/custom). Not undoable.

@@ -91,6 +91,12 @@ in `_unhandled_input(event)` so that UI gets them first.
 
 Test input without a person: `gd command game_input --action jump --hold 0.1` on a game started with `editor_play`.
 
+## Fitting a collision shape
+
+Do not work out a shape's size by hand: `gd command collision_shape_fit --shape Player/CollisionShape2D` sizes a
+new rectangle (or `--kind circle`, `--kind capsule`) to the sprite beside it and centres it on what is drawn;
+`--margin 0.9` keeps it a little inside the picture. In 3D it fits a box, sphere or capsule to the MeshInstance3D.
+
 ## Layers and masks
 
 `collision_layer` is where an object **is**; `collision_mask` is what it **looks for**. A collision needs the
@@ -131,6 +137,9 @@ One-off queries go through `get_world_2d().direct_space_state.intersect_ray(...)
 `_physics_process`.
 
 ## Camera
+
+A camera that follows the player smoothly, in one step: `gd command preset_create --preset camera_follow --target
+Player` (a Camera2D under it, with smoothing and drag margins).
 
 2D: a `Camera2D` as a child of the player follows it. Set `position_smoothing_enabled` for a softer follow and
 `limit_left/right/top/bottom` to keep it inside the level. There is no `current` property to set; the camera in the

@@ -65,7 +65,8 @@ gdcli takes the other road: **the agent works through the editor.**
 ## What you can do with it
 
 - **Build scenes**: nodes, properties, scripts, signals, groups, resources, animations (players, state machines,
-  blend spaces, sprite frames), tile sets and tile maps with terrains, navigation meshes, import settings.
+  blend spaces, sprite frames), tile sets and tile maps with terrains, GridMap levels, themes, navigation meshes,
+  import settings, ready-made particle effects and animations, collision shapes fitted to sprites and meshes.
 - **Change the project**: project settings, input actions, moving and renaming files with references updated
   across scenes and scripts.
 - **Run and look inside**: start the game from the editor and read its node tree and live values, play key,
@@ -364,6 +365,9 @@ Editor commands by area:
 | Files and resources | `fs_list` `fs_read_text` `fs_write_text` `fs_edit_text` `fs_move` `fs_delete` `fs_scan` `resource_create` `resource_get` `resource_set` `import_settings_get` `import_settings_set` |
 | Project | `project_settings_get` `project_settings_set` `project_input_map` `project_input_map_set` |
 | Animation | `animation_create` `animation_list` `animation_state_machine_create` `animation_blend_space_create` `sprite_frames_create` |
+| Effects and shapes | `preset_create` `collision_shape_fit` `theme_set` |
+| 3D levels | `gridmap_library_add` `gridmap_set_cells` `gridmap_get` |
+| Project | `project_analyze` |
 | Tiles and navigation | `tileset_add_atlas` `tileset_set_collision` `tileset_set_terrain` `tilemap_set_cells` `tilemap_get` `navigation_bake` |
 | Several at once | `batch` (undoable steps and reads; a failure undoes the steps done) |
 | Editor | `editor_status` `editor_play` `editor_stop` `editor_errors` `editor_selection` `editor_select` `editor_screenshot` `edit_undo` `edit_redo` |
@@ -484,6 +488,8 @@ The detailed documents are in Chinese.
 | `plugin/` | the Claude plugin: skills, references, hooks |
 | `evals/` | the eval set: tasks, checks, runner, baseline results |
 | `scripts/` | test and check scripts, and the scripts that generate the plugin's references |
+
+To report a security problem, see [SECURITY.md](SECURITY.md).
 
 The three parts are released together with the same version number, from this one repository: the plugin's
 command reference is generated from the bridge, so they cannot drift apart.

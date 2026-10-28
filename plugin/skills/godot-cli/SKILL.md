@@ -73,6 +73,11 @@ arguments. Search that file for the command you need.
 | Animate | `animation_create`, `animation_list`, `sprite_frames_create`, `animation_state_machine_create`, `animation_blend_space_create` |
 | Build a tile level | `tileset_add_atlas`, `tileset_set_collision`, `tileset_set_terrain`, `tilemap_set_cells`, `tilemap_get` |
 | Bake navigation | `navigation_bake` |
+| Ready-made effects | `preset_create` (2D particles, short animations, a following camera) |
+| Collision the size of the picture | `collision_shape_fit` |
+| 3D levels from pieces | `gridmap_library_add`, `gridmap_set_cells`, `gridmap_get` |
+| A theme for the UI | `theme_set` |
+| Understand the project | `project_analyze` (stats, unused files, what uses a file, scenes containing themselves) |
 | Change how a file is imported | `import_settings_get`, `import_settings_set` (texture compression and mipmaps, a sound's loop, a model's root type) |
 | Change the project | `project_settings_set`, `project_input_map_set`, `fs_move`, `fs_delete`, `fs_scan` |
 | Several steps at once | `batch` (node, animation and tile steps, and reads; if one fails, the ones done are undone) |

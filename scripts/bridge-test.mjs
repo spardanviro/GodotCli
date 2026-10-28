@@ -498,6 +498,14 @@ async function checkEdits(instance) {
   ] });
   check(broken.body?.errors?.[0]?.details?.undone === 1 && !(await treePaths()).includes("BatchB"), "a failed batch undoes its earlier steps", broken.body);
   await command(instance, "node_delete", { path: "BatchA" });
+  const effect = await command(instance, "preset_create", { preset: "fire", target: "." });
+  check(effect.status === 200 && (await treePaths()).includes("Fire"), "preset_create adds a particle effect", effect.body);
+  await command(instance, "edit_undo");
+  check(!(await treePaths()).includes("Fire"), "and it is one undo step");
+  const stats = await command(instance, "project_analyze", { report: "stats" });
+  check(stats.status === 200 && stats.body?.data?.by_extension?.tscn >= 1, "project_analyze counts the project", stats.body);
+  const themed = await command(instance, "theme_set", { path: `${TMP_DIR}/e2e_theme.tres`, items: [{ type: "Button", kind: "color", name: "font_color", value: "#ffcc00" }] });
+  check(themed.status === 200 && themed.body?.data?.created === true, "theme_set writes a theme", themed.body);
 
   // A script written, attached, and a new scene saved to disk.
   const script = `${TMP_DIR}/e2e_boss.gd`;

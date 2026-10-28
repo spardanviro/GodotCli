@@ -82,6 +82,23 @@ object's origin, not per pixel, so overlapping transparent objects can draw in t
 (leaves, fences) use alpha scissor; for soft things accept the sorting or set `render_priority`.
 Emission makes a surface look bright; it lights nothing around it unless a global illumination method is on.
 
+## Blocking out a level
+
+- **CSG** for prototypes: `CSGBox3D`, `CSGSphere3D`, `CSGCylinder3D` under a `CSGCombiner3D`, made with `node_create`;
+  `operation` (union, intersection, subtraction) cuts one from another, and `use_collision` gives them collision.
+  CSG is slow to change at run time; turn finished pieces into meshes in the editor.
+- **GridMap** for levels built from pieces: add pieces to its mesh library, then place them in cells.
+
+```bash
+gd command node_create --type GridMap --name Blocks --properties '{"cell_size": [2, 2, 2]}'
+gd command gridmap_library_add --gridmap Blocks --name floor --mesh '{"$new": "BoxMesh", "properties": {"size": [2, 0.5, 2]}}'
+gd command gridmap_set_cells --gridmap Blocks --box '{"from": [0, 0, 0], "to": [9, 0, 9], "item": 0}'
+gd command gridmap_get --gridmap Blocks
+```
+
+  Each piece gets a collision shape from its mesh (`--collision box`, `convex`, `trimesh` or `none`).
+  `collision_shape_fit` sizes a body's CollisionShape3D to its mesh.
+
 ## Lights and shadows
 
 - `DirectionalLight3D`: the sun. Only its rotation matters, not its position.
