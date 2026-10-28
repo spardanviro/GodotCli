@@ -31,13 +31,17 @@ jobs:
           - { os: windows-latest, node: 24 }
           - { os: macos-latest, node: 24 }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci
       - run: npm run verify
+      # The task files are generated: one edited by hand, or a generator change
+      # not run, would test something other than what make_tasks.py says.
+      - if: matrix.os == 'ubuntu-latest' && matrix.node == 24
+        run: python3 evals/make_tasks.py && git diff --exit-code evals/tasks
       # What npm would publish, installed into an empty prefix and run.
       - run: npm run test:package
 
@@ -66,14 +70,14 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           # npm ci from the cache: a network hiccup there failed whole runs.
           cache: npm
       # The Godot download, once per version and build; still checked against its sums below.
-      - uses: actions/cache@v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: godot-download
           key: godot-${{ matrix.godot }}-${{ matrix.archive }}
@@ -111,7 +115,7 @@ jobs:
       - run: node scripts/cli-e2e.mjs
       # Which C# code runs inside a .NET editor, and which C# writes the bridge holds back.
       - if: matrix.build == 'dotnet'
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: 8.0.x
       - if: matrix.build == 'dotnet'

@@ -589,8 +589,9 @@ tasks["hard"] = [
                 expect("$y1", ">", 200, why="it fell from where it started"),
                 expect("$y1", "<", 360, why="onto the floor, not through it"),
             ]),
-            check("game", **{"class": "CharacterBody2D"}, actions_any=["jump", "player_jump", "ui_accept", "ui_up", "move_up", "up"], hold=0.15, after=0.3, expect="rises", min=20),
-            check("game", **{"class": "CharacterBody2D"}, actions_any=["move_right", "right", "ui_right", "player_right", "walk_right", "run_right"], hold=0.6, after=0.1, expect="moves_right", min=20),
+            # It starts in the air: given time to land first, also on a slow machine.
+            check("game", **{"class": "CharacterBody2D"}, actions_any=["jump", "player_jump", "ui_accept", "ui_up", "move_up", "up"], hold=0.15, after=0.3, expect="rises", min=20, settle=3.0),
+            check("game", **{"class": "CharacterBody2D"}, actions_any=["move_right", "right", "ui_right", "player_right", "walk_right", "run_right"], hold=0.6, after=0.1, expect="moves_right", min=20, settle=3.0),
             check("transcript_lacks", pattern=r'\b(gd|gdcli)(\.exe)?\s+eval\b|"(command|name)":"eval"'),
         ],
         "reference": [

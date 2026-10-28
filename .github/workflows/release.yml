@@ -101,7 +101,8 @@ jobs:
           done
           echo "::error title=release::no finished CI run on ${SHA} after 45 minutes"
           exit 1
-      - run: npm ci
+      # No install scripts of dependencies run in the job that builds what is published.
+      - run: npm ci --ignore-scripts
       - run: npm run verify
       # Packs, installs and checks the package, and keeps that very tarball for the npm job.
       - run: npm run test:package -- --keep-tarball "${RUNNER_TEMP}/package"

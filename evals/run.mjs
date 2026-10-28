@@ -992,7 +992,8 @@ async function main() {
     broken = compare(results, options.baseline);
   }
   // Replay proves every task can pass; idle that none passes without work (the
-  // refusal task excepted: doing nothing is not working around anything).
+  // refusal task excepted: doing nothing is not working around anything);
+  // an idle run where every task broke for outside reasons proves nothing.
   // A live run fails only on regressions.
   const passesIdle = new Set(tasks.filter((task) => task.passes_idle === true).map((task) => task.id));
   const idleWrong = results.filter((result) => !result.infra && result.passed !== passesIdle.has(result.id));
@@ -1002,7 +1003,7 @@ async function main() {
     }
   }
   process.exitCode =
-    options.agent === "replay" ? (summary.passed === summary.runs && summary.runs > 0 ? 0 : 1) : options.agent === "idle" ? (idleWrong.length === 0 && summary.runs > 0 ? 0 : 1) : broken > 0 ? 1 : 0;
+    options.agent === "replay" ? (summary.passed === summary.runs && summary.runs > 0 ? 0 : 1) : options.agent === "idle" ? (idleWrong.length === 0 && results.some((result) => !result.infra) ? 0 : 1) : broken > 0 ? 1 : 0;
 }
 
 main().catch((error) => {
