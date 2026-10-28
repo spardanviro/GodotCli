@@ -74,7 +74,7 @@ func test_preset_create_makes_animations_from_the_nodes_values() -> void:
 	check(bob["ok"] and fade["ok"], "made: %s %s" % [bob, fade])
 	var animation := player.get_animation("bob")
 	equal(animation.loop_mode, Animation.LOOP_LINEAR, "bob loops")
-	equal(animation.track_get_key_value(0, 1), Vector2(100, 42), "from where the node is")
+	equal([str(animation.track_get_path(0)), animation.track_get_key_value(0, 1)], ["Hero:offset", Vector2(0, -8)], "a sprite bobs by its offset, so it can be moved later")
 	check(player.has_animation("appear"), "named as asked")
 
 
@@ -87,3 +87,16 @@ func test_preset_create_makes_a_following_camera_and_refuses_what_does_not_fit()
 	equal(_preset({"preset": "pulse", "target": "Anim", "player": "Anim"})["error"]["code"], "TYPE_MISMATCH", "an AnimationPlayer has no position to move")
 	equal(_preset({"preset": "fireworks", "target": "Hero"})["error"]["code"], "INVALID_ARGS", "an unknown preset")
 	equal(_preset({"preset": "fire", "target": "Hero", "color": "blue-ish"})["error"]["code"], "INVALID_ARGS", "a colour it cannot read")
+
+
+func test_preset_create_says_when_it_keys_a_position() -> void:
+	_setup()
+	var marker := Node2D.new()
+	marker.name = "Marker"
+	marker.position = Vector2(5, 5)
+	_root.add_child(marker)
+	marker.owner = _root
+
+	var reply := _preset({"preset": "shake", "target": "Marker", "player": "Anim"})
+
+	check(reply["ok"] and reply["warnings"].any(func(text: String) -> bool: return text.contains("make the preset again")), "warned: %s" % reply)

@@ -336,6 +336,9 @@ static func _hidden(node: Node) -> bool:
 func _collect_ui(node: Node, found: Array, most: int) -> bool:
 	if node != _tree.root and _hidden(node):
 		return false
+	# A viewport drawn into a texture, not shown through a container, is not on screen as such.
+	if node is SubViewport and not node.get_parent() is SubViewportContainer:
+		return false
 	if node is Control:
 		if most >= 0 and found.size() >= most:
 			return true
@@ -357,7 +360,7 @@ func _ancestors_shown(node: Node) -> bool:
 
 func _describe_control(control: Control) -> Dictionary:
 	# Through canvas layers and cameras to the viewport, then to the window.
-	var to_window := _tree.root.get_final_transform() * control.get_global_transform_with_canvas()
+	var to_window := window_transform(control)
 	var corner := to_window * Vector2.ZERO
 	var size := to_window.basis_xform(control.size).abs()
 	var entry := {
@@ -378,6 +381,26 @@ func _describe_control(control: Control) -> Dictionary:
 	if control.has_focus():
 		entry["focused"] = true
 	return entry
+
+
+## From a CanvasItem's own space to the window's pixels: through its canvas
+## layer and camera to its viewport, out of each SubViewport through the
+## SubViewportContainer that shows it (scaled when the container stretches
+## it), and through the window's stretch. Clicks at those pixels reach it:
+## a container passes input on to its viewport the same way back.
+func window_transform(item: CanvasItem) -> Transform2D:
+	var xform := item.get_global_transform_with_canvas()
+	var viewport := item.get_viewport()
+	while viewport != null and viewport != _tree.root:
+		var container := viewport.get_parent()
+		if not (viewport is SubViewport and container is SubViewportContainer):
+			break
+		var shown := Vector2.ONE
+		if container.stretch and viewport.size.x > 0 and viewport.size.y > 0:
+			shown = container.size / Vector2(viewport.size)
+		xform = container.get_global_transform_with_canvas() * Transform2D(0.0, shown, 0.0, Vector2.ZERO) * xform
+		viewport = container.get_viewport()
+	return _tree.root.get_final_transform() * xform
 
 
 func _raw_text(control: Control) -> String:

@@ -1805,7 +1805,7 @@ export const BUILTIN_COMMANDS: readonly Descriptor[] = [
     "requires": [
       "scene_open"
     ],
-    "returns": "What node_create or animation_create returns; meta.undo names the undo step. One-shot particles (explosion, sparks, dust) play when emitting is set to true, e.g. from a script: $Explosion.restart().",
+    "returns": "What node_create or animation_create returns; meta.undo names the undo step. One-shot particles (explosion, sparks, dust) play when emitting is set to true, e.g. from a script: $Explosion.restart(). shake and bob move a Sprite2D or AnimatedSprite2D by its offset, so the node can be moved later; on other nodes they key the position it has now.",
     "risk": "write",
     "since": 1,
     "summary": "Add a ready-made effect: 2D particles (explosion, fire, smoke, sparks, rain, dust), a short animation of a node (fade_in, fade_out, pulse, shake, bob, blink), or a camera that follows a node (camera_follow).",

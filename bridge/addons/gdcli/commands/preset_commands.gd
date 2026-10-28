@@ -77,7 +77,7 @@ func register(registry: RefCounted) -> void:
 			},
 			"required": ["preset", "target"],
 		},
-		"returns": "What node_create or animation_create returns; meta.undo names the undo step. One-shot particles (explosion, sparks, dust) play when emitting is set to true, e.g. from a script: $Explosion.restart().",
+		"returns": "What node_create or animation_create returns; meta.undo names the undo step. One-shot particles (explosion, sparks, dust) play when emitting is set to true, e.g. from a script: $Explosion.restart(). shake and bob move a Sprite2D or AnimatedSprite2D by its offset, so the node can be moved later; on other nodes they key the position it has now.",
 	}, _create)
 
 
@@ -132,7 +132,10 @@ func _animation(preset: String, args: Dictionary, options: Dictionary) -> Dictio
 		return Reply.fail("TYPE_MISMATCH", "Animation presets move, scale or fade a Node2D or a Control.", "", {"class": target.get_class()})
 	var node := TextSanitizer.clean_line(args["target"])
 	var color: Color = target.modulate
-	var position: Vector2 = target.position
+	# A sprite moves by its offset, which is relative to where the node is:
+	# the node can be moved later and the animation still plays around it.
+	var moved := "offset" if (target is Sprite2D or target is AnimatedSprite2D) else "position"
+	var position: Vector2 = target.get(moved)
 	var scale: Vector2 = target.scale
 	var hidden := Color(color.r, color.g, color.b, 0.0)
 	var shown := Color(color.r, color.g, color.b, color.a if color.a > 0.0 else 1.0)
@@ -145,14 +148,17 @@ func _animation(preset: String, args: Dictionary, options: Dictionary) -> Dictio
 		"pulse":
 			plan = {"length": 0.6, "loop": "linear", "tracks": [_track(node, "scale", [[0.0, scale], [0.3, scale * 1.15], [0.6, scale]], "cubic")]}
 		"shake":
-			plan = {"length": 0.3, "loop": "none", "tracks": [_track(node, "position", [[0.0, position], [0.06, position + Vector2(6, 0)], [0.12, position - Vector2(6, 0)], [0.18, position + Vector2(0, 4)], [0.24, position - Vector2(3, 0)], [0.3, position]])]}
+			plan = {"length": 0.3, "loop": "none", "tracks": [_track(node, moved, [[0.0, position], [0.06, position + Vector2(6, 0)], [0.12, position - Vector2(6, 0)], [0.18, position + Vector2(0, 4)], [0.24, position - Vector2(3, 0)], [0.3, position]])]}
 		"bob":
-			plan = {"length": 1.2, "loop": "linear", "tracks": [_track(node, "position", [[0.0, position], [0.6, position - Vector2(0, 8)], [1.2, position]], "cubic")]}
+			plan = {"length": 1.2, "loop": "linear", "tracks": [_track(node, moved, [[0.0, position], [0.6, position - Vector2(0, 8)], [1.2, position]], "cubic")]}
 		"blink":
 			var dim := Color(color.r, color.g, color.b, color.a * 0.2)
 			plan = {"length": 0.4, "loop": "none", "tracks": [_track(node, "modulate", [[0.0, color], [0.1, dim], [0.2, color], [0.3, dim], [0.4, color]], "nearest")]}
 	var create := {"player": args["player"], "name": args.get("name", preset), "length": plan["length"], "loop": plan["loop"], "tracks": plan["tracks"]}
-	return _call("animation_create", create, options)
+	var reply := _call("animation_create", create, options)
+	if reply.get("ok", false) and not reply.has("later") and moved == "position" and preset in ["shake", "bob"]:
+		reply["warnings"] = reply.get("warnings", []) + ["The animation moves the node's position from where it is now: if the node is placed elsewhere later, make the preset again, or put it on a child that does not move (a Sprite2D child animates its offset instead)."]
+	return reply
 
 
 func _track(node: String, property: String, keys: Array, interpolation: String = "linear") -> Dictionary:

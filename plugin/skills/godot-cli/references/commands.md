@@ -827,7 +827,7 @@ Add a ready-made effect: 2D particles (explosion, fire, smoke, sparks, rain, dus
 - `name` (string) Name of the new node or animation; defaults to the preset's.
 - `player` (string) Animations: the AnimationPlayer that gets the animation.
 
-Returns: What node_create or animation_create returns; meta.undo names the undo step. One-shot particles (explosion, sparks, dust) play when emitting is set to true, e.g. from a script: $Explosion.restart().
+Returns: What node_create or animation_create returns; meta.undo names the undo step. One-shot particles (explosion, sparks, dust) play when emitting is set to true, e.g. from a script: $Explosion.restart(). shake and bob move a Sprite2D or AnimatedSprite2D by its offset, so the node can be moved later; on other nodes they key the position it has now.
 
 ## theme
 

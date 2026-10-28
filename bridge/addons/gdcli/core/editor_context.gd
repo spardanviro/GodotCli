@@ -198,7 +198,13 @@ func store_screenshot(png: PackedByteArray, prefix: String) -> String:
 	var directory := _home_dir.path_join(SCREENSHOT_DIR_NAME)
 	if DirAccess.make_dir_recursive_absolute(directory) != OK:
 		return ""
-	var path := directory.path_join("%s-%d.png" % [prefix, Time.get_ticks_usec()])
+	# Microseconds of the system clock, so that names sort by age across editor
+	# sessions (time since start begins again at zero in each one).
+	var stamp := int(Time.get_unix_time_from_system() * 1000000.0)
+	var path := directory.path_join("%s-%d.png" % [prefix, stamp])
+	while FileAccess.file_exists(path):
+		stamp += 1
+		path = directory.path_join("%s-%d.png" % [prefix, stamp])
 	var file := FileAccess.open(path, FileAccess.WRITE)
 	if file == null:
 		return ""
