@@ -62,6 +62,8 @@ const ANY_USAGE := -1
 const _STRUCTURAL_USAGE := PROPERTY_USAGE_CATEGORY | PROPERTY_USAGE_GROUP | PROPERTY_USAGE_SUBGROUP
 # How str() spells the floats JSON has no number for.
 const _FLOAT_WORDS := {"nan": NAN, "inf": INF, "-inf": -INF}
+const _RESOURCE_PATH_PROPERTY := "resource_path"
+# Vector2i and the other integer types hold 32-bit numbers; past them the engine wraps around.
 # Not stored and not in the inspector, because each is another way of writing
 # a property that is: setting one of them changes what is saved.
 const _DERIVED: Array[String] = [
@@ -101,6 +103,9 @@ func decode_properties(object: Object, properties: Dictionary, depth: int = 0, u
 		# Scripts are attached through node_attach_script only.
 		if str(name) == _SCRIPT_PROPERTY:
 			return _mismatch("The script property cannot be set this way.", str(name), "a call to node_attach_script")
+		# Where a resource is cached and saved: changing it would make another file's resource of it, unchecked by the path rules.
+		if str(name) == _RESOURCE_PATH_PROPERTY:
+			return _mismatch("The resource path cannot be set this way.", str(name), "fs_move, or resource_create at the new path")
 		if not known.has(name):
 			return Reply.fail(
 				"INVALID_ARGS", "The object has no such property.", "node_get lists the properties of a node.",
@@ -268,6 +273,8 @@ func _decode_int(value: Variant, info: Dictionary) -> Dictionary:
 	# Godot's JSON parser reads every number as a float.
 	if value is float and value == floorf(value) and absf(value) <= MAX_SAFE_INTEGER:
 		return _ok(int(value))
+	if value is String and info.get("hint", PROPERTY_HINT_NONE) == PROPERTY_HINT_FLAGS:
+		return _flags_value(value, info.get("hint_string", ""))
 	if value is String and info.get("hint", PROPERTY_HINT_NONE) == PROPERTY_HINT_ENUM:
 		var hint_string: String = info.get("hint_string", "")
 		var member := _enum_value(value, hint_string)
@@ -278,6 +285,24 @@ func _decode_int(value: Variant, info: Dictionary) -> Dictionary:
 			return _ok(constant["value"])
 		return _mismatch("Not a member of this enumeration.", "", hint_string)
 	return _mismatch_type(TYPE_INT)
+
+
+# "Fill:1,Expand:2,Shrink Center:4" names bits; "Fill,Expand" (or with |) sets both.
+func _flags_value(text: String, hint_string: String) -> Dictionary:
+	var bits := {}
+	var next := 1
+	for entry in hint_string.split(","):
+		if entry.contains(":"):
+			next = entry.get_slice(":", 1).to_int()
+		bits[entry.get_slice(":", 0).strip_edges().to_lower()] = next
+		next *= 2
+	var value := 0
+	for raw in text.replace("|", ",").split(",", false):
+		var label := raw.strip_edges().to_lower()
+		if not bits.has(label):
+			return _mismatch("Not one of this property's flags.", "", hint_string)
+		value |= int(bits[label])
+	return _ok(value)
 
 
 # "Idle,Walk:4,Run" numbers members from 0, with explicit values after a colon.
@@ -354,7 +379,7 @@ func _decode_components(value: Variant, type: int) -> Dictionary:
 	if numbers.size() != names.size() or not _all_numbers(numbers):
 		return _mismatch("Expected %d numbers." % names.size(), "", "%s as [%s]" % [type_string(type), ", ".join(names)])
 	if type in _INTEGER_VECTORS and not _all_integral(numbers):
-		return _mismatch("Expected whole numbers.", "", type_string(type))
+		return _mismatch("Expected whole numbers within 32 bits.", "", type_string(type))
 	match type:
 		TYPE_VECTOR2: return _ok(Vector2(numbers[0], numbers[1]))
 		TYPE_VECTOR2I: return _ok(Vector2i(numbers[0], numbers[1]))
@@ -440,7 +465,7 @@ func _decode_rect(value: Variant, type: int) -> Dictionary:
 		return _mismatch("Expected [x, y, width, height].", "", type_string(type))
 	if type == TYPE_RECT2I:
 		if not _all_integral(value):
-			return _mismatch("Expected whole numbers.", "", type_string(type))
+			return _mismatch("Expected whole numbers within 32 bits.", "", type_string(type))
 		return _ok(Rect2i(value[0], value[1], value[2], value[3]))
 	return _ok(Rect2(value[0], value[1], value[2], value[3]))
 
@@ -540,6 +565,8 @@ func _all_numbers(values: Array) -> bool:
 func _all_integral(values: Array) -> bool:
 	for value in values:
 		if value is float and value != floorf(value):
+			return false
+		if float(value) > _INT32_MAX or float(value) < -_INT32_MAX - 1:
 			return false
 	return true
 

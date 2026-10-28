@@ -20,6 +20,10 @@ const _SENSITIVE_FILE_NAMES: Array[String] = [
 ]
 const _GIT_DIR := ".git"
 const _SENSITIVE_ROOTS: Array[String] = ["addons", "gdcli_commands"]
+# Run by other programs without being asked: VS Code tasks and launch settings
+# (a task can run when the folder opens), git hooks managers, direnv, CI.
+const _SENSITIVE_TOOL_FOLDERS: Array[String] = [".vscode", ".husky", ".github/workflows"]
+const _SENSITIVE_TOOL_FILES: Array[String] = [".envrc", ".pre-commit-config.yaml", ".pre-commit-config.yml"]
 # Native libraries, and the files a C# build runs: projects and solutions of
 # every kind, imported props and targets, a project's .user file (imported
 # automatically) and response files.
@@ -39,7 +43,8 @@ const _TEXT_RESOURCE_HEADERS: Array[String] = ["[gd_scene", "[gd_resource"]
 const _MAX_DEPENDENCIES := 20000
 const _FIRST_PRINTABLE := 0x20
 const _DELETE := 0x7f
-const _RESERVED_DEVICE_PATTERN := "^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\\..*)?$"
+# Also CONIN$/CONOUT$ and the superscript digits Windows takes as device numbers (COM¹).
+const _RESERVED_DEVICE_PATTERN := "^(con|prn|aux|nul|conin\\$|conout\\$|com[1-9\u00b9\u00b2\u00b3]|lpt[1-9\u00b9\u00b2\u00b3])(\\..*)?$"
 
 static var _reserved_regex: RegEx
 
@@ -195,8 +200,11 @@ static func _is_sensitive(folded: String, segment_count: int) -> bool:
 		return true
 	if folded.get_slice("/", 0) in _SENSITIVE_ROOTS:
 		return true
-	if folded.get_file() in _SENSITIVE_FILE_NAMES:
+	if folded.get_file() in _SENSITIVE_FILE_NAMES or folded.get_file() in _SENSITIVE_TOOL_FILES:
 		return true
+	for folder in _SENSITIVE_TOOL_FOLDERS:
+		if folded.begins_with(folder + "/") or folded.contains("/" + folder + "/"):
+			return true
 	return folded.get_extension() in _SENSITIVE_EXTENSIONS
 
 

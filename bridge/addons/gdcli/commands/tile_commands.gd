@@ -79,7 +79,7 @@ func register(registry: RefCounted) -> void:
 			},
 			"required": ["layer"],
 		},
-		"returns": "{layer, cells: number changed, used_rect: [x, y, width, height]}; meta.undo names the undo step.",
+		"returns": "{layer, cells: number of cells given, used_rect: [x, y, width, height]}; meta.undo names the undo step.",
 	}, _set_cells)
 	registry.register({
 		"name": "tilemap_get",

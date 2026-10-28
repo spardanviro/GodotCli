@@ -5,6 +5,7 @@ extends RefCounted
 ##
 ## It is a waiter (see Reply.later): the HTTP layer polls it once per frame.
 
+const AccessPolicy = preload("access_policy.gd")
 const ApprovalDialog = preload("approval_dialog.gd")
 const Reply = preload("reply.gd")
 
@@ -16,6 +17,7 @@ const _HINT := "Do it in the editor yourself, or ask the user to allow it."
 var _question: Object
 var _action: Callable
 var _deadline: int
+var _context: RefCounted
 var _running: RefCounted
 var _answered := false
 var _too_long := false
@@ -24,6 +26,7 @@ var _too_long := false
 ## `what` describes the change: {command, reason, target?, preview?}.
 ## `action` does it and returns a reply; it is called only after a yes.
 func _init(context: RefCounted, what: Dictionary, action: Callable, wait_msec: int = WAIT_MSEC) -> void:
+	_context = context
 	_too_long = not ApprovalDialog.is_reviewable(what)
 	if not _too_long:
 		_question = context.ask_person(what)
@@ -52,6 +55,9 @@ func poll() -> Dictionary:
 	_answered = true
 	if _question.decision != "allowed":
 		return _refused("denied in the editor")
+	# Switched to read-only while the question was open: nothing is changed after all.
+	if _context != null and _context.has_method("access_mode") and _context.access_mode() == AccessPolicy.MODE_READONLY:
+		return Reply.fail("READONLY_MODE", "The editor was switched to read-only while the change waited for a person.")
 	var reply: Variant = _action.call()
 	if not (reply is Dictionary and reply.has("ok")):
 		return Reply.fail("INTERNAL_ERROR", "The command did not return a reply.")

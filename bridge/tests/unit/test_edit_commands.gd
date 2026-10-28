@@ -743,12 +743,14 @@ func test_project_input_map_set_reads_modifiers_as_modifiers() -> void:
 	var save: InputEventKey = commands._event_from({"key": "Ctrl+S"})
 	var nothing: Variant = commands._event_from({"key": "Ctrl+Foo"})
 	var plain: InputEventKey = commands._event_from({"key": "Space"})
+	var plus: InputEventKey = commands._event_from({"key": "+"})
+	var zoom: InputEventKey = commands._event_from({"key": "Ctrl++"})
 
-	# Up to 4.4 the engine reads "Ctrl" as Cmd-or-Ctrl (Ctrl off macOS); later versions as Ctrl itself.
-	equal(save.physical_keycode, KEY_S, "S, not one key code with the modifier bit in it")
-	check(save.ctrl_pressed or save.command_or_control_autoremap, "with Ctrl held")
+	equal([save.physical_keycode, save.ctrl_pressed], [KEY_S, true], "S with Ctrl held, on every engine version")
 	equal(nothing, null, "modifiers alone name no key")
 	equal([plain.physical_keycode, plain.ctrl_pressed], [KEY_SPACE, false], "a plain key is unchanged")
+	equal([plus.physical_keycode, plus.ctrl_pressed], [KEY_PLUS, false], "the plus key alone")
+	equal([zoom.physical_keycode, zoom.ctrl_pressed], [KEY_PLUS, true], "the plus key with Ctrl held")
 
 
 func test_resource_set_on_a_state_machine_resource_asks_a_person() -> void:
@@ -761,4 +763,42 @@ func test_resource_set_on_a_state_machine_resource_asks_a_person() -> void:
 	var reply := _code("resource_set", {"path": path, "properties": {"transitions": []}})
 
 	equal(reply, "NOT_APPROVED", "it may be an active tree's root: a person decides")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+
+func test_an_approval_does_not_outlast_a_switch_to_read_only() -> void:
+	_setup()
+	_context.answer = ""
+	var args := {"path": "res://addons/other/late.gd", "text": "extends Node\n"}
+	var waiting: Dictionary = _registry.handler_of("fs_write_text").call(args, {"dry_run": false, "confirm": false, "mode": "standard"})
+
+	_context.mode = "readonly"
+	_context.questions[-1].decision = "allowed"
+	var reply: Dictionary = waiting["later"].poll()
+
+	equal(reply.get("error", {}).get("code"), "READONLY_MODE", "the editor became read-only while the person decided")
+	check(not FileAccess.file_exists("res://addons/other/late.gd"), "nothing was written")
+
+
+func test_fs_move_renames_a_file_by_its_case_alone() -> void:
+	_setup()
+	var lower := "res://tests/tmp/case_probe.txt"
+	_call("fs_write_text", {"path": lower, "text": "x"})
+
+	var reply := _code("fs_move", {"from": lower, "to": "res://tests/tmp/Case_Probe.txt", "update_references": false}, {"confirm": true})
+
+	equal(reply, "", "a rename that changes only the case is not 'already exists'")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path("res://tests/tmp/Case_Probe.txt"))
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(lower))
+
+
+func test_fs_move_tells_the_file_itself_from_another_of_the_new_name() -> void:
+	_setup()
+	var path := "res://tests/tmp/listed_probe.txt"
+	_call("fs_write_text", {"path": path, "text": "x"})
+
+	var itself := FsEditCommands._listed_exactly(path)
+	var other_case := FsEditCommands._listed_exactly("res://tests/tmp/Listed_Probe.txt")
+
+	equal([itself, other_case], [true, false], "only an entry of exactly that name is another file")
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))

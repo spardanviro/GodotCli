@@ -110,3 +110,11 @@ func test_path_policy_other_spellings_and_extensions_of_a_reference_are_found() 
 	equal(PathPolicy.outside_reference_in_text(dictionary), "C:/x.tres", "a dictionary entry")
 	check(PathPolicy.names_other_files("res://art/stone.material", material), "a text resource under any extension, by its first line")
 	check(not PathPolicy.names_other_files("res://notes.txt", "just notes"), "ordinary text is not")
+
+
+func test_path_policy_low_findings() -> void:
+	for path in ["res://CONIN$", "res://a/conout$.txt", "res://COM¹", "res://lpt².log"]:
+		check(not _allowed(path, "read"), "a Windows device name: %s" % path)
+	for path in ["res://.vscode/tasks.json", "res://.github/workflows/ci.yml", "res://.envrc", "res://.husky/pre-commit", "res://sub/.vscode/settings.json"]:
+		check(PathPolicy.check_text(path, "write")["sensitive"], "run by other tools without asking: %s" % path)
+	check(not PathPolicy.check_text("res://.github/README.md", "write")["sensitive"], "other files of .github are ordinary")

@@ -497,3 +497,20 @@ func test_node_create_refuses_editor_only_classes() -> void:
 
 	equal(_code("node_create", {"parent": ".", "type": "EditorPlugin"}), "INVALID_ARGS", "an editor plugin is no node of a game scene")
 	equal(_code("node_create", {"parent": ".", "type": "Sprite2D"}), "", "an ordinary node is created")
+
+
+func test_node_attach_script_refuses_a_script_changed_while_the_person_decided() -> void:
+	_scene()
+	var path := "res://tests/tmp/attach_swap.gd"
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://tests/tmp"))
+	FileAccess.open(path, FileAccess.WRITE).store_string("@tool\nextends Node2D\n")
+	_context.answer = ""
+	var waiting: Dictionary = _registry.handler_of("node_attach_script").call({"path": "Player", "script": path}, {"dry_run": false, "confirm": false, "mode": "standard"})
+
+	FileAccess.open(path, FileAccess.WRITE).store_string("@tool\nextends Node2D\nfunc _init(): OS.alert('changed')\n")
+	_context.questions[-1].decision = "allowed"
+	var reply: Dictionary = waiting["later"].poll()
+
+	equal(reply.get("error", {}).get("code"), "PRECONDITION_FAILED", "what the person allowed is not what would be attached")
+	equal(_root.get_node("Player").get_script(), null, "nothing was attached")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))

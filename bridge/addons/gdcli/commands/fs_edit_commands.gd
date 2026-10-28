@@ -324,7 +324,11 @@ func _move(args: Dictionary, options: Dictionary, approved_text: Variant = null)
 		var refused := _folder_move_refusal(from, to)
 		if not refused.is_empty():
 			return refused
-	if FileAccess.file_exists(to) or DirAccess.dir_exists_absolute(ProjectSettings.globalize_path(to)):
+	# A rename that changes only the case finds the file itself there on Windows
+	# and macOS. On a filesystem that tells case apart, a file of exactly the new
+	# name is another file, and stays protected.
+	var only_case := from != to and from.to_lower() == to.to_lower() and not _listed_exactly(to)
+	if not only_case and (FileAccess.file_exists(to) or DirAccess.dir_exists_absolute(ProjectSettings.globalize_path(to))):
 		return Reply.fail("ALREADY_EXISTS", "Something already exists at the destination.", "", {"to": to})
 	# The new path is written into scripts and scenes as it is, so it must not
 	# contain anything that would end a string or start code there.
@@ -390,6 +394,13 @@ func _move(args: Dictionary, options: Dictionary, approved_text: Variant = null)
 
 
 # Why this folder cannot be moved there, or {} when it can.
+# Whether the folder lists an entry of exactly this name, case and all.
+static func _listed_exactly(path: String) -> bool:
+	var folder := ProjectSettings.globalize_path(path.get_base_dir())
+	var name := path.get_file()
+	return name in DirAccess.get_files_at(folder) or name in DirAccess.get_directories_at(folder)
+
+
 func _folder_move_refusal(from: String, to: String) -> Dictionary:
 	if from == PathPolicy.ROOT.trim_suffix("/") or from == PathPolicy.ROOT:
 		return Reply.fail("PATH_NOT_ALLOWED", "The project folder itself cannot be moved.")

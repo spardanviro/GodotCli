@@ -63,7 +63,7 @@ func register(registry: RefCounted) -> void:
 			},
 			"required": ["layer"],
 		},
-		"returns": "{layer, source, tiles: number changed, shape}; meta.undo names the undo step. Replaces the collision shapes these tiles had.",
+		"returns": "{layer, source, tiles: number of tiles given, shape}; meta.undo names the undo step. Replaces the collision shapes these tiles had.",
 	}, _set_collision)
 	registry.register({
 		"name": "tileset_set_terrain",
@@ -147,7 +147,8 @@ func _set_collision(args: Dictionary, options: Dictionary) -> Dictionary:
 		return Edit.planned({"collision_of": tiles.size(), "on": args["layer"], "shape": args["shape"] if not args.has("polygon") else "polygon"})
 
 	var tile_set: TileSet = layer.tile_set
-	var adds_layer := tile_set.get_physics_layers_count() == 0
+	# Removing shapes from a tile set without physics adds nothing.
+	var adds_layer: bool = tile_set.get_physics_layers_count() == 0 and not polygon.is_empty()
 	var spec := {"source": args["source"], "tiles": tiles, "polygon": polygon, "one_way": args["one_way"]}
 	var action := Edit.undo_name("tileset_set_collision", str(layer.name))
 	var undo: Object = _context.undo_redo()
@@ -205,6 +206,8 @@ func _add_shape(data: TileData, points: PackedVector2Array, one_way: bool) -> vo
 # Called by the undo history, also when the step is redone.
 func _apply_shapes(tile_set: TileSet, spec: Dictionary) -> void:
 	if tile_set.get_physics_layers_count() == 0:
+		if spec["polygon"].is_empty():
+			return
 		tile_set.add_physics_layer()
 	var source: TileSetAtlasSource = tile_set.get_source(spec["source"])
 	for tile in spec["tiles"]:

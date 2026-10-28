@@ -1663,7 +1663,7 @@ export const BUILTIN_COMMANDS: readonly Descriptor[] = [
     "requires": [
       "scene_open"
     ],
-    "returns": "{layer, cells: number changed, used_rect: [x, y, width, height]}; meta.undo names the undo step.",
+    "returns": "{layer, cells: number of cells given, used_rect: [x, y, width, height]}; meta.undo names the undo step.",
     "risk": "write",
     "since": 1,
     "summary": "Paint or erase cells of a TileMapLayer.",
@@ -1766,7 +1766,7 @@ export const BUILTIN_COMMANDS: readonly Descriptor[] = [
     "requires": [
       "scene_open"
     ],
-    "returns": "{layer, source, tiles: number changed, shape}; meta.undo names the undo step. Replaces the collision shapes these tiles had.",
+    "returns": "{layer, source, tiles: number of tiles given, shape}; meta.undo names the undo step. Replaces the collision shapes these tiles had.",
     "risk": "write",
     "since": 1,
     "summary": "Give tiles of a TileMapLayer's tile set a collision shape: full, a slope, half a tile, a polygon of your own, or none; optionally one-way.",

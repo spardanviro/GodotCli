@@ -138,7 +138,8 @@ func _move() -> bool:
 	# break. The files of a folder take theirs along.
 	for suffix in SIDECARS:
 		if not _is_folder and FileAccess.file_exists(_from + suffix):
-			DirAccess.rename_absolute(ProjectSettings.globalize_path(_from + suffix), ProjectSettings.globalize_path(_to + suffix))
+			if DirAccess.rename_absolute(ProjectSettings.globalize_path(_from + suffix), ProjectSettings.globalize_path(_to + suffix)) != OK:
+				_warnings.append("A %s file could not follow the moved file (one is already at the new path?): uid:// references to it may break." % suffix)
 	# What the editor already holds in memory follows the file.
 	for entry in cached:
 		entry["resource"].take_over_path(entry["path"])

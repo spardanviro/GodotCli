@@ -327,7 +327,7 @@ Paint or erase cells of a TileMapLayer. [write, one undo step] Needs a scene ope
 - `source` (integer, default 0) Id of the tile set source, as tileset_add_atlas returned it.
 - `terrain` (string) Paint with this terrain instead of one tile: the engine picks, for each cell, the tile that fits its neighbours. Set terrains up with tileset_set_terrain.
 
-Returns: {layer, cells: number changed, used_rect: [x, y, width, height]}; meta.undo names the undo step.
+Returns: {layer, cells: number of cells given, used_rect: [x, y, width, height]}; meta.undo names the undo step.
 
 ### tileset_add_atlas
 
@@ -353,7 +353,7 @@ Give tiles of a TileMapLayer's tile set a collision shape: full, a slope, half a
 - `source` (integer, default 0) Id of the tile set source.
 - `tiles` (array) Tiles as [column, row] in the atlas. Default: every tile of the source.
 
-Returns: {layer, source, tiles: number changed, shape}; meta.undo names the undo step. Replaces the collision shapes these tiles had.
+Returns: {layer, source, tiles: number of tiles given, shape}; meta.undo names the undo step. Replaces the collision shapes these tiles had.
 
 ### tileset_set_terrain
 

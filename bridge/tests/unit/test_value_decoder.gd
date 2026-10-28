@@ -349,3 +349,17 @@ func test_value_decoder_a_node_with_a_script_class_fits_a_property_of_that_class
 	equal(unknown["ok"], true, "an unknown class name lets the node through")
 	equal(engine_class["ok"], true, "a node of the engine class fits")
 	equal(wrong_engine_class["ok"], false, "a node of another engine class does not")
+
+
+func test_value_decoder_low_findings() -> void:
+	var control := Control.new()
+	_nodes.append(control)
+	var decoder := ValueDecoder.new()
+
+	var flags := decoder.decode_properties(control, {"size_flags_horizontal": "Fill,Expand"})
+	var path := decoder.decode_properties(RectangleShape2D.new(), {"resource_path": "res://elsewhere.tres"})
+	var wrapped := decoder.decode([5000000000, 1], TYPE_VECTOR2I)
+
+	equal(flags["values"].get("size_flags_horizontal"), Control.SIZE_FILL | Control.SIZE_EXPAND, "flags by their labels")
+	equal(path["ok"], false, "a resource's path is not one of its values")
+	equal(wrapped["ok"], false, "an integer vector past 32 bits is refused, not wrapped around")

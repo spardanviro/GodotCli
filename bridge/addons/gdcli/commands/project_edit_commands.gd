@@ -127,25 +127,46 @@ func _input_map_set(args: Dictionary, options: Dictionary) -> Dictionary:
 	return Reply.ok({"action": TextSanitizer.clean_line(action), "events": described}, [Edit.NOT_UNDOABLE])
 
 
+# "Ctrl+Shift+S": the modifiers are read here, the key by the engine. Engines
+# before 4.5 drop the modifiers of such a name; later ones fold them into
+# bits. Modifiers alone ("Ctrl+Foo") name no key.
+static func _key_event(text: String) -> InputEventKey:
+	# The plus key itself: "+", "Ctrl++".
+	var key_name := "Plus" if text.strip_edges().ends_with("+") else ""
+	var parts := text.strip_edges().trim_suffix("+").split("+", false) if key_name != "" else text.split("+", false)
+	if key_name == "":
+		if parts.is_empty():
+			return null
+		key_name = parts[parts.size() - 1].strip_edges()
+		parts.remove_at(parts.size() - 1)
+	var keycode: int = OS.find_keycode_from_string(key_name) & KEY_CODE_MASK
+	if keycode == KEY_NONE:
+		return null
+	var key := InputEventKey.new()
+	# Physical: the same position on every keyboard layout.
+	key.physical_keycode = keycode as Key
+	for part in parts:
+		match part.strip_edges().to_lower():
+			"ctrl", "control":
+				key.ctrl_pressed = true
+			"shift":
+				key.shift_pressed = true
+			"alt", "option":
+				key.alt_pressed = true
+			"meta", "cmd", "command", "super", "win", "windows":
+				key.meta_pressed = true
+			"cmdorctrl", "cmd_or_ctrl", "commandorcontrol":
+				key.command_or_control_autoremap = true
+			_:
+				return null
+	return key
+
+
 func _event_from(spec: Variant) -> InputEvent:
 	if not spec is Dictionary:
 		return null
 	if spec.get("key") is String:
-		# "Ctrl+S" comes back as S with the Ctrl bit set: the bits are modifiers,
-		# the rest the key. Modifiers alone ("Ctrl+Foo" leaves only Ctrl) name no key.
-		var found := OS.find_keycode_from_string(spec["key"])
-		var keycode: int = found & KEY_CODE_MASK
-		if keycode == KEY_NONE:
-			return null
-		var key := InputEventKey.new()
-		# Physical: the same position on every keyboard layout.
-		key.physical_keycode = keycode as Key
-		key.shift_pressed = found & KEY_MASK_SHIFT != 0
-		key.alt_pressed = found & KEY_MASK_ALT != 0
-		key.meta_pressed = found & KEY_MASK_META != 0
-		key.ctrl_pressed = found & KEY_MASK_CTRL != 0
-		key.command_or_control_autoremap = found & KEY_MASK_CMD_OR_CTRL != 0
-		return key
+		return _key_event(spec["key"])
 	if _is_index(spec.get("mouse_button")):
 		var button := InputEventMouseButton.new()
 		button.button_index = int(spec["mouse_button"])
