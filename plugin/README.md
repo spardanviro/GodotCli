@@ -64,7 +64,7 @@ claude --plugin-dir /path/to/gdcli/plugin
 node scripts/import-knowledge.mjs /path/to/godot/modules/ai_assistant/knowledge
 ```
 
-**官方文档没有打包进插件。** 它有一千五百多页、文本就有 36 MB，而且跟引擎版本走；类参考部分 `gd api` 已经能从你装的引擎里直接读到。手册部分（教程、最佳实践、排错）通过 `gd docs` 按需查：`gd docs install` 从官方的 godot-docs 仓库下载**当前所用 Godot 版本**的手册（只取文本，约 36 MB，十秒左右，需要 git），之后 `gd docs search`、`gd docs page` 只取用得上的那一页或一节。已经有一份文档的话用 `gd docs use <文件夹>` 指过去。技能里写了什么时候去查，以及没装时先装。
+**官方文档没有打包进插件。** 它有一千五百多页、文本约 40 MB，而且跟引擎版本走；类参考部分 `gd api` 已经能从你装的引擎里直接读到。手册部分（教程、最佳实践、排错）通过 `gd docs` 按需查：`gd docs install` 从官方的 godot-docs 仓库下载**当前所用 Godot 版本**的手册（只取文本，约 36 MB，十秒左右，需要 git），之后 `gd docs search`、`gd docs page` 只取用得上的那一页或一节。已经有一份文档的话用 `gd docs use <文件夹>` 指过去。技能里写了什么时候去查，以及没装时先装。
 
 `godot-cli/references/commands.md` 是从运行中的桥接生成的命令清单。`scripts/bridge-test.mjs` 每次都会核对它与桥接是否一致；命令有变动时这样重新生成：
 
@@ -115,7 +115,7 @@ Claude Code 的沙箱由操作系统限制 shell 命令能写哪些文件，不�
   "sandbox": {
     "enabled": true,
     "allowUnsandboxedCommands": false,
-    "excludedCommands": ["gd command *", "gd status", "gd status *", "gd list", "gd list *", "gd eval *"],
+    "excludedCommands": ["gd command *", "gd cmd *", "gd status", "gd status *", "gd list", "gd list *", "gd eval *"],
     "filesystem": {
       "denyWrite": [".", "~/.gdcli/config.json", "~/.gdcli/instances", "~/.local/share/godot/export_templates", "~/.config/godot/editor_settings-4.tres", "~/.config/godot/editor_settings-4.3.tres", "~/.config/godot/editor_settings-4.4.tres", "~/.config/godot/editor_settings-4.5.tres", "~/.config/godot/editor_settings-4.6.tres", "~/.config/godot/editor_settings-4.7.tres"],
       "allowWrite": ["~/.local/share/godot", "~/.cache/godot", "~/.config/godot", "~/.gdcli"]
@@ -127,7 +127,7 @@ Claude Code 的沙箱由操作系统限制 shell 命令能写哪些文件，不�
 它的意思是：
 
 - **shell 命令对整个项目只读**（`denyWrite` 写的是项目根）。项目里的文件只有两条路能改：Claude 的文件工具（受上面第一个钩子管，脚本、场景、项目文件会被拒绝），和 `gd command`（交给编辑器写，该批准的会弹给人）。
-- **跟编辑器对话的 `gd` 子命令在沙箱外运行**（`excludedCommands`）。在 Linux 和 WSL2 上，沙箱里的命令连不到宿主机回环地址上的服务，所以不排除就连不上桥接。只排除了只跟桥接说话、不启动任何程序的子命令（`gd command`、`gd status`、`gd list`、`gd eval`）。凡是会启动 Godot 的都**留在沙箱里**：`gd run`、`gd check`、`gd exec`、`gd import`、`gd export` 会运行项目里的代码，`gd doctor`、`gd api` 会启动配置里写的那个 Godot 程序；在沙箱外运行它们，沙箱里的命令只要改掉配置里的 Godot 路径，就能让任意程序在沙箱外运行。代价是沙箱里的 `gd doctor` 看不到编辑器（连不到桥接），其余检查照常。
+- **跟编辑器对话的 `gd` 子命令在沙箱外运行**（`excludedCommands`）。在 Linux 和 WSL2 上，沙箱里的命令连不到宿主机回环地址上的服务，所以不排除就连不上桥接。只排除了只跟桥接说话、不启动任何程序的子命令（`gd command` 和它的简写 `gd cmd`、`gd status`、`gd list`、`gd eval`）。凡是会启动 Godot 的都**留在沙箱里**：`gd run`、`gd check`、`gd exec`、`gd import`、`gd export` 会运行项目里的代码，`gd doctor`、`gd api` 会启动配置里写的那个 Godot 程序；在沙箱外运行它们，沙箱里的命令只要改掉配置里的 Godot 路径，就能让任意程序在沙箱外运行。代价是沙箱里的 `gd doctor` 看不到编辑器（连不到桥接），其余检查照常。
 - `allowWrite` 让沙箱里的 Godot 能写它自己的数据目录，否则 `gd run` 起不来。`denyWrite` 在这些目录里再禁掉几样沙箱里不该改的东西：`~/.gdcli/config.json`（里面写着用哪个 Godot、是否允许离线命令）、`~/.gdcli/instances`（编辑器的锁文件）、导出模板，以及编辑器设置文件（桥接的访问模式和 `eval` 开关都存在里面）。编辑器设置的文件名带版本号（`editor_settings-4.5.tres`），列表写到 4.7；用更新的 Godot 时照样加一行。示例里是 Linux 和 WSL2 的位置；macOS 上编辑器设置在 `~/Library/Application Support/Godot/`，数据和导出模板也在那里，要把这几行换成那里的路径。沙箱里的 `gd host start` 写不了 `~/.gdcli/instances`，起的无头编辑器 `gd` 找不到；在沙箱外开编辑器，或者不用沙箱跑 `host start`。
 
 这套配置在 WSL2（Ubuntu，Claude Code 2.1，Godot 4.5）上实测过，结果如下：

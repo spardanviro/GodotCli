@@ -67,7 +67,7 @@
   - 会话开始时的钩子（`hooks/godot-project-context.mjs`）：在 Godot 项目里开始的会话会被告知先用 `godot-cli` 技能。第二次基线里，题面不提 Godot 的分数加倍任务 3 个会话都没加载技能；加了钩子后用真实 Claude 跑了 2 次，两次都加载了，也没再试着直接写项目文件。
   - 第 4 阶段推迟的三类窄技能：`godot-localization`、`godot-export`（含 Web）、`godot-audio-buses`。设置名、方法名和文件格式按引擎源码核对过；翻译表和总线布局的做法在真实编辑器上走通了。
     - 走通总线布局时发现，编辑器只在启动时读总线布局，所以经 `gd` 设到新总线上的播放器会被存成 `Master`。现在桥接写完默认总线布局后立即把它载入编辑器。
-    - 评测新增 `hard.translate_menu` 和 `hard.audio_buses`，现在共 33 个任务。这两个各用真实 Claude 跑了 2 次，都通过，每个会话都自动加载了对应的新技能。
+    - 评测新增 `hard.translate_menu` 和 `hard.audio_buses`，当时共 33 个任务（后来加了 `hard.tile_platformer`，现在 34 个）。这两个各用真实 Claude 跑了 2 次，都通过，每个会话都自动加载了对应的新技能。
 
 ## 原生模块的遗留事项
 
@@ -75,7 +75,6 @@
 
 - `Godot_AI` 仓库 `main` 上那批修复没有做过带真实接口的端到端测试；"未保存场景的恢复"路径未测。
 - 远端 `review-fixes` 分支仍在，内容与 `main` 相同，可删。
-- 之前在对话里贴过的 GitHub 令牌需要本人到 https://github.com/settings/tokens 吊销。
 
 ## 第 4 阶段的结果
 

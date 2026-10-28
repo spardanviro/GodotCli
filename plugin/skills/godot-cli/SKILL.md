@@ -87,7 +87,7 @@ Things worth knowing before you use them:
 - **Nothing is saved until `scene_save`.** `gd run` and the game read files from disk, so save before you run.
 - `node_create` takes the properties in the same call. Set what the Inspector shows (position, size, text, colours,
   shapes, textures) there or with `node_set`, not in a script's `_ready()`.
-- Values: JSON where JSON can say it, `[x, y]` or `"Vector2(x, y)"` for vectors, `"#rrggbb"` for colours, the
+- Values: JSON where JSON can say it, `[x, y]` or `"Vector2(x, y)"` for vectors, `"#rrggbb"` for colours,
   the Inspector's label or the constant's name for an enum (`"Ignore"`, `"MOUSE_FILTER_IGNORE"`; global enums
   take only the label or number), `{"$res": "res://..."}` for a file,
   `{"$new": "RectangleShape2D", "properties": {...}}` for a new sub-resource, `{"$node": "Path"}` for a node.

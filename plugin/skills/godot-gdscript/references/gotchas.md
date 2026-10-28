@@ -314,7 +314,7 @@ When a script is instantiated, `_init()` is called BEFORE the scene file is appl
   @export var speed = 100.0
   func _init():
       print(speed)  # ALWAYS prints 100.0, even if Inspector shows 200.0
-To use Inspector-set values, read them in `_ready()` or later. This also applies to `_enter_tree()` — export values are not yet applied there.
+To use Inspector-set values, read them in `_ready()` or later. In `_enter_tree()` they are already applied: the scene's values are set before a node enters the tree.
 
 
 <!-- keywords: SceneTree, scene -->
@@ -641,7 +641,7 @@ Compositor (custom render effects) gotchas:
 ### All GDScript files in an editor plugin MUST have @tool — without it they silently act as empty files
 Editor plugin gotchas:
 - Every GDScript file your plugin uses (not just EditorPlugin.gd) must have the `@tool` annotation at the top. Without it, the script is silently ignored in the editor context — no error, no warning
-- Main screen plugins: call `make_visible(false)` immediately after adding the panel in `_enter_tree()` — skipping this makes the panel permanently visible and competing for space
+- Main screen plugins: call `_make_visible(false)` immediately after adding the panel in `_enter_tree()` — skipping this makes the panel permanently visible and competing for space
 - C# plugins must be built (compiled) before enabling them in Project Settings — enabling an unbuilt plugin silently fails
 
 
@@ -1107,7 +1107,7 @@ The internal C++ `HashMap` (and `HashSet`) do NOT guarantee insertion order — 
 
 <!-- keywords: PackedByteArray, _thread_func, _shared_array -->
 ### Godot containers are NOT thread-safe — use Mutex for cross-thread access
-`Array`, `Dictionary`, `String`, `PackedByteArray`, and all other Godot containers are NOT thread-safe. Reading or writing from multiple threads simultaneously without a `Mutex` causes crashes or undefined behavior. Use `Mutex.lock()`/`unlock()` or the `with Mutex` pattern when sharing data across threads.
+`Array`, `Dictionary`, `String`, `PackedByteArray`, and all other Godot containers are NOT thread-safe. Reading or writing from multiple threads simultaneously without a `Mutex` causes crashes or undefined behavior. Use `Mutex.lock()`/`unlock()` around every access when sharing data across threads (GDScript has no `with` statement).
   var _mutex := Mutex.new()
   func _thread_func() -> void:
       _mutex.lock()

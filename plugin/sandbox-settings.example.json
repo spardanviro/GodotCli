@@ -4,6 +4,7 @@
     "allowUnsandboxedCommands": false,
     "excludedCommands": [
       "gd command *",
+      "gd cmd *",
       "gd status",
       "gd status *",
       "gd list",

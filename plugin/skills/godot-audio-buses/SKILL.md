@@ -49,7 +49,7 @@ gd command fs_write_text --path res://default_bus_layout.tres --text-file /tmp/d
 - `send` names a bus with a lower number. Sound flows from higher numbers toward `Master`, never back.
 - Each effect is a `sub_resource` with its own `id`, listed as `bus/N/effect/M/effect` with `.../enabled`, in the
   order they apply. Common ones: `AudioEffectReverb`, `AudioEffectLowPassFilter` (`cutoff_hz`, muffled sound),
-  `AudioEffectHighPassFilter`, `AudioEffectCompressor` (with `sidechain` for ducking), `AudioEffectLimiter`,
+  `AudioEffectHighPassFilter`, `AudioEffectCompressor` (with `sidechain` for ducking), `AudioEffectHardLimiter` (the older `AudioEffectLimiter` is deprecated),
   `AudioEffectDelay`, `AudioEffectChorus`, `AudioEffectEQ`. `gd api class AudioEffectReverb` lists the properties.
 - `resource_create` cannot build this resource: the bus entries are not ordinary properties. Write the text.
 - A player whose `bus` names a bus that does not exist plays on `Master` without a word, and so do players of a bus

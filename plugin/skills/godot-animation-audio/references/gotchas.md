@@ -55,7 +55,7 @@ RESET should contain exactly ONE keyframe at time 0 for each property you want t
 
 <!-- keywords: Audio, RIGHT, LEFT, audio -->
 ### Audio buses route RIGHT to LEFT only — cannot route to buses on the right
-Godot's audio bus layout enforces a LEFT-TO-RIGHT dependency order. Each bus can only send audio to a bus that is **further to the left** of it. The leftmost bus is always the **Master** bus, which sends to the audio output. You cannot route audio backwards (right to left) to prevent infinite loops. To avoid clipping, ensure the Master bus output never exceeds **0 dB** (that's the digital maximum — not the loudest possible, but the clip point). Typical working range is -60 dB to 0 dB; silence is around -60 to -80 dB.
+Godot's audio bus layout enforces a LEFT-TO-RIGHT dependency order. Each bus can only send audio to a bus that is **further to the left** of it. The leftmost bus is always the **Master** bus, which sends to the audio output. You cannot route audio backwards (left to right) to prevent infinite loops. To avoid clipping, ensure the Master bus output never exceeds **0 dB** (that's the digital maximum — not the loudest possible, but the clip point). Typical working range is -60 dB to 0 dB; silence is around -60 to -80 dB.
 
 
 <!-- keywords: AudioSample, AudioEffects, AudioStreamPlayer3D, Doppler, Reverb, Web, audio -->
@@ -227,7 +227,7 @@ Blender applies Edit Bone Orientation as Bone Rest; Maya does not. This means th
 
 <!-- keywords: Audio, Amplify, SILENTLY, Limiter, audio -->
 ### Audio effects: Amplify can SILENTLY clip audio — add a Limiter effect after any Amplify to prevent distortion
-The Amplify audio effect applies gain without any clipping protection. Setting volume_db above 0 dB on Amplify will cause digital clipping if the audio signal was already at maximum. Always follow Amplify with a Limiter effect to prevent distortion, especially for dynamic audio content.
+The Amplify audio effect applies gain without any clipping protection. Setting volume_db above 0 dB on Amplify will cause digital clipping if the audio signal was already at maximum. Always follow Amplify with a HardLimiter effect (AudioEffectLimiter is deprecated) to prevent distortion, especially for dynamic audio content.
 
 
 <!-- keywords: AnimationPlayer, StringName, GDScript, current_animation, assigned_animation, current_animation_changed -->

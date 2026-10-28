@@ -179,6 +179,31 @@ export const CORRECTIONS = [
     wrong: "### AnimationPlayer: new section-based playback (Godot 4.7)\nAnimationPlayer gained section-based playback in 4.7.",
     right: "### AnimationPlayer: section-based playback (Godot 4.4+)\nAnimationPlayer gained section-based playback in 4.4.",
   },
+  {
+    file: "godot-gdscript/references/gotchas.md",
+    wrong: "This also applies to `_enter_tree()` — export values are not yet applied there.",
+    right: "In `_enter_tree()` they are already applied: the scene's values are set before a node enters the tree.",
+  },
+  {
+    file: "godot-gdscript/references/gotchas.md",
+    wrong: "Use `Mutex.lock()`/`unlock()` or the `with Mutex` pattern when sharing data across threads.",
+    right: "Use `Mutex.lock()`/`unlock()` around every access when sharing data across threads (GDScript has no `with` statement).",
+  },
+  {
+    file: "godot-gdscript/references/gotchas.md",
+    wrong: "- Main screen plugins: call `make_visible(false)` immediately",
+    right: "- Main screen plugins: call `_make_visible(false)` immediately",
+  },
+  {
+    file: "godot-animation-audio/references/gotchas.md",
+    wrong: "You cannot route audio backwards (right to left) to prevent infinite loops.",
+    right: "You cannot route audio backwards (left to right) to prevent infinite loops.",
+  },
+  {
+    file: "godot-animation-audio/references/gotchas.md",
+    wrong: "Always follow Amplify with a Limiter effect",
+    right: "Always follow Amplify with a HardLimiter effect (AudioEffectLimiter is deprecated)",
+  },
 ];
 
 /**

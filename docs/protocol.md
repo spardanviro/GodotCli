@@ -37,11 +37,11 @@ Godot 自带的命令行是"一次性进程"模型：每条命令启动一个新
 | `gd api class <类名> [--member <名>]`、`gd api search <词>` | 首次：在缓存目录下的临时目录里执行 `godot --headless --dump-extension-api-with-docs`（这个版本导不出文档时退到 `--dump-extension-api`，并给警告），之后读缓存。缓存按 Godot 可执行文件的路径、大小和修改时间区分 | 编辑器 |
 | `gd new <文件夹>` | 不启动 Godot：写出 `project.godot`、`.gitignore`、`.gitattributes` 并安装桥接 | |
 | `gd docs search/page/use/where/install` | 不启动 Godot：读本机的一份官方文档；`install` 用 git 下载它 | |
-| `gd host start` | `godot --headless --editor --path <项目> --lsp-port <空闲> --dap-port <空闲> -- --gdcli-host` | 编辑器 |
+| `gd host start [--wait 秒]`、`gd host stop [--wait 秒]` | `godot --headless --editor --path <项目> --lsp-port <空闲> --dap-port <空闲> -- --gdcli-host`。`--wait` 是等编辑器可达（默认 120 秒）或等它退出（默认 15 秒）的上限，最多 600 秒。这样起的无头编辑器空闲 30 分钟没有请求就自行退出 | 编辑器 |
 
 从官方文档得出的硬约束：
 
-- **未知参数不报错**。Godot 会静默忽略不认识的参数。`gd` 必须先用 `godot --version` 确认版本，再决定能不能用某个参数；每个参数的最低版本记在命令行内的一张表里，由持续集成的版本矩阵验证。
+- **未知参数不报错**。Godot 会静默忽略不认识的参数。`gd` 先用 `godot --version` 确认版本：低于 4.3（`MIN_VERSION`）就拒绝；`gd` 用到的参数在 4.3 到 4.7 上都有，由持续集成的版本矩阵验证。
 - **导出路径相对于项目目录**，不是当前目录。`gd export` 一律把输出路径转成绝对路径再传。
 - **`--script` 的脚本必须继承 `SceneTree` 或 `MainLoop`**。`gd exec` 在启动前检查并给出明确报错。
 - **`--quit-after` 按帧计数**，不是按秒。`gd run --seconds` 由命令行自己计时，到时结束子进程。
@@ -72,7 +72,7 @@ Godot 可执行文件的查找顺序：`--godot <路径>` 参数 → 环境变�
 - 场景和脚本参数必须通过第 4.4 节的路径检查，再以 `res://` 形式传给 Godot。
 - 导出预设名必须与 `export_presets.cfg` 里的某个预设完全相同。
 - 任何来自调用方的值，只要以 `-` 开头，就不能出现在 Godot 的选项位置上；`gd exec` 的用户参数一律放在字面量 `--` 之后。
-- `gd export` 的输出路径若已存在，需要 `--yes` 才覆盖。
+- `gd export` 的输出路径若已存在，或者在项目文件夹以外，需要 `--yes`。覆盖时旧文件先挪到一边，导出成功才删，失败或被中断就放回原处。
 
 ---
 
@@ -233,7 +233,7 @@ HTTP 解析是手写的，所以把它能接受的东西限定得很窄，其余
      - `fs_write_text` 写入内嵌了脚本的场景或资源文件（`.tscn`、`.tres` 里出现 `script/source` 或 `type="GDScript"`），不管脚本写的是什么：文本解析器会还原转义（`@\u0074ool`），在原始文本上找注解靠不住。
      - `fs_write_text` 写入任何 `.cs` 文件，`node_attach_script` 把任何 C# 脚本挂到节点上。在 .NET 版编辑器上实测（`scripts/dotnet-probe.mjs`，持续集成的 .NET 任务每次都跑）：构建之后，在编辑器进程里运行的 C# 代码不止带 `[Tool]` 的类和 `[ModuleInitializer]`，**普通类的字段初始化**也会运行，因为编辑器要读出导出属性的默认值；普通类的 `_Ready`、构造函数体、静态构造函数没有运行。而构建只需要一次 `editor_play`。所以按标记判断拦不住，凡是 C# 都要人批准。代价是无头编辑器里不能经由桥接写 C#；带窗口的编辑器里每次写入都要点一次同意。
      - `fs_move` 把文件改成另一种扩展名，而它的内容在新扩展名下属于上面两类（例如把 `notes.txt` 改名为 `Notes.cs`）。
-     - `fs_write_text` 写入第 4.4 节的敏感位置：`addons/`、`gdcli_commands/`、`project.godot`、`project.binary`、`override.cfg`、`*.gdextension`，以及 .NET 构建和还原会读取的文件（见 4.4）。
+     - `fs_write_text` 写入第 4.4 节的敏感位置：`addons/`、`gdcli_commands/`、`project.godot`、`project.binary`、`override.cfg`、`export_presets.cfg`、`*.gdextension`、`*.import`、任何位置的 `.gitmodules` 和 `.gitattributes`，以及 .NET 构建和还原会读取的文件（见 4.4）。
      - `node_attach_script` 挂的脚本带工具注解。这一条不管脚本是怎么进到项目里的，在加载之前就问。
      - `resource_create`、`resource_set`、`scene_new`、`scene_save` 落在敏感位置。
      - `fs_move` 的源或目标在敏感位置，或者会改写敏感位置里的文件。
@@ -282,7 +282,7 @@ HTTP 解析是手写的，所以把它能接受的东西限定得很窄，其余
 - `res://project.godot`、`res://override.cfg`、`res://export_presets.cfg`
 - `res://addons/` 下的任何文件
 - `res://gdcli_commands/` 下的任何文件
-- 扩展名为 `.gdextension` 的文件
+- 扩展名为 `.gdextension`、`.import` 的文件（`.import` 能指定导入时运行的脚本）
 - 任何位置的 `.gitmodules`、`.gitattributes`
 - .NET 构建和还原按名字读取的文件：各种项目和解决方案（`.csproj`、`.fsproj`、`.vbproj`、`.proj`、`.sln`、`.slnx`、`.slnf`），导入的 `.props`、`.targets`（包括 `Directory.Build.*`），会被自动导入的 `.user`（如 `Game.csproj.user`），响应文件 `.rsp`（如 `Directory.Build.rsp`），以及 `NuGet.Config`（包来源）、`global.json`（SDK 版本）、`dotnet-tools.json`。这些文件里能写构建时执行的命令，或换掉构建要下载的包
 - 内容带 `@tool` 的 `.gd` 脚本（按内容判断，见 4.1）
@@ -353,6 +353,8 @@ HTTP 解析是手写的，所以把它能接受的东西限定得很窄，其余
 - `meta.scene` 总是带上当前被编辑的场景，调用方可以据此发现"改的不是自己以为的那个场景"。
 - `meta.undo` 只在产生了撤销步骤时出现。
 - 输出格式：`--format human`（默认）或 `--format json`（`--json` 是简写）。也可用环境变量 `GDCLI_FORMAT`。
+- 全局选项（`--format`、`--json`、`--project`、`--instance`、`--godot`、`--timeout`、`--yes`、`--dry-run`、`-h`、`-V`）写在命令名前后都认。项目自定义命令若有同名参数（比如叫 `timeout` 或 `format`），或者某个值正好是 `-h`，就用 `--args '{...}'` 传，不会被当成全局选项。
+- `gd doctor` 有问题时也返回成功、退出码 0：它是给人看的诊断，结果在 `data.problems` 里。脚本里要判断就读这个字段。
 
 HTTP 状态码与类别对应（`200` 成功、`400` 参数、`401` 认证、`403` 拒绝、`404` 未知命令、`409` 前置条件、`422` 命令执行失败、`500` 内部错误、`503` 忙），但命令行只依据信封。
 
@@ -480,7 +482,7 @@ JSON 能直接表示的类型原样传。其余类型：
 | `Packed*Array` | 数组，每个元素按元素类型转换，如 `PackedVector2Array` 写 `[[0,0],[16,0]]`；最多 65536 个元素 |
 | `NodePath`、`StringName` | 字符串 |
 | 上面各数学类型和 `Color` | 也接受脚本里的写法 `"Vector2(100, 50)"`：类型名必须与目标类型一致，括号里只能是数字。这是桥接自己读的，不嵌套、不构造对象 |
-| 枚举 | 整数；脚本里的常量名（`"MOUSE_FILTER_IGNORE"`，前面可带类名）；检查器里显示的标签（`"Ignore"`）。常量按属性所在对象的类及其父类查找，且它的值必须是这个枚举的成员之一 |
+| 枚举 | 整数；检查器里显示的标签（`"Ignore"`）；属性所在对象的类及其父类里的常量名（`"MOUSE_FILTER_IGNORE"`，前面可带类名），值必须是这个枚举的成员之一。全局枚举（如 `horizontal_alignment` 的 `HORIZONTAL_ALIGNMENT_CENTER`）不是类的常量，只能用标签或整数 |
 | 资源 | `{"$res":"res://…"}` 加载已有资源；`{"$new":"RectangleShape2D","properties":{…}}` 新建子资源 |
 | 节点引用 | `{"$node":"相对场景根的路径"}` |
 
