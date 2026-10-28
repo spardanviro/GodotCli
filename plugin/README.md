@@ -27,7 +27,7 @@ claude plugin marketplace update gdcli
 claude plugin update godot@gdcli
 ```
 
-Claude Code 按 `plugin.json` 里的版本号判断有没有新版本，所以每次改动插件都要提升版本号（`npm run check:versions` 保证它与命令行、桥接的版本一致）。这条安装路径在 WSL 的 Claude Code 2.1 上实测过：装上后技能和钩子都在（当时 8 个技能，现在 16 个）。
+Claude Code 按 `plugin.json` 里的版本号判断有没有新版本，所以每次改动插件都要提升版本号（`npm run check:versions` 保证它与命令行、桥接的版本一致）。这条安装路径在 WSL 的 Claude Code 2.1 上实测过：装上后技能和钩子都在（当时 8 个技能，现在 17 个）。
 
 从本地源码试用：
 
@@ -54,6 +54,7 @@ claude --plugin-dir /path/to/gdcli/plugin
 | `godot-audio-buses` | 按任务切的技能：写出总线布局 `default_bus_layout.tres`（Music、SFX 等，带效果器）、把播放器接到总线、设置菜单里的音量滑块、压低音乐 |
 | `godot-shaders` | 按任务切的技能：写 `.gdshader`、用 ShaderMaterial 挂到节点上并设参数、2D 特效（受击闪白、描边、溶解、调色板替换、卷动）、读屏幕纹理的全屏效果、3D 表面着色器、从 Godot 3 迁过来的改名、着色器不生效时怎么查 |
 | `godot-multiplayer` | 按任务切的技能：用引擎自带的高层联机建主机和加入（ENet，Web 用 WebSocket）、多人权威、`@rpc`、用 MultiplayerSpawner 给所有人生成节点、用 MultiplayerSynchronizer 同步状态、大厅、多实例测试 |
+| `godot-migrate-3-to-4` | 按任务切的技能：用编辑器的转换器（`--convert-3to4`）把 Godot 3 项目迁到 Godot 4，转换器漏掉的改名和写法变化，转换后用 `gd check`、`gd run` 逐个修 |
 | `godot-addons` | 按任务切的技能：挑选第三方插件、为什么安装要由人来做（它是在编辑器里运行的代码）、启用和检查、更新和移除、`gd test` 用的测试框架 |
 
 前五个领域技能的 `references/` 里各有两份资料：

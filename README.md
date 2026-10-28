@@ -12,7 +12,7 @@
 
 <p align="center"><b>从命令行和编码智能体里驾驶 Godot 编辑器。</b></p>
 
-> **In English:** gdcli lets coding agents (Claude Code, Codex, Cursor and any MCP client) and people at a terminal build Godot 4 games through the real editor: read and change the open scene with every step on the editor's undo stack, run the game and inspect, steer and debug it while it runs, check scripts and run scenes without an editor, and look up the engine's API and manual. Changes that would run code inside the editor wait for a person to approve them. It is three parts: a bridge plugin in the editor, the `gd` command line (`npm install -g @spardanviro/gdcli`), and a Claude Code plugin with 16 skills. The documentation is in Chinese.
+> **In English:** gdcli lets coding agents (Claude Code, Codex, Cursor and any MCP client) and people at a terminal build Godot 4 games through the real editor: read and change the open scene with every step on the editor's undo stack, run the game and inspect, steer and debug it while it runs, check scripts and run scenes without an editor, and look up the engine's API and manual. Changes that would run code inside the editor wait for a person to approve them. It is three parts: a bridge plugin in the editor, the `gd` command line (`npm install -g @spardanviro/gdcli`), and a Claude Code plugin with 17 skills. The documentation is in Chinese.
 
 ---
 
@@ -34,7 +34,7 @@ gdcli 换了一条路：**智能体通过编辑器来做事**，和人点编辑�
 |---|---|---|
 | **桥接**（`addons/gdcli`） | 编辑器插件（GDScript）。在 `127.0.0.1` 上监听，执行命令，管撤销栈和人工批准 | `gd bridge install`，或 [Godot 资源库](https://godotengine.org/asset-library/asset/5539) |
 | **`gd` 命令行** | 找到编辑器、发命令、输出结果；也能自己启动 Godot 做离线的事；还是一个 MCP 服务器 | `npm install -g @spardanviro/gdcli` |
-| **Claude 插件**（`godot@gdcli`） | 16 个技能（怎么用 `gd`、Godot 的坑和做法），3 个钩子 | `claude plugin install godot@gdcli` |
+| **Claude 插件**（`godot@gdcli`） | 17 个技能（怎么用 `gd`、Godot 的坑和做法），3 个钩子 | `claude plugin install godot@gdcli` |
 
 ```
  智能体 / 终端                       Godot 编辑器
@@ -124,6 +124,7 @@ claude plugin install godot@gdcli
   | `godot-shaders` | 着色器语言、ShaderMaterial 和参数、2D 特效、全屏效果、3D 表面 |
   | `godot-multiplayer` | 建主机与加入、权威、RPC、MultiplayerSpawner 和 MultiplayerSynchronizer、多实例测试 |
   | `godot-addons` | 选择和启用第三方插件、检查是否正常、测试框架（GUT、gdUnit4） |
+  | `godot-migrate-3-to-4` | 把 Godot 3 项目或旧教程里的代码迁到 Godot 4：转换器、常见改名、转换后怎么查 |
 
 - **会话开始时的钩子**：在 Godot 项目里开始的会话，会被告知先用这些技能、通过 `gd` 操作。需求里不提 Godot 也一样。
 - **写入钩子**：拦住 Claude 用自己的文件工具或 shell 直接改项目里的脚本、场景和项目文件，让改动都经过编辑器。这是护栏，不是沙箱；要有真正的约束，请配合 Claude Code 的沙箱，见 [plugin/README.md](plugin/README.md)。
@@ -136,7 +137,7 @@ claude plugin install godot@gdcli
 gd mcp configure codex                # 先显示要写进 ~/.codex/config.toml 的条目
 gd mcp configure codex --yes          # 写入
 gd mcp configure cursor --yes         # cursor、vscode、gemini、claude 写进项目里对应的配置文件
-gd skills install codex --yes         # 把 16 个技能装进 ~/.codex/skills（同一种 SKILL.md 格式）
+gd skills install codex --yes         # 把 17 个技能装进 ~/.codex/skills（同一种 SKILL.md 格式）
 gd skills install --dir <目录> --yes   # 其他读 SKILL.md 的智能体
 ```
 

@@ -216,4 +216,5 @@ By task: `godot-new-project` (from nothing to a project that runs), `godot-tilem
 of a bug from its symptom), `godot-localization` (more than one language), `godot-export` (builds, the web),
 `godot-audio-buses` (mixer buses and effects), `godot-shaders` (visual effects in the shading language),
 `godot-multiplayer` (hosting, joining, RPCs, spawning and synchronizing), `godot-addons` (choosing, enabling and
-checking third-party addons, and the test frameworks `gd test` runs).
+checking third-party addons, and the test frameworks `gd test` runs), `godot-migrate-3-to-4` (converting a Godot 3
+project, and Godot 3 code from tutorials).
