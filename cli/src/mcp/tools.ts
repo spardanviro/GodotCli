@@ -4,6 +4,7 @@ import { doctorCommand } from "../commands/doctor.js";
 import { hostCommand } from "../commands/host.js";
 import { statusCommand } from "../commands/live.js";
 import { checkCommand, runCommand } from "../commands/offline.js";
+import { testCommand } from "../commands/test-runner.js";
 import type { CommandHandler } from "../context.js";
 import type { Descriptor, Parameter } from "./descriptor.js";
 
@@ -197,6 +198,28 @@ export const OFFLINE_TOOLS: readonly OfflineTool[] = [
         return "Give at least one script.";
       }
       return scripts.find((script) => script.startsWith("-")) === undefined ? scripts : 'A script path cannot start with "-".';
+    },
+  ),
+  offline(
+    "gd_test",
+    "Run the project's GUT or gdUnit4 tests in a separate headless Godot process and report each failed test with its message. Runs the project's code. Uses the files on disk; the editor's unsaved changes are not seen.",
+    {
+      paths: { type: "array", items: { type: "string" }, description: "Test folders or files (res:// or in the project); default: test/ or tests/, or GUT's .gutconfig.json" },
+      framework: { type: "string", enum: ["gut", "gdunit4"], description: "Needed only when both are installed" },
+      select: { type: "string", description: "GUT only: run the tests whose name contains this text" },
+    },
+    [],
+    "runs-project-code",
+    testCommand,
+    (args) => {
+      const paths = Array.isArray(args["paths"]) ? args["paths"].filter((entry): entry is string => typeof entry === "string" && entry !== "") : [];
+      const framework = text(args, "framework");
+      const select = text(args, "select");
+      const problem = paths.find((path) => path.startsWith("-")) === undefined ? plain(framework, "framework") ?? plain(select, "select") : 'A path cannot start with "-".';
+      if (problem !== undefined) {
+        return problem;
+      }
+      return [...paths, ...(framework === undefined ? [] : ["--framework", framework]), ...(select === undefined ? [] : ["--select", select])];
     },
   ),
   offline(

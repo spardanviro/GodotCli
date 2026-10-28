@@ -11,6 +11,7 @@ import { skillsCommand } from "./commands/skills.js";
 import { commandCommand, evalCommand, listCommand, statusCommand } from "./commands/live.js";
 import { newCommand } from "./commands/new.js";
 import { checkCommand, execCommand, exportCommand, importCommand, openCommand, runCommand } from "./commands/offline.js";
+import { testCommand } from "./commands/test-runner.js";
 import type { CommandHandler, CommandResult, Context, GlobalOptions, Io, OutputFormat } from "./context.js";
 import { type Envelope, errorOf, exitCodeOf, failure, success } from "./envelope.js";
 import { nonEmpty } from "./project.js";
@@ -37,6 +38,7 @@ const COMMANDS: Readonly<Record<string, CommandHandler>> = {
   run: runCommand,
   check: checkCommand,
   exec: execCommand,
+  test: testCommand,
   import: importCommand,
   export: exportCommand,
   api: apiCommand,
@@ -62,6 +64,8 @@ Without an editor (starts the Godot binary):
   run [scene] [--seconds N] [--headless]   Run the project and report its errors
   check <script>...          Parse scripts for errors
   exec <script> [-- args]    Run a SceneTree/MainLoop script headless
+  test [paths] [--framework gut|gdunit4] [--select <text>] [--junit <file>]
+                             Run the project's GUT or gdUnit4 tests and report the failures
   import                     Import the project's resources
   export <preset> <output> [--debug|--pack]
   api class <Name> [--member m] | api search <text>
@@ -93,7 +97,7 @@ Global options:
   --project <path>           Project folder (env: GDCLI_PROJECT); default: nearest project.godot
   --godot <path>             Godot editor binary (env: GODOT_BIN)
   --instance <id>            Pick an editor when several have the project open
-  --timeout <seconds>        How long to wait for the editor, or for check/exec/import/export
+  --timeout <seconds>        How long to wait for the editor, or for check/exec/test/import/export
                              (gd run uses its own --seconds)
   --yes                      Confirm overwriting or destructive actions
   --dry-run                  Report what would change without doing it

@@ -32,6 +32,7 @@ Godot 自带的命令行是"一次性进程"模型：每条命令启动一个新
 | `gd run [场景] [--seconds N] [--headless]` | `godot --path <项目> [场景] [--headless]`，由 `gd` 计时并结束进程 | 全部（`--path` 为扩展） |
 | `gd check <脚本>…` | `godot --headless --path <项目> --check-only --script <脚本>`。加载脚本时会运行它的静态变量初始化，也会加载它 `preload` 的文件，和游戏里一样：这是运行项目代码，不是只读检查（MCP 里的 `gd_check` 因此不标只读） | 扩展 |
 | `gd exec <脚本> [-- 参数]` | `godot --headless --path <项目> --script <脚本> -- 参数` | 扩展 |
+| `gd test [路径…]` | GUT：`godot --headless --path <项目> --script res://addons/gut/gut_cmdln.gd -gexit -gjunit_xml_file=<临时文件> -gdir=…`；gdUnit4：`… --script res://addons/gdUnit4/bin/GdUnitCmdTool.gd --ignoreHeadlessMode -c -rd <临时文件夹> -rc 1 -a <路径>…` | 扩展 |
 | `gd import` | `godot --headless --path <项目> --import` | 编辑器 |
 | `gd export <预设> <输出>` | `godot --headless --path <项目> --export-release\|--export-debug\|--export-pack <预设> <绝对路径>` | 编辑器 |
 | `gd api class <类名> [--member <名>]`、`gd api search <词>` | 首次：在缓存目录下的临时目录里执行 `godot --headless --dump-extension-api-with-docs`（这个版本导不出文档时退到 `--dump-extension-api`，并给警告），之后读缓存。缓存按 Godot 可执行文件的路径、大小和修改时间区分 | 编辑器 |
@@ -551,6 +552,7 @@ JSON 能直接表示的类型原样传。其余类型：
 - `fs_write_text` 写的是项目设置 `audio/buses/default_bus_layout` 指向的总线布局（默认 `res://default_bus_layout.tres`）时，写完立即把它载入编辑器（回复里 `bus_layout_loaded: true`）。只载入简单的布局：总线的键和内置 `AudioEffect` 类的子资源；引用了别的文件或带脚本的布局只写入、不载入（`bus_layout_loaded: false`，并有警告），等编辑器下次打开时才读。编辑器只在启动时读这个文件，不这样做的话，给播放器设上新总线的名字，保存时会变成 `Master`。
 - `fs_write_text` 写完 `.gd` 后立刻编译检查，结果放在 `data.check`（`{compiles, errors?}`，报错文本需要 4.5 及以上）。**不通过也照样写入**，因为它可能引用下一步才创建的东西；此时带一条警告。有三类脚本不做这项检查，`data.check` 里是 `{skipped: 原因}`，需要时用 `gd check`：带工具注解的；用了 `preload` 或 `extends "路径"` 的（编译会去加载别的文件）；引用了自己的 `class_name` 的（文本是单独编译的，那时类名还不存在）。在编辑器里编译一个非工具脚本不会运行其中任何代码（包括静态初始化），这一点实测确认过。
 - `animation_create` 用关键帧在 AnimationPlayer 上建一个动画：每条轨道给出场景里的节点路径、属性名和若干 `{time, value}`，值按属性类型转换；不能混合的类型（布尔、整数、字符串、资源）默认在关键帧处跳变。可指定循环方式和是否自动播放。只支持属性轨道，不支持方法调用、音频、贝塞尔轨道。
+- `gd test` 只负责运行，不负责安装：项目里装了 GUT（`addons/gut`）或 gdUnit4（`addons/gdUnit4`）才能用，两个都装了要用 `--framework` 选一个。不给路径时跑 `test/` 或 `tests/`；GUT 项目有 `.gutconfig.json` 时交给它决定。判断成败看框架写出的 JUnit 报告，不看退出码（两个框架的退出码含义不同）：有失败返回 `COMMAND_FAILED`（`data.failures` 列出前 50 个），一个测试也没找到返回 `PRECONDITION_FAILED`，没写出报告也算失败（项目没导入过时提示先 `gd import`）。`--select` 只用于 GUT。gdUnit4 在无头模式下收不到输入事件，依赖输入的测试要在有窗口时跑。
 - `gd run` 用的是磁盘上的文件。发现有编辑器开着这个项目时会给一条警告，提醒先保存场景；它无法知道是否真有未保存的改动。
 - `animation_create` 的轨道写 `method` 而不是 `property` 时是方法调用轨道：`{node, method, keys: [{time, args?}]}`。`call`、`set`、`set_script`、`connect` 这类"间接做别的事"的方法不接受。方法不必已经存在（脚本可能随后才挂上）。
 - `animation_state_machine_create` 给 AnimationTree 建一个状态机：每个状态播放 AnimationPlayer 里的一个动画；转移可以带条件名（代码里设的布尔量）、表达式（在树的父节点上求值）、或"播完自动转移"。它替换树的根节点。**启用的动画树在编辑器里也会运行**，表达式也会在那里被求值，而表达式是调用方给的文本；所以只要有转移带表达式，命令就把树设为不启用并在警告里说明，由游戏脚本在 `_ready()` 里启用；没有表达式时设为启用。混合树、混合空间、嵌套状态机不在范围内。
@@ -668,7 +670,7 @@ gd ──HTTP──▶ 桥接（编辑器进程）──调试器消息 gdcli:re
 - **工具**：
   - 桥接的每条命令一个工具，名字不变。有编辑器时取它列出的命令（含项目自定义命令）；没有时取随命令行发布的内置命令清单（`cli/src/mcp/builtin-commands.ts`，由 `scripts/bridge-test.mjs` 从真实桥接生成并核对）。
   - 修改类命令另有两个参数 `confirm` 和 `dry_run`，对应请求选项；命令自己声明了同名参数时按参数传。
-  - `gd_` 开头的工具对应不需要编辑器的命令：`gd_run`、`gd_check`、`gd_api_class`、`gd_api_search`、`gd_docs_search`、`gd_docs_page`、`gd_status`、`gd_doctor`、`gd_host_start`、`gd_host_stop`。**`gd exec` 不提供**：它在桥接之外运行任意脚本。
+  - `gd_` 开头的工具对应不需要编辑器的命令：`gd_run`、`gd_check`、`gd_api_class`、`gd_api_search`、`gd_docs_search`、`gd_docs_page`、`gd_status`、`gd_doctor`、`gd_host_start`、`gd_host_stop`。**`gd exec` 不提供**：它在桥接之外运行任意脚本。`gd_test` 提供：和 `gd_run` 一样运行的是项目里已有的代码，标为会运行项目代码。
 - **结果**：`content` 里是信封的 JSON 文本，`structuredContent` 里是同一个信封，`isError` 等于 `!success`。
 - **顺序与并发**：修改类调用按到达顺序依次送到编辑器；只读调用和 `ping` 立刻处理。启动 Godot 进程的 `gd_*` 工具同时最多两个，再多返回 `EDITOR_BUSY`。客户端取消的请求不再应答（已经开始的改动照常完成）。
 - **生命周期**：标准输入关闭即结束；本次会话用 `gd_host_start` 启动的无头编辑器随之停止。单行超过 32 MB 的消息只读到 32 MB 为止，其余丢弃，并回一个错误。支持 JSON-RPC 批量请求（一行一个数组，应答也是一个数组，一批最多 64 条）。协议版本按客户端要求的取 `2025-11-25`、`2025-06-18`、`2025-03-26`、`2024-11-05` 之一，都不认识时用最新的那个。`tools/call` 的 `arguments` 不是对象时返回 `-32602`。

@@ -108,7 +108,7 @@ function notAllowed(message: string, input: string): EnvelopeError {
  * anything that could be read as an option or that leaves the project
  * (docs/protocol.md sections 1.3 and 4.4).
  */
-export function toResPath(project: string, cwd: string, input: string): string | EnvelopeError {
+export function toResPath(project: string, cwd: string, input: string, kind: "file" | "file or folder" = "file"): string | EnvelopeError {
   if (input === "" || input.startsWith("-")) {
     return notAllowed("A path cannot be empty or start with a dash.", input);
   }
@@ -130,8 +130,8 @@ export function toResPath(project: string, cwd: string, input: string): string |
   if (isHidden(segments)) {
     return notAllowed("This location is not accessible.", input);
   }
-  if (!existsSync(absolute) || !statSync(absolute).isFile()) {
-    return errorOf("RESOURCE_NOT_FOUND", "The file does not exist.", undefined, { path: input });
+  if (!existsSync(absolute) || (kind === "file" && !statSync(absolute).isFile())) {
+    return errorOf("RESOURCE_NOT_FOUND", kind === "file" ? "The file does not exist." : "There is nothing at this path.", undefined, { path: input });
   }
   // A link inside the project may point anywhere, including at a hidden
   // folder; judge the place the path really leads to.

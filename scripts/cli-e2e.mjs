@@ -111,6 +111,31 @@ function writeProject() {
     'extends SceneTree\n\n\nfunc _init() -> void:\n\tprint("args=", OS.get_cmdline_user_args())\n\tquit()\n',
   );
   writeFileSync(join(root, "outside.gd"), "extends Node\n");
+  // A stand-in for GUT's entry script: it reports what reached it the way GUT does, as JUnit XML.
+  mkdirSync(join(project, "addons", "gut"), { recursive: true });
+  mkdirSync(join(project, "test"), { recursive: true });
+  writeFileSync(join(project, "test", "test_player.gd"), "extends Node\n");
+  writeFileSync(
+    join(project, "addons", "gut", "gut_cmdln.gd"),
+    [
+      "extends SceneTree",
+      "",
+      "",
+      "func _init() -> void:",
+      '\tvar report := ""',
+      '\tvar dirs := ""',
+      "\tfor arg in OS.get_cmdline_args():",
+      '\t\tif arg.begins_with("-gjunit_xml_file="):',
+      '\t\t\treport = arg.trim_prefix("-gjunit_xml_file=")',
+      '\t\tif arg.begins_with("-gdir="):',
+      '\t\t\tdirs = arg.trim_prefix("-gdir=")',
+      "\tvar file := FileAccess.open(report, FileAccess.WRITE)",
+      '\tfile.store_string("<testsuites><testsuite name=\\"%s\\"><testcase name=\\"test_ok\\"/><testcase name=\\"test_bad\\"><failure message=\\"expected 1\\"/></testcase></testsuite></testsuites>" % dirs)',
+      "\tfile.close()",
+      "\tquit(1)",
+      "",
+    ].join("\n"),
+  );
 }
 
 function offlineChecks() {
@@ -129,7 +154,7 @@ function offlineChecks() {
   check(noBridge.status === 4 && noBridge.envelope?.errors?.[0]?.code === "BRIDGE_NOT_INSTALLED", "bridge status before install", noBridge.status);
 
   const dryRun = gd(["bridge", "install", "--dry-run"]);
-  check(dryRun.status === 0 && !existsSync(join(project, "addons")), "bridge install --dry-run changes nothing", dryRun.envelope?.data);
+  check(dryRun.status === 0 && !existsSync(join(project, "addons", "gdcli")), "bridge install --dry-run changes nothing", dryRun.envelope?.data);
 
   // Acceptance, part one: one command installs and enables the bridge.
   const install = gd(["bridge", "install"]);
@@ -171,6 +196,13 @@ function offlineChecks() {
 
   const execResult = gd(["exec", "scripts/tool.gd", "--", "--level", "3"]);
   check(execResult.status === 0 && /args=\["--level", "3"\]/.test(execResult.envelope?.data?.stdout ?? ""), "exec passes user arguments", execResult.envelope?.data);
+
+  const tests = gd(["test"]);
+  check(
+    tests.status === 6 && tests.envelope?.data?.tests === 2 && tests.envelope?.data?.failures?.[0]?.suite === "res://test" && tests.envelope?.data?.failures?.[0]?.test === "test_bad",
+    "test runs the framework in Godot and reads its report",
+    tests.envelope,
+  );
 
   const notMainLoop = gd(["exec", "scripts/good.gd"]);
   check(notMainLoop.status === 4 && notMainLoop.envelope?.errors?.[0]?.code === "PRECONDITION_FAILED", "exec refuses other scripts", notMainLoop.status);

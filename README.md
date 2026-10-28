@@ -127,7 +127,7 @@ claude plugin install godot@gdcli
 
 ## 配合其他智能体使用（MCP）
 
-`gd mcp` 是一个标准输入输出上的 MCP 服务器：编辑器的每条命令是一个同名工具，另有 `gd_run`、`gd_check`、`gd_api_*`、`gd_docs_*`、`gd_host_start` 等不需要编辑器的工具。
+`gd mcp` 是一个标准输入输出上的 MCP 服务器：编辑器的每条命令是一个同名工具，另有 `gd_run`、`gd_check`、`gd_test`、`gd_api_*`、`gd_docs_*`、`gd_host_start` 等不需要编辑器的工具。
 
 ```bash
 gd mcp configure codex                # 先显示要写进 ~/.codex/config.toml 的条目
@@ -172,6 +172,7 @@ gd skills install --dir <目录> --yes   # 其他读 SKILL.md 的智能体
 | `gd check <脚本>…` | 检查脚本能否编译 |
 | `gd import` / `gd export <预设> <输出> [--debug\|--pack]` | 导入资源 / 导出游戏 |
 | `gd exec <脚本>` | 无头运行一个 SceneTree 脚本 |
+| `gd test [路径…] [--framework gut\|gdunit4] [--select 文字] [--junit 文件]` | 无头运行项目里的 GUT 或 gdUnit4 测试，列出每个失败的测试，可另存 JUnit 报告 |
 | `gd api class <类名> [--member 成员]` / `gd api search <文字>` | 查当前 Godot 版本的接口 |
 | `gd docs install` / `search` / `page` | 下载当前版本的官方手册（只取文本）并检索 |
 

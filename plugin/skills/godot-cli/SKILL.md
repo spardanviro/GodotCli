@@ -76,7 +76,7 @@ arguments. Search that file for the command you need.
 | Change how a file is imported | `import_settings_get`, `import_settings_set` (texture compression and mipmaps, a sound's loop, a model's root type) |
 | Change the project | `project_settings_set`, `project_input_map_set`, `fs_move`, `fs_delete`, `fs_scan` |
 | Take a step back | `edit_undo`, `edit_redo` |
-| Run and check | `gd run`, `gd check`, `editor_play`, `editor_stop`, `editor_errors` |
+| Run and check | `gd run`, `gd check`, `gd test`, `editor_play`, `editor_stop`, `editor_errors` |
 | Look into the running game | `game_tree`, `game_node_get`, `game_output`, `game_errors`, `game_input`, `game_call`, `game_screenshot`, the debugger commands |
 | Look up the engine's API | `gd api class <Name>`, `gd api class <Name> --member <m>`, `gd api search <text>` |
 | Read the manual | `gd docs search <words>`, `gd docs page <page> --section <heading>`; `gd docs install` the first time |
@@ -163,7 +163,12 @@ A change is not done until the project has run without errors.
 gd command scene_save
 gd run --seconds 5 --headless          # starts the game from disk, stops it, reports errors with file and line
 gd check res://scripts/player.gd       # compile scripts; static initializers run, as in the game
+gd test                                # the project's GUT or gdUnit4 tests, if it has some
 ```
+
+`gd test` runs the tests in `test/` or `tests/` (or the folders and files given; `--select jump` runs GUT tests
+whose name contains it) and lists each failed test with its message. It needs GUT or gdUnit4 installed in the
+project; if neither is, say so rather than installing one unasked. Like `gd run` it uses the files on disk.
 
 To see the game behave, run it from the editor and look inside (details in `references/running-game.md`):
 

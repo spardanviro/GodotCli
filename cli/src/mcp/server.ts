@@ -45,7 +45,7 @@ const HOST_TOOLS = new Set(["gd_host_start", "gd_host_stop"]);
 /** gd_* tools that start a Godot process; more at once would only crowd the machine. */
 const MAX_OFFLINE_RUNNING = 2;
 /** The tools that start a Godot process; only they count against the limit above. */
-const STARTS_GODOT = new Set(["gd_run", "gd_check", "gd_host_start", "gd_api_class", "gd_api_search", "gd_doctor"]);
+const STARTS_GODOT = new Set(["gd_run", "gd_check", "gd_test", "gd_host_start", "gd_api_class", "gd_api_search", "gd_doctor"]);
 
 export interface McpServerOptions {
   readonly context: Context;
