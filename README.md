@@ -451,7 +451,8 @@ Templates, Project > Export). The `godot-export` skill explains it.
 
 ## Evals
 
-`evals/` holds 34 tasks: scenes, scripts, UI, gameplay, 3D, animation, tiles, localization, audio buses,
+`evals/` holds 40 tasks: scenes, scripts, UI, gameplay, 3D, animation, tiles, localization, audio buses, themes,
+GridMap, shaders, particles,
 debugging, and requests written in Chinese. 11 of them are hard ones checked by behaviour in the running game: a
 patrol-and-chase state machine, saving and loading, a pause menu, a logic bug that prints no error.
 

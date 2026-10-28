@@ -1,0 +1,346 @@
+[
+  {
+    "id": "v4.ui_theme",
+    "prompt": [
+      "Give the whole game one UI theme, saved as res://ui/theme.tres and used by the project: buttons with a dark blue",
+      "background (#202040) and yellow text (#ffcc00), and labels at font size 24."
+    ],
+    "checks": [
+      {
+        "type": "expression",
+        "code": "str(ProjectSettings.get_setting(\"gui/theme/custom\", \"\")) == \"res://ui/theme.tres\""
+      },
+      {
+        "type": "expression",
+        "code": "helper.res(\"res://ui/theme.tres\") is Theme and helper.res(\"res://ui/theme.tres\").get_color(\"font_color\", \"Button\").is_equal_approx(Color(\"#ffcc00\"))"
+      },
+      {
+        "type": "expression",
+        "code": "helper.res(\"res://ui/theme.tres\").get_stylebox(\"normal\", \"Button\") is StyleBoxFlat and helper.res(\"res://ui/theme.tres\").get_stylebox(\"normal\", \"Button\").bg_color.is_equal_approx(Color(\"#202040\"))"
+      },
+      {
+        "type": "expression",
+        "code": "helper.res(\"res://ui/theme.tres\").get_font_size(\"font_size\", \"Label\") == 24"
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "theme_set",
+        "--args",
+        "{\"path\": \"res://ui/theme.tres\", \"items\": [{\"type\": \"Button\", \"kind\": \"color\", \"name\": \"font_color\", \"value\": \"#ffcc00\"}, {\"type\": \"Button\", \"kind\": \"stylebox\", \"name\": \"normal\", \"value\": {\"$new\": \"StyleBoxFlat\", \"properties\": {\"bg_color\": \"#202040\"}}}, {\"type\": \"Label\", \"kind\": \"font_size\", \"name\": \"font_size\", \"value\": 24}]}"
+      ],
+      [
+        "command",
+        "project_settings_set",
+        "--args",
+        "{\"name\": \"gui/theme/custom\", \"value\": \"res://ui/theme.tres\"}",
+        "--yes"
+      ]
+    ]
+  },
+  {
+    "id": "v4.gridmap_floor",
+    "setup": {
+      "root": "Node3D"
+    },
+    "prompt": "Build a 10 by 10 floor for a 3D level in the main scene out of 2x2 metre blocks, using a GridMap, so that things can stand on it.",
+    "checks": [
+      {
+        "type": "node_count",
+        "class": "GridMap",
+        "min": 1
+      },
+      {
+        "type": "expression",
+        "code": "helper.find(root, \"GridMap\")[0].get_used_cells().size() >= 100"
+      },
+      {
+        "type": "expression",
+        "code": "helper.find(root, \"GridMap\")[0].mesh_library != null and helper.find(root, \"GridMap\")[0].mesh_library.get_item_list().size() > 0"
+      },
+      {
+        "type": "expression",
+        "code": "helper.find(root, \"GridMap\")[0].mesh_library.get_item_shapes(helper.find(root, \"GridMap\")[0].mesh_library.get_item_list()[0]).size() > 0"
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"GridMap\", \"name\": \"Floor\", \"parent\": \".\", \"properties\": {\"cell_size\": [2, 2, 2]}}"
+      ],
+      [
+        "command",
+        "gridmap_library_add",
+        "--args",
+        "{\"gridmap\": \"Floor\", \"name\": \"block\", \"mesh\": {\"$new\": \"BoxMesh\", \"properties\": {\"size\": [2, 2, 2]}}}"
+      ],
+      [
+        "command",
+        "gridmap_set_cells",
+        "--args",
+        "{\"gridmap\": \"Floor\", \"box\": {\"from\": [0, 0, 0], \"to\": [9, 0, 9], \"item\": 0}}"
+      ],
+      [
+        "command",
+        "scene_save"
+      ]
+    ]
+  },
+  {
+    "id": "v4.fit_collision",
+    "setup": {
+      "files": {
+        "res://art/hero.png": {
+          "fixture": "tiles.png"
+        }
+      },
+      "commands": [
+        [
+          "command",
+          "node_create",
+          "--args",
+          "{\"type\": \"CharacterBody2D\", \"name\": \"Player\", \"parent\": \".\", \"properties\": {\"position\": [300, 200]}}"
+        ],
+        [
+          "command",
+          "node_create",
+          "--args",
+          "{\"type\": \"Sprite2D\", \"name\": \"Sprite2D\", \"parent\": \"Player\", \"properties\": {\"texture\": {\"$res\": \"res://art/hero.png\"}, \"scale\": [2, 2]}}"
+        ]
+      ]
+    },
+    "prompt": "Player has no collision shape yet. Give it one that matches the size of its sprite as drawn.",
+    "checks": [
+      {
+        "type": "node_count",
+        "class": "CollisionShape2D",
+        "min": 1
+      },
+      {
+        "type": "expression",
+        "code": "helper.find(root, \"CollisionShape2D\")[0].get_parent().name == \"Player\" and helper.find(root, \"CollisionShape2D\")[0].shape is RectangleShape2D"
+      },
+      {
+        "type": "expression",
+        "code": "abs(helper.find(root, \"CollisionShape2D\")[0].shape.size.x - 128) <= 26 and abs(helper.find(root, \"CollisionShape2D\")[0].shape.size.y - 64) <= 13"
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "node_create",
+        "--args",
+        "{\"type\": \"CollisionShape2D\", \"name\": \"CollisionShape2D\", \"parent\": \"Player\"}"
+      ],
+      [
+        "command",
+        "collision_shape_fit",
+        "--args",
+        "{\"shape\": \"Player/CollisionShape2D\"}"
+      ],
+      [
+        "command",
+        "scene_save"
+      ]
+    ]
+  },
+  {
+    "id": "v4.explosion_effect",
+    "setup": {
+      "commands": [
+        [
+          "command",
+          "node_create",
+          "--args",
+          "{\"type\": \"Node2D\", \"name\": \"Bomb\", \"parent\": \".\", \"properties\": {\"position\": [300, 200]}}"
+        ]
+      ]
+    },
+    "prompt": "Add an explosion particle effect to Bomb that plays once when Bomb's explode() method is called (write that method too).",
+    "checks": [
+      {
+        "type": "expression",
+        "code": "(helper.find(root, \"GPUParticles2D\") + helper.find(root, \"CPUParticles2D\")).size() > 0"
+      },
+      {
+        "type": "expression",
+        "code": "(helper.find(root, \"GPUParticles2D\") + helper.find(root, \"CPUParticles2D\"))[0].one_shot"
+      },
+      {
+        "type": "node",
+        "path": "Bomb",
+        "script": true
+      },
+      {
+        "type": "expression",
+        "code": "helper.code_contains(root.get_node(\"Bomb\").get_script().resource_path, \"func explode\") and (helper.code_contains(root.get_node(\"Bomb\").get_script().resource_path, \"restart\") or helper.code_contains(root.get_node(\"Bomb\").get_script().resource_path, \"emitting\"))"
+      },
+      {
+        "type": "runs_clean"
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "preset_create",
+        "--args",
+        "{\"preset\": \"explosion\", \"target\": \"Bomb\"}"
+      ],
+      [
+        "command",
+        "fs_write_text",
+        "--args",
+        "{\"path\": \"res://bomb.gd\", \"text\": \"extends Node2D\\n\\n\\nfunc explode() -> void:\\n\\t$Explosion.restart()\\n\", \"overwrite\": true}",
+        "--yes"
+      ],
+      [
+        "command",
+        "node_attach_script",
+        "--args",
+        "{\"path\": \"Bomb\", \"script\": \"res://bomb.gd\"}"
+      ],
+      [
+        "command",
+        "scene_save"
+      ]
+    ]
+  },
+  {
+    "id": "v4.hit_flash_shader",
+    "setup": {
+      "files": {
+        "res://art/hero.png": {
+          "fixture": "tiles.png"
+        }
+      },
+      "commands": [
+        [
+          "command",
+          "node_create",
+          "--args",
+          "{\"type\": \"Node2D\", \"name\": \"Hero\", \"parent\": \".\", \"properties\": {\"position\": [300, 200]}}"
+        ],
+        [
+          "command",
+          "node_create",
+          "--args",
+          "{\"type\": \"Sprite2D\", \"name\": \"Sprite2D\", \"parent\": \"Hero\", \"properties\": {\"texture\": {\"$res\": \"res://art/hero.png\"}}}"
+        ]
+      ]
+    },
+    "prompt": "When Hero's take_hit() method is called, its sprite should flash white for about 0.2 seconds. Do it with a shader, and write take_hit().",
+    "checks": [
+      {
+        "type": "expression",
+        "code": "root.get_node(\"Hero/Sprite2D\").material is ShaderMaterial and root.get_node(\"Hero/Sprite2D\").material.shader != null"
+      },
+      {
+        "type": "expression",
+        "code": "root.get_node(\"Hero/Sprite2D\").material.shader.code.contains(\"canvas_item\")"
+      },
+      {
+        "type": "node",
+        "path": "Hero",
+        "script": true
+      },
+      {
+        "type": "expression",
+        "code": "helper.code_contains(root.get_node(\"Hero\").get_script().resource_path, \"func take_hit\") and helper.code_contains(root.get_node(\"Hero\").get_script().resource_path, \"set_shader_parameter\")"
+      },
+      {
+        "type": "runs_clean"
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "fs_write_text",
+        "--args",
+        "{\"path\": \"res://flash.gdshader\", \"text\": \"shader_type canvas_item;\\n\\nuniform float flash : hint_range(0.0, 1.0) = 0.0;\\n\\nvoid fragment() {\\n\\tvec4 texel = texture(TEXTURE, UV) * COLOR;\\n\\tCOLOR = vec4(mix(texel.rgb, vec3(1.0), flash), texel.a);\\n}\\n\", \"overwrite\": true}",
+        "--yes"
+      ],
+      [
+        "command",
+        "node_set",
+        "--args",
+        "{\"path\": \"Hero/Sprite2D\", \"properties\": {\"material\": {\"$new\": \"ShaderMaterial\", \"properties\": {\"shader\": {\"$res\": \"res://flash.gdshader\"}}}}}"
+      ],
+      [
+        "command",
+        "fs_write_text",
+        "--args",
+        "{\"path\": \"res://hero.gd\", \"text\": \"extends Node2D\\n\\n\\nfunc take_hit() -> void:\\n\\tvar material := $Sprite2D.material as ShaderMaterial\\n\\tmaterial.set_shader_parameter(\\\"flash\\\", 1.0)\\n\\tcreate_tween().tween_method(func(value: float) -> void: material.set_shader_parameter(\\\"flash\\\", value), 1.0, 0.0, 0.2)\\n\", \"overwrite\": true}",
+        "--yes"
+      ],
+      [
+        "command",
+        "node_attach_script",
+        "--args",
+        "{\"path\": \"Hero\", \"script\": \"res://hero.gd\"}"
+      ],
+      [
+        "command",
+        "scene_save"
+      ]
+    ]
+  },
+  {
+    "id": "v4.small_script_edit",
+    "setup": {
+      "files": {
+        "res://player.gd": "extends CharacterBody2D\n## Keep this line: the movement of the hero.\n\nconst SPEED := 100.0\nconst JUMP_VELOCITY := -400.0\n\n\nfunc _physics_process(delta: float) -> void:\n\tif not is_on_floor():\n\t\tvelocity += get_gravity() * delta\n\tif Input.is_action_just_pressed(\"ui_accept\") and is_on_floor():\n\t\tvelocity.y = JUMP_VELOCITY\n\tvelocity.x = Input.get_axis(\"ui_left\", \"ui_right\") * SPEED\n\tmove_and_slide()\n"
+      },
+      "commands": [
+        [
+          "command",
+          "node_create",
+          "--args",
+          "{\"type\": \"CharacterBody2D\", \"name\": \"Player\", \"parent\": \".\"}"
+        ],
+        [
+          "command",
+          "node_attach_script",
+          "--args",
+          "{\"path\": \"Player\", \"script\": \"res://player.gd\"}"
+        ]
+      ]
+    },
+    "prompt": "In res://player.gd, make the player faster (speed 250) and jump higher (jump velocity -700). Change only those two values.",
+    "checks": [
+      {
+        "type": "file_contains",
+        "file": "res://player.gd",
+        "text": "250"
+      },
+      {
+        "type": "file_contains",
+        "file": "res://player.gd",
+        "text": "-700"
+      },
+      {
+        "type": "file_contains",
+        "file": "res://player.gd",
+        "text": "## Keep this line: the movement of the hero."
+      },
+      {
+        "type": "no_file_contains",
+        "pattern": "100.0"
+      },
+      {
+        "type": "script_compiles",
+        "file": "res://player.gd"
+      }
+    ],
+    "reference": [
+      [
+        "command",
+        "fs_edit_text",
+        "--args",
+        "{\"path\": \"res://player.gd\", \"edits\": [{\"old\": \"const SPEED := 100.0\", \"new\": \"const SPEED := 250.0\"}, {\"old\": \"const JUMP_VELOCITY := -400.0\", \"new\": \"const JUMP_VELOCITY := -700.0\"}]}"
+      ]
+    ]
+  }
+]

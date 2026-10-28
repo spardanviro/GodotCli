@@ -160,6 +160,11 @@ static func _without_comment(line: String) -> String:
 	return line
 
 
+## For expressions, which cannot call load(): a resource of the project, or null.
+func res(path: String) -> Resource:
+	return ResourceLoader.load(path) if path != "" and ResourceLoader.exists(path) else null
+
+
 func find(root: Node, class_name_text: String) -> Array:
 	return _find(root, class_name_text)
 

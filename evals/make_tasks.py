@@ -872,6 +872,175 @@ tasks["hard"] = [
     },
 ]
 
+# ---------------------------------------------------------------- v4: what 0.4 added
+SMALL_EDIT_SCRIPT = [
+    "extends CharacterBody2D",
+    "## Keep this line: the movement of the hero.",
+    "",
+    "const SPEED := 100.0",
+    "const JUMP_VELOCITY := -400.0",
+    "",
+    "",
+    "func _physics_process(delta: float) -> void:",
+    "\tif not is_on_floor():",
+    "\t\tvelocity += get_gravity() * delta",
+    "\tif Input.is_action_just_pressed(\"ui_accept\") and is_on_floor():",
+    "\t\tvelocity.y = JUMP_VELOCITY",
+    "\tvelocity.x = Input.get_axis(\"ui_left\", \"ui_right\") * SPEED",
+    "\tmove_and_slide()",
+]
+FLASH_SHADER = [
+    "shader_type canvas_item;",
+    "",
+    "uniform float flash : hint_range(0.0, 1.0) = 0.0;",
+    "",
+    "void fragment() {",
+    "\tvec4 texel = texture(TEXTURE, UV) * COLOR;",
+    "\tCOLOR = vec4(mix(texel.rgb, vec3(1.0), flash), texel.a);",
+    "}",
+]
+FLASH_SCRIPT = [
+    "extends Node2D",
+    "",
+    "",
+    "func take_hit() -> void:",
+    "\tvar material := $Sprite2D.material as ShaderMaterial",
+    "\tmaterial.set_shader_parameter(\"flash\", 1.0)",
+    "\tcreate_tween().tween_method(func(value: float) -> void: material.set_shader_parameter(\"flash\", value), 1.0, 0.0, 0.2)",
+]
+EXPLODE_SCRIPT = [
+    "extends Node2D",
+    "",
+    "",
+    "func explode() -> void:",
+    "\t$Explosion.restart()",
+]
+tasks["v4"] = [
+    {
+        "id": "v4.ui_theme",
+        "prompt": [
+            "Give the whole game one UI theme, saved as res://ui/theme.tres and used by the project: buttons with a dark blue",
+            "background (#202040) and yellow text (#ffcc00), and labels at font size 24.",
+        ],
+        "checks": [
+            check("expression", code='str(ProjectSettings.get_setting("gui/theme/custom", "")) == "res://ui/theme.tres"'),
+            check("expression", code='helper.res("res://ui/theme.tres") is Theme and helper.res("res://ui/theme.tres").get_color("font_color", "Button").is_equal_approx(Color("#ffcc00"))'),
+            check("expression", code='helper.res("res://ui/theme.tres").get_stylebox("normal", "Button") is StyleBoxFlat and helper.res("res://ui/theme.tres").get_stylebox("normal", "Button").bg_color.is_equal_approx(Color("#202040"))'),
+            check("expression", code='helper.res("res://ui/theme.tres").get_font_size("font_size", "Label") == 24'),
+        ],
+        "reference": [
+            cmd("theme_set", {"path": "res://ui/theme.tres", "items": [
+                {"type": "Button", "kind": "color", "name": "font_color", "value": "#ffcc00"},
+                {"type": "Button", "kind": "stylebox", "name": "normal", "value": {"$new": "StyleBoxFlat", "properties": {"bg_color": "#202040"}}},
+                {"type": "Label", "kind": "font_size", "name": "font_size", "value": 24},
+            ]}),
+            cmd("project_settings_set", {"name": "gui/theme/custom", "value": "res://ui/theme.tres"}, yes=True),
+        ],
+    },
+    {
+        "id": "v4.gridmap_floor",
+        "setup": {"root": "Node3D"},
+        "prompt": "Build a 10 by 10 floor for a 3D level in the main scene out of 2x2 metre blocks, using a GridMap, so that things can stand on it.",
+        "checks": [
+            check("node_count", **{"class": "GridMap"}, min=1),
+            check("expression", code='helper.find(root, "GridMap")[0].get_used_cells().size() >= 100'),
+            check("expression", code='helper.find(root, "GridMap")[0].mesh_library != null and helper.find(root, "GridMap")[0].mesh_library.get_item_list().size() > 0'),
+            check("expression", code='helper.find(root, "GridMap")[0].mesh_library.get_item_shapes(helper.find(root, "GridMap")[0].mesh_library.get_item_list()[0]).size() > 0'),
+        ],
+        "reference": [
+            node("Floor", "GridMap", props={"cell_size": [2, 2, 2]}),
+            cmd("gridmap_library_add", {"gridmap": "Floor", "name": "block", "mesh": {"$new": "BoxMesh", "properties": {"size": [2, 2, 2]}}}),
+            cmd("gridmap_set_cells", {"gridmap": "Floor", "box": {"from": [0, 0, 0], "to": [9, 0, 9], "item": 0}}),
+            SAVE,
+        ],
+    },
+    {
+        "id": "v4.fit_collision",
+        "setup": {
+            "files": {"res://art/hero.png": {"fixture": "tiles.png"}},
+            "commands": [
+                node("Player", "CharacterBody2D", props={"position": [300, 200]}),
+                node("Sprite2D", "Sprite2D", parent="Player", props={"texture": {"$res": "res://art/hero.png"}, "scale": [2, 2]}),
+            ],
+        },
+        "prompt": "Player has no collision shape yet. Give it one that matches the size of its sprite as drawn.",
+        "checks": [
+            check("node_count", **{"class": "CollisionShape2D"}, min=1),
+            check("expression", code='helper.find(root, "CollisionShape2D")[0].get_parent().name == "Player" and helper.find(root, "CollisionShape2D")[0].shape is RectangleShape2D'),
+            check("expression", code='abs(helper.find(root, "CollisionShape2D")[0].shape.size.x - 128) <= 26 and abs(helper.find(root, "CollisionShape2D")[0].shape.size.y - 64) <= 13'),
+        ],
+        "reference": [
+            node("CollisionShape2D", "CollisionShape2D", parent="Player"),
+            cmd("collision_shape_fit", {"shape": "Player/CollisionShape2D"}),
+            SAVE,
+        ],
+    },
+    {
+        "id": "v4.explosion_effect",
+        "setup": {"commands": [node("Bomb", "Node2D", props={"position": [300, 200]})]},
+        "prompt": "Add an explosion particle effect to Bomb that plays once when Bomb's explode() method is called (write that method too).",
+        "checks": [
+            check("expression", code='(helper.find(root, "GPUParticles2D") + helper.find(root, "CPUParticles2D")).size() > 0'),
+            check("expression", code='(helper.find(root, "GPUParticles2D") + helper.find(root, "CPUParticles2D"))[0].one_shot'),
+            check("node", path="Bomb", script=True),
+            check("expression", code='helper.code_contains(root.get_node("Bomb").get_script().resource_path, "func explode") and (helper.code_contains(root.get_node("Bomb").get_script().resource_path, "restart") or helper.code_contains(root.get_node("Bomb").get_script().resource_path, "emitting"))'),
+            check("runs_clean"),
+        ],
+        "reference": [
+            cmd("preset_create", {"preset": "explosion", "target": "Bomb"}),
+            write_script("res://bomb.gd", EXPLODE_SCRIPT),
+            cmd("node_attach_script", {"path": "Bomb", "script": "res://bomb.gd"}),
+            SAVE,
+        ],
+    },
+    {
+        "id": "v4.hit_flash_shader",
+        "setup": {
+            "files": {"res://art/hero.png": {"fixture": "tiles.png"}},
+            "commands": [
+                node("Hero", "Node2D", props={"position": [300, 200]}),
+                node("Sprite2D", "Sprite2D", parent="Hero", props={"texture": {"$res": "res://art/hero.png"}}),
+            ],
+        },
+        "prompt": "When Hero's take_hit() method is called, its sprite should flash white for about 0.2 seconds. Do it with a shader, and write take_hit().",
+        "checks": [
+            check("expression", code='root.get_node("Hero/Sprite2D").material is ShaderMaterial and root.get_node("Hero/Sprite2D").material.shader != null'),
+            check("expression", code='root.get_node("Hero/Sprite2D").material.shader.code.contains("canvas_item")'),
+            check("node", path="Hero", script=True),
+            check("expression", code='helper.code_contains(root.get_node("Hero").get_script().resource_path, "func take_hit") and helper.code_contains(root.get_node("Hero").get_script().resource_path, "set_shader_parameter")'),
+            check("runs_clean"),
+        ],
+        "reference": [
+            write_script("res://flash.gdshader", FLASH_SHADER),
+            cmd("node_set", {"path": "Hero/Sprite2D", "properties": {"material": {"$new": "ShaderMaterial", "properties": {"shader": {"$res": "res://flash.gdshader"}}}}}),
+            write_script("res://hero.gd", FLASH_SCRIPT),
+            cmd("node_attach_script", {"path": "Hero", "script": "res://hero.gd"}),
+            SAVE,
+        ],
+    },
+    {
+        "id": "v4.small_script_edit",
+        "setup": {
+            "files": {"res://player.gd": "\n".join(SMALL_EDIT_SCRIPT) + "\n"},
+            "commands": [node("Player", "CharacterBody2D"), cmd("node_attach_script", {"path": "Player", "script": "res://player.gd"})],
+        },
+        "prompt": "In res://player.gd, make the player faster (speed 250) and jump higher (jump velocity -700). Change only those two values.",
+        "checks": [
+            check("file_contains", file="res://player.gd", text="250"),
+            check("file_contains", file="res://player.gd", text="-700"),
+            check("file_contains", file="res://player.gd", text="## Keep this line: the movement of the hero."),
+            check("no_file_contains", pattern="100.0"),
+            check("script_compiles", file="res://player.gd"),
+        ],
+        "reference": [
+            cmd("fs_edit_text", {"path": "res://player.gd", "edits": [
+                {"old": "const SPEED := 100.0", "new": "const SPEED := 250.0"},
+                {"old": "const JUMP_VELOCITY := -400.0", "new": "const JUMP_VELOCITY := -700.0"},
+            ]}),
+        ],
+    },
+]
+
 OUT.mkdir(parents=True, exist_ok=True)
 for name, items in tasks.items():
     (OUT / f"{name}.json").write_text(json.dumps(items, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
