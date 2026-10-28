@@ -59,10 +59,24 @@ const CHANGES_DIRECTORY = new Set(["cd", "pushd", "set-location", "sl", "chdir",
 // PowerShell switches: parameters that take no value, so the word after them is not theirs.
 const POWERSHELL_SWITCHES = new Set(["-force", "-nonewline", "-append", "-noclobber", "-confirm", "-whatif", "-passthru", "-asbytestream", "-usetransaction", "-verbose", "-debug", "-recurse", "-raw"]);
 // What a guarded file looks like inside code, where its path cannot be resolved.
-const GUARDED_IN_TEXT = /\.(?:gd|tscn|tres|escn|scn|res|cs|import|gdextension|csproj|fsproj|vbproj|proj|sln|slnx|slnf|props|targets|rsp)\b|\.csproj\.user\b|project\.godot|override\.cfg|export_presets\.cfg|nuget\.config|global\.json|dotnet-tools\.json|\.gitmodules|\.gitattributes|(?:^|[\\/"'\s])(?:addons|gdcli_commands|\.godot|\.git)[\\/]/iu;
+const GUARDED_IN_TEXT = /\.(?:gd|tscn|tres|escn|scn|res|cs|import|gdextension|csproj|fsproj|vbproj|proj|sln|slnx|slnf|props|targets|rsp)\b|\.csproj\.user\b|project\.godot|override\.cfg|export_presets\.cfg|nuget\.config|global\.json|dotnet-tools\.json|\.gitmodules|\.gitattributes|\.mcp\.json|(?:^|[\\/"'\s])(?:addons|gdcli_commands|\.godot|\.git|\.claude)[\\/]/iu;
 // Calls that write (write_text(, os.remove(, fs.copyFileSync(), PowerShell's
 // writing cmdlets, and redirections inside code: the word "write" in a string is not one.
 const WRITES_IN_TEXT = /\bopen\s*\([^)]{0,300},\s*["'][wax+]|["']\s*>|\b\w*(?:write|unlink|rename|remove|copy|move|truncate|touch|rmtree)\w*\s*\(|shutil\.|Set-Content|Add-Content|Out-File|New-Item|Copy-Item|Move-Item|Remove-Item/iu;
+// .NET's file calls from PowerShell: [IO.File]::WriteAllText(...).
+const DOTNET_FILE_CALL = /\[(?:System\.)?IO\.(?:File|Directory)\]::/iu;
+// Where a download is saved: the file option, written alone, glued to its value
+// or last in a group of options that take none (-sSLo), and the folder option.
+const DOWNLOAD_OUTPUT = new Map([
+  ["curl", { file: /^-([#0-9sSLfkvqgIiNnZ]*)o(.*)$/u, long: "--output", folder: "--output-dir" }],
+  ["wget", { file: /^-([qvcNnkrx46]*)O(.*)$/u, long: "--output-document", folder: "--directory-prefix" }],
+]);
+// Unpack or apply into a folder: what lands there is not on the command line.
+const UNPACKS = new Set(["tar", "bsdtar", "unzip", "7z", "7za", "patch", "expand-archive"]);
+// A sed script's w command, alone or as the flag of s///: the file after it is written.
+const SED_WRITE = /(?:^|[;}\n]|\/[gpIiMme0-9]*)\s*w\s+([^;}\n]+)/gu;
+// An awk program's print or printf into a named file.
+const AWK_WRITE = /\bprintf?\b[^;}]*?>{1,2}\s*"([^"]+)"/gu;
 // Code longer than this is judged by its beginning.
 const MAX_CODE_LENGTH = 20000;
 
@@ -352,6 +366,18 @@ function segmentWrites(segment, cwd) {
   if (IN_PLACE.has(verb) && rest.some((word) => IN_PLACE.get(verb)?.test(word))) {
     return paths.some(guarded);
   }
+  if (DOWNLOAD_OUTPUT.has(verb)) {
+    return downloadsTo(verb, rest).some(guarded);
+  }
+  if (UNPACKS.has(verb)) {
+    return unpacksInto(verb, rest, cwd);
+  }
+  if (verb === "sed" || verb === "gsed") {
+    return rest.some((word) => !word.startsWith("-") && [...word.matchAll(SED_WRITE)].some((match) => guarded((match[1] ?? "").trim())));
+  }
+  if (verb === "awk" || verb === "gawk" || verb === "mawk" || verb === "nawk") {
+    return rest.some((word) => [...word.matchAll(AWK_WRITE)].some((match) => guarded(match[1] ?? "")));
+  }
   if (verb === "dd") {
     return rest.some((word) => word.startsWith("of=") && guarded(word.slice(3)));
   }
@@ -372,6 +398,117 @@ function segmentWrites(segment, cwd) {
     return SHELLS.has(verb) ? commandWrites(code, cwd) : codeWrites(code);
   }
   return false;
+}
+
+/**
+ * The files a download is saved to: the one named with -o (curl) or -O (wget),
+ * else the name at the end of the URL, which curl uses with -O and wget always.
+ * @param {string} verb
+ * @param {readonly string[]} rest
+ * @returns {string[]}
+ */
+function downloadsTo(verb, rest) {
+  const flags = DOWNLOAD_OUTPUT.get(verb);
+  if (flags === undefined) {
+    return [];
+  }
+  const named = [];
+  let folder = "";
+  let remoteName = verb === "wget";
+  for (let index = 0; index < rest.length; index += 1) {
+    const word = rest[index] ?? "";
+    const glued = word.startsWith("--") ? null : flags.file.exec(word);
+    if (word === flags.long || word === flags.folder || (verb === "wget" && word === "-P")) {
+      const value = rest[index + 1] ?? "";
+      index += 1;
+      if (word === flags.long) {
+        named.push(value);
+      } else {
+        folder = value;
+      }
+    } else if (word.startsWith(`${flags.long}=`)) {
+      named.push(word.slice(flags.long.length + 1));
+    } else if (word.startsWith(`${flags.folder}=`)) {
+      folder = word.slice(flags.folder.length + 1);
+    } else if (glued !== null) {
+      named.push(glued[2] !== "" ? glued[2] : (rest[index + 1] ?? ""));
+      index += glued[2] !== "" ? 0 : 1;
+    } else if (verb === "curl" && (/^-[a-zA-Z#]*[OJ]/u.test(word) || word === "--remote-name" || word === "--remote-name-all")) {
+      remoteName = true;
+    }
+  }
+  if (named.length > 0) {
+    return named.filter((word) => word !== "" && word !== "-");
+  }
+  if (!remoteName) {
+    return [];
+  }
+  return rest
+    .filter((word) => /^[a-z]+:\/\//iu.test(word))
+    .map((url) => basename(url.replace(/[?#].*$/u, "")))
+    .filter((name) => name !== "")
+    .map((name) => (folder === "" ? name : join(slashed(folder), name)));
+}
+
+/**
+ * An archive unpacked, or a patch applied, into a folder of a guarded
+ * project: which files land there cannot be told from the command line, so
+ * the folder decides. Listing or testing an archive writes nothing.
+ * @param {string} verb
+ * @param {readonly string[]} rest
+ * @param {string} cwd
+ * @returns {boolean}
+ */
+function unpacksInto(verb, rest, cwd) {
+  // Options are told apart by case (tar -C is not -c), PowerShell's are not.
+  const lower = verb === "expand-archive" ? rest.map((word) => word.toLowerCase()) : rest;
+  const valueAfter = (...names) => {
+    for (let index = 0; index < rest.length; index += 1) {
+      const word = lower[index] ?? "";
+      const name = names.find((candidate) => word === candidate || word.startsWith(`${candidate}=`) || word.startsWith(`${candidate}:`));
+      if (name !== undefined) {
+        return word === name ? rest[index + 1] : (rest[index] ?? "").slice(name.length + 1);
+      }
+    }
+    return undefined;
+  };
+  let folder;
+  if (verb === "tar" || verb === "bsdtar") {
+    const first = rest[0] ?? "";
+    const extracts = /^-?[A-Za-wyz]*x/u.test(first) || rest.some((word) => /^-[a-zA-Z]*x[a-zA-Z]*$/u.test(word) || word === "--extract" || word === "--get");
+    if (!extracts) {
+      return false;
+    }
+    folder = valueAfter("-C", "--directory");
+  } else if (verb === "unzip") {
+    if (rest.some((word) => /^-[a-zA-Z]*[lptvZ]/u.test(word))) {
+      return false;
+    }
+    folder = valueAfter("-d");
+  } else if (verb === "7z" || verb === "7za") {
+    const subcommand = rest.find((word) => !word.startsWith("-"));
+    if (subcommand !== "x" && subcommand !== "e") {
+      return false;
+    }
+    folder = rest.find((word) => /^-o/iu.test(word))?.slice(2);
+  } else if (verb === "expand-archive") {
+    folder = valueAfter("-destinationpath") ?? rest.filter((word) => !word.startsWith("-"))[1];
+  } else {
+    if (rest.includes("--dry-run")) {
+      return false;
+    }
+    const output = valueAfter("-o", "--output");
+    if (output !== undefined) {
+      const path = asPath(output, cwd);
+      return path === null ? namesGuardedUnresolved(output) : isGuardedWrite(path, cwd);
+    }
+    folder = valueAfter("-d", "--directory");
+  }
+  const where = folder === undefined || folder === "" ? "." : asPath(folder, cwd);
+  if (where === null) {
+    return false;
+  }
+  return isGuardedWrite(join(where, "x.gd"), cwd);
 }
 
 /** `find ... -delete` or `-exec rm` below a folder of a guarded project. */
@@ -428,6 +565,10 @@ export function commandWrites(command, cwd) {
     if (feeds.some((verb) => SHELLS.has(verb)) && commandWrites(heredoc.body, cwd)) {
       return true;
     }
+  }
+  // [IO.File]::WriteAllText('player.gd', ...): a call, not words a shell splits.
+  if (DOTNET_FILE_CALL.test(split.command) && codeWrites(split.command)) {
+    return true;
   }
   let current = cwd;
   for (const segment of parse(split.command)) {

@@ -324,7 +324,85 @@ describe("decide", () => {
   });
 });
 
+describe("downloads, archives, patches and the write commands of sed and awk", () => {
+  test("refuses them when they land on a guarded file or in a guarded project", () => {
+    const { project } = workspace();
+
+    for (const command of [
+      "curl -o scripts/player.gd https://example.com/x",
+      "curl -oscripts/player.gd https://example.com/x",
+      "curl --output=addons/x/plugin.gd https://example.com/x",
+      "wget -O scripts/player.gd https://example.com/x",
+      "wget --output-document scripts/player.gd https://example.com/x",
+      "curl -sSLo scripts/player.gd https://example.com/x",
+      "curl -O https://example.com/files/player.gd",
+      "curl -O --output-dir scripts https://example.com/files/main.tscn",
+      "wget https://example.com/files/player.gd",
+      "7z -y x ../pack.7z",
+      "tar -xzf ../pack.tgz",
+      "tar xf ../pack.tar",
+      "tar -xf /tmp/pack.tar -C scripts",
+      "unzip ../pack.zip",
+      "Expand-Archive ../pack.zip -DestinationPath .",
+      "7z x ../pack.7z",
+      "patch -p1 < ../fix.patch",
+      "sed -n 'w scripts/player.gd' notes.txt",
+      "sed 's/a/b/w scripts/player.gd' notes.txt",
+      "awk '{ print > \"scripts/player.gd\" }' notes.txt",
+      "[IO.File]::WriteAllText('scripts/player.gd', 'x')",
+      "[System.IO.File]::Copy('../x.gd', 'scripts/player.gd')",
+    ]) {
+      assert.equal(commandWrites(command, project), true, command);
+    }
+  });
+
+  test("lets reading, listing and writes elsewhere through", () => {
+    const { root, project } = workspace();
+    const scratch = join(root, "scratch");
+
+    for (const command of [
+      "curl -o ../scratch/page.html https://example.com/x",
+      "curl https://example.com/x",
+      "curl -O https://example.com/files/readme.md",
+      "wget -q https://example.com/files/notes.txt",
+      "tar -czf ../scratch/out.tgz -X excl.txt .",
+      "awk '$1 > \"a.gd\" { n++ }' notes.txt",
+      "wget -O - https://example.com/x",
+      "tar -czf ../scratch/backup.tgz scripts",
+      "tar -tf ../pack.tar",
+      `tar -xf ../pack.tar -C ${scratch}`,
+      "unzip -l ../pack.zip",
+      `unzip ../pack.zip -d ${scratch}`,
+      "patch --dry-run -p1 < ../fix.patch",
+      `patch -o ${join(scratch, "out.txt")} notes.txt ../fix.patch`,
+      "sed -n 's/with spaces/x/p' scripts/player.gd",
+      "awk '{ print $1 }' scripts/player.gd",
+      "[IO.File]::ReadAllText('scripts/player.gd')",
+    ]) {
+      assert.equal(commandWrites(command, project), false, command);
+    }
+  });
+
+  test("guards Claude Code's settings and MCP servers of the project", () => {
+    const { project } = workspace();
+
+    for (const command of ["echo {} > .mcp.json", "echo {} > .claude/settings.json", "cp ../x.json .claude/settings.local.json"]) {
+      assert.equal(commandWrites(command, project), true, command);
+    }
+  });
+});
+
 describe("the hook as a process", () => {
+  test("lets a command it cannot read run, and says so (onFailure: continue)", () => {
+    const environment = { ...process.env };
+    delete environment["GDCLI_ALLOW_DIRECT_WRITES"];
+
+    const run = spawnSync(process.execPath, [HOOK], { input: "not json", encoding: "utf8", env: environment });
+
+    assert.deepEqual([run.status, run.stdout], [0, ""]);
+    assert.match(run.stderr, /let the command run unchecked/u);
+  });
+
   test("prints a deny decision for a write and nothing for a read", () => {
     const { project } = workspace();
     const environment = { ...process.env };

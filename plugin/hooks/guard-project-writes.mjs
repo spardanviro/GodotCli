@@ -31,9 +31,12 @@ const GUARDED_EXTENSIONS = new Set([
 ]);
 // Read by name wherever they are: package sources and the SDK version for a
 // .NET build, and what git itself acts on (a submodule URL, a filter command).
-const GUARDED_NAMES = new Set(["nuget.config", "global.json", "dotnet-tools.json", ".gitmodules", ".gitattributes"]);
+// .mcp.json: the MCP servers Claude Code starts for this folder.
+const GUARDED_NAMES = new Set(["nuget.config", "global.json", "dotnet-tools.json", ".gitmodules", ".gitattributes", ".mcp.json"]);
 // A repository anywhere in the project: its hooks and config are run by git.
-const GIT_FOLDER = ".git";
+// Claude Code's settings for the folder: its hooks run commands, its
+// permissions decide what needs asking.
+const RUN_BY_TOOLS_FOLDERS = new Set([".git", ".claude"]);
 
 const REASON = [
   "This file belongs to a Godot project that is driven through gdcli, and it decides what code the editor runs.",
@@ -114,7 +117,7 @@ export function isGuardedRelativePath(relativePath) {
   if (folded.length === 1 && GUARDED_FOLDERS.has(name)) {
     return true;
   }
-  if (folded.includes(GIT_FOLDER)) {
+  if (folded.some((segment) => RUN_BY_TOOLS_FOLDERS.has(segment))) {
     return true;
   }
   if (folded.length > 1 && GUARDED_FOLDERS.has(folded[0] ?? "")) {

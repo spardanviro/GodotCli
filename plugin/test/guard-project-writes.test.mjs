@@ -36,6 +36,13 @@ function writeEvent(filePath, cwd, tool = "Write") {
 }
 
 describe("isGuardedRelativePath", () => {
+  test("guards Claude Code's settings and MCP servers of the folder", () => {
+    for (const path of [".mcp.json", ".claude/settings.json", "sub/.claude/settings.local.json", ".claude"]) {
+      assert.equal(isGuardedRelativePath(path), true, path);
+    }
+    assert.equal(isGuardedRelativePath("docs/claude.md"), false);
+  });
+
   test("guards what a .NET build reads by name", () => {
     for (const path of ["Game.csproj.user", "Directory.Build.rsp", "NuGet.Config", "global.json", ".config/dotnet-tools.json", "Game.slnx"]) {
       assert.equal(isGuardedRelativePath(path), true, path);

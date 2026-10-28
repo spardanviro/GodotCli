@@ -89,16 +89,17 @@ GDCLI_UPDATE_PLUGIN=1 GODOT_BIN=/path/to/godot node scripts/bridge-test.mjs
 - 项目里的 `.gd`、`.cs`、`.tscn`、`.tres`、`.escn`、`.scn`、`.res`、`.import`、`.gdextension`
 - .NET 构建和还原会读的：`.csproj`、`.fsproj`、`.vbproj`、`.proj`、`.sln`、`.slnx`、`.slnf`、`.props`、`.targets`、`.user`、`.rsp`，以及 `NuGet.Config`、`global.json`、`dotnet-tools.json`
 - 任何位置的 `.gitmodules`、`.gitattributes`，和任何位置的 `.git/` 里的文件
+- Claude Code 自己按文件夹读的：任何位置的 `.claude/` 里的文件（钩子和权限）、`.mcp.json`（启动哪些 MCP 服务器）
 - 项目根目录的 `project.godot`、`project.binary`、`override.cfg`、`export_presets.cfg`
 - `addons/`、`gdcli_commands/`、`.godot/` 这几个文件夹本身（整个删掉或移走）和里面的任何文件
 
-只对**装了桥接的项目**生效（存在 `addons/gdcli/plugin.cfg`）；没装桥接的 Godot 项目和项目外的文件不受影响。例外有两种，两个钩子都适用：有不止一个硬链接的文件在哪里都不让写（它可能就是项目里的文件）；`gd` 的 `~/.gdcli/config.json` 和 Godot 的编辑器设置（`editor_settings-4.x.tres`，桥接的访问模式存在里面）在哪里都不让写。子文件夹里另放一个 `project.godot` 不会让外层项目失去保护。读文件不受限制，Markdown、JSON、着色器、图片等照常直接写。
+只对**装了桥接的项目**生效（存在 `addons/gdcli/plugin.cfg`）；没装桥接的 Godot 项目和项目外的文件不受影响。例外有两种，两个钩子都适用：有不止一个硬链接的文件在哪里都不让写（它可能就是项目里的文件）；`gd` 的 `~/.gdcli/config.json` 和 Godot 的编辑器设置（`editor_settings-4.x.tres`，桥接的访问模式存在里面）在哪里都不让写。子文件夹里另放一个 `project.godot` 不会让外层项目失去保护。读文件不受限制，Markdown、JSON（`.mcp.json` 除外）、着色器、图片等照常直接写。
 
 这样，脚本进项目只剩"经过编辑器"这一条顺手的路：写入后立刻有编译检查结果，该由人批准的改动会弹给人看，只读模式和 `ask` 模式也对 Claude 生效。
 
 **它管不住的**，要说清楚：
 
-- **shell 命令只能按文本检查。** 第二个钩子 `hooks/guard-shell-writes.mjs` 在 Bash 和 PowerShell 命令执行前读命令文本，拦住常见的写法：重定向到这些文件、`cp`/`mv`/`rm`/`tee`/`touch`/`sed -i`、`Set-Content`/`Out-File`/`Copy-Item`/`Remove-Item` 等（`-Encoding`、`-Value` 这类参数写在文件名前面也认得）、`git checkout`/`git restore` 指定这些文件、一行脚本（`python -c`、`node -e`、`bash -c`）里写这些文件。路径写成 `~/...`、`$HOME/...`、`${HOME}/...`、`$env:USERPROFILE\...`、`%USERPROFILE%\...`，临时目录的 `$TMPDIR`、`$env:TEMP`、`%TEMP%`，当前目录的 `$PWD`，或者 Windows 上的 `/c/...`、`/mnt/c/...`、`/cygdrive/c/...`，都会还原成真实路径再判断。认不出的变量拼出的路径（`$GAME/scripts/player.gd`），只要带受保护的文件名就拦下。读文件、把文件复制到项目外、`git restore --staged`（只取消暂存）、`gd` 命令都放行。它挡不住先写一个脚本文件再运行、没列进去的工具（比如 `curl -o`、`tar`、`unzip -d`、`patch`、`[IO.File]::WriteAllText`）。这个钩子出错时放行，并在 stderr 说一句（`hooks.json` 里是 `"onFailure": "continue"`）；文件工具的钩子出错、超时或起不来时拦下（`"onFailure": "block"`，Claude Code 2.1.295 起生效；更早的版本只靠钩子自己出错时的退出码 2，node 本身起不来时会放行）。硬链接和原文件是同一个文件，看路径分不出它是不是项目里的文件，所以有不止一个硬链接的文件在哪里都不让写（新建的文件和普通文件只有一个名字，不受影响；确实需要时设 `GDCLI_ALLOW_DIRECT_WRITES=1`）。这是护栏，不是沙箱。
+- **shell 命令只能按文本检查。** 第二个钩子 `hooks/guard-shell-writes.mjs` 在 Bash 和 PowerShell 命令执行前读命令文本，拦住常见的写法：重定向到这些文件、`cp`/`mv`/`rm`/`tee`/`touch`/`sed -i`、`Set-Content`/`Out-File`/`Copy-Item`/`Remove-Item` 等（`-Encoding`、`-Value` 这类参数写在文件名前面也认得）、`git checkout`/`git restore` 指定这些文件、一行脚本（`python -c`、`node -e`、`bash -c`）里写这些文件、`curl -o`/`wget -O` 存到这些文件、sed 的 `w` 命令和 awk 的 `print > "文件"`、PowerShell 里的 `[IO.File]::WriteAllText` 这类调用；解包（`tar -x`、`unzip`、`7z x`、`Expand-Archive`）和 `patch` 落在装了桥接的项目里时也拦下，因为落下哪些文件从命令上看不出来。路径写成 `~/...`、`$HOME/...`、`${HOME}/...`、`$env:USERPROFILE\...`、`%USERPROFILE%\...`，临时目录的 `$TMPDIR`、`$env:TEMP`、`%TEMP%`，当前目录的 `$PWD`，或者 Windows 上的 `/c/...`、`/mnt/c/...`、`/cygdrive/c/...`，都会还原成真实路径再判断。认不出的变量拼出的路径（`$GAME/scripts/player.gd`），只要带受保护的文件名就拦下。读文件、把文件复制到项目外、`git restore --staged`（只取消暂存）、`gd` 命令都放行。它挡不住先写一个脚本文件再运行、没列进去的工具。这个钩子出错时放行，并在 stderr 说一句（`hooks.json` 里是 `"onFailure": "continue"`）；文件工具的钩子出错、超时或起不来时拦下（`"onFailure": "block"`，Claude Code 2.1.295 起生效；更早的版本只靠钩子自己出错时的退出码 2，node 本身起不来时会放行）。硬链接和原文件是同一个文件，看路径分不出它是不是项目里的文件，所以有不止一个硬链接的文件在哪里都不让写（新建的文件和普通文件只有一个名字，不受影响；确实需要时设 `GDCLI_ALLOW_DIRECT_WRITES=1`）。这是护栏，不是沙箱。
 - **硬约束要靠 Claude Code 的沙箱**（见下一节，已在 WSL2 上实测），而沙箱不支持原生 Windows。
 - C#：桥接一侧凡是写入 `.cs`、改名成 `.cs`、挂上 C# 脚本都要人批准，因为在 .NET 版编辑器上实测，普通类的字段初始化也会在编辑器里运行（`scripts/dotnet-probe.mjs`）。所以无头编辑器里不能经由桥接写 C#。
 - Claude Code 自己的配置不归它管：项目里的 `.claude/settings.json` 可以设置环境变量或关掉全部钩子。克隆来的仓库如果自带这样的配置，这个钩子可能根本不运行。
