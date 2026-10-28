@@ -131,3 +131,55 @@ func test_game_play_expect_judges_every_check() -> void:
 	equal([reply["data"]["passed"], reply["data"]["failed"]], [false, 2], "the summary")
 	equal(reply["data"]["results"][2]["actual"], 10.0, "the actual value, to see why")
 	equal(play.expect({"checks": [{"path": "PlayTestMain/Player", "op": "bigger"}]})["error"]["code"], "INVALID_ARGS", "an unknown op")
+
+
+func test_game_play_types_text_and_drags() -> void:
+	var play := _play()
+
+	var typed: Dictionary = play._plan_text("Hi!")
+	var dragged: Dictionary = play._plan_drag({"drag": [[0, 0], [100, 0]], "hold": 0.5})
+
+	equal(typed["timed"].size(), 6, "a press and a release per character")
+	equal([typed["timed"][0][1].unicode, typed["timed"][0][1].shift_pressed], ["H".unicode_at(0), true], "the character itself, and shift for a capital")
+	var moves: Array = dragged["timed"].filter(func(entry: Array) -> bool: return entry[1] is InputEventMouseMotion)
+	check(moves.size() >= 2 and moves[-1][1].button_mask == MOUSE_BUTTON_MASK_LEFT, "moved with the button held")
+	equal(dragged["timed"][-1][1].pressed, false, "released at the end")
+	equal(dragged["duration"], 0.5, "over the hold")
+
+
+func test_game_play_leaves_out_what_a_hidden_dialog_shows() -> void:
+	var play := _play()
+	var dialog := AcceptDialog.new()
+	dialog.name = "Dialog"
+	dialog.dialog_text = "Quit?"
+	var inside := Label.new()
+	inside.text = "Behind a closed dialog"
+	dialog.add_child(inside)
+	_main.add_child(dialog)
+	dialog.hide()
+
+	var reply: Dictionary = play.expect({"checks": [{"text": "Behind a closed dialog", "op": "missing"}]})
+
+	equal(reply["data"]["passed"], true, "a hidden Window hides what is in it")
+
+
+func test_game_play_expect_compares_what_can_be_compared() -> void:
+	var play := _play()
+	var title: Label = _main.get_node("Menu/Title")
+	title.modulate = Color(1, 0.5, 0.25)
+	_main.set_meta("score", 3)
+
+	var reply: Dictionary = play.expect({"checks": [
+		{"path": "PlayTestMain/Player", "property": "position:x", "op": "equals", "value": 10},
+		{"path": "PlayTestMain/Menu/Title", "property": "modulate", "op": "approx", "value": "#ff8040", "tolerance": 0.01},
+		{"path": "PlayTestMain/Menu/Title", "property": "text", "op": "contains", "value": "Over"},
+		{"path": "PlayTestMain/Player", "property": "speedd", "op": "equals", "value": 1},
+		{"path": "PlayTestMain/Player", "property": "position:x", "op": "less", "value": 10.5},
+	]})
+	var verdicts := []
+	for result in reply["data"]["results"]:
+		verdicts.append(result["passed"])
+
+	equal(verdicts, [true, true, true, false, true], "a float equals a whole number; colours approx; a misspelt property does not hold")
+	equal(reply["data"]["results"][3].get("reason"), "no such property", "and says why")
+	equal(play.expect({"checks": [{"path": "PlayTestMain/Player", "property": "position", "op": "exists"}]})["error"]["code"], "INVALID_ARGS", "exists is about the node")

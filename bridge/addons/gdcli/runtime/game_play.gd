@@ -1,8 +1,13 @@
 extends RefCounted
 ## Playing and checking the running game, from inside it: sequences of real
-## input events (keys, mouse, gamepad, actions), the game's speed, what its
-## user interface shows, and checks of node values. Plain logic over the
-## SceneTree, like game_inspector.gd, so it can be tested without a debugger.
+## input events (keys, typed text, mouse clicks, drags and moves, gamepad,
+## actions), the game's speed, what its user interface shows, and checks of
+## node values. Plain logic over the SceneTree, like game_inspector.gd, so it
+## can be tested without a debugger.
+##
+## Positions are in the window's pixels, the coordinates a mouse event has:
+## game_ui reports controls in them, so a click on a control's centre lands on
+## it whatever the stretch mode, canvas layer or camera.
 
 const NodeRef = preload("../core/node_ref.gd")
 const Reply = preload("../core/reply.gd")
@@ -13,21 +18,28 @@ const ValueDecoder = preload("../core/value_decoder.gd")
 const MAX_EVENTS := 100
 const MAX_SEQUENCE_SECONDS := 30.0
 const MAX_HOLD_SECONDS := 10.0
+const MAX_TYPED_CHARS := 200
 # Long enough for a game that checks is_action_just_pressed in _physics_process.
 const DEFAULT_TAP_SECONDS := 0.05
+const DEFAULT_DRAG_SECONDS := 0.3
+const TYPED_CHAR_SECONDS := 0.03
 const MIN_SPEED := 0.05
 const MAX_SPEED := 10.0
 const MAX_UI_ELEMENTS := 300
 const MAX_CHECKS := 50
 const MAX_TEXT_CHARS := 500
+const MAX_DEVICE := 15
 const _MODIFIERS := {
 	"ctrl": "ctrl_pressed", "control": "ctrl_pressed", "shift": "shift_pressed",
 	"alt": "alt_pressed", "option": "alt_pressed", "meta": "meta_pressed", "cmd": "meta_pressed", "command": "meta_pressed",
 }
 const _MOUSE_BUTTONS := {"left": MOUSE_BUTTON_LEFT, "right": MOUSE_BUTTON_RIGHT, "middle": MOUSE_BUTTON_MIDDLE, "wheel_up": MOUSE_BUTTON_WHEEL_UP, "wheel_down": MOUSE_BUTTON_WHEEL_DOWN}
 const _OPERATORS: Array[String] = ["equals", "not_equals", "approx", "less", "greater", "contains", "exists", "missing"]
+const _HINT := "Events: {\"key\": \"Space\"}, {\"text\": \"hello\"}, {\"action\": \"jump\"}, {\"mouse_button\": \"left\", \"position\": [x, y]}, {\"drag\": [[x1, y1], [x2, y2]]}, {\"mouse_move\": [x, y]}, {\"joypad_button\": 0}, {\"joypad_axis\": 0, \"value\": -1}, {\"wait\": 0.5}."
 
 var _tree: SceneTree
+# Where the mouse is, in window pixels, as the sequence being planned moves it.
+var _mouse := Vector2.ZERO
 
 
 func _init(tree: SceneTree) -> void:
@@ -37,36 +49,26 @@ func _init(tree: SceneTree) -> void:
 # ---------------------------------------------------------------------------
 # Input sequences
 
-## Sends each event in turn: one is pressed, held for its `hold` (game time),
-## released, then the next one starts. {"wait": s} only lets time pass.
+## Plans the whole sequence first (nothing is sent when any event is wrong),
+## then sends each event at its time. One event is pressed, held for its
+## `hold` (game time), released, then the next one starts.
 func input_events(args: Dictionary) -> Dictionary:
 	var events: Variant = args.get("events")
 	if not events is Array or events.is_empty() or events.size() > MAX_EVENTS:
 		return Reply.fail("INVALID_ARGS", "events is a list of 1 to %d events." % MAX_EVENTS)
+	_mouse = _to_window(_tree.root.get_mouse_position())
 	var timeline := []
 	var at := 0.0
 	for index in events.size():
 		var step: Variant = events[index]
 		if not step is Dictionary:
 			return _bad_event(index, "Each event is an object.")
-		if step.has("wait"):
-			var wait: Variant = step["wait"]
-			if not (wait is float or wait is int) or wait < 0.0 or wait > MAX_HOLD_SECONDS:
-				return _bad_event(index, "wait is 0 to %d seconds." % int(MAX_HOLD_SECONDS))
-			at += float(wait)
-			continue
-		var made := _events_of(step)
-		if made is String:
-			return _bad_event(index, made)
-		# A mouse move is instant unless told to take time; anything pressed is tapped.
-		var hold: Variant = step.get("hold", DEFAULT_TAP_SECONDS if made["release"] != null else 0.0)
-		if not (hold is float or hold is int) or hold < 0.0 or hold > MAX_HOLD_SECONDS:
-			return _bad_event(index, "hold is 0 to %d seconds." % int(MAX_HOLD_SECONDS))
-		timeline.append([at, made["press"]])
-		# A mouse move has nothing to let go of.
-		if made["release"] != null:
-			timeline.append([at + float(hold), made["release"]])
-		at += float(hold)
+		var planned: Variant = _plan(step)
+		if planned is String:
+			return _bad_event(index, planned)
+		for entry in planned["timed"]:
+			timeline.append([at + entry[0], entry[1]])
+		at += planned["duration"]
 	if at > MAX_SEQUENCE_SECONDS:
 		return Reply.fail("INVALID_ARGS", "The sequence lasts longer than %d seconds." % int(MAX_SEQUENCE_SECONDS), "Split it, and check the game in between.")
 	for entry in timeline:
@@ -75,18 +77,54 @@ func input_events(args: Dictionary) -> Dictionary:
 
 
 func _bad_event(index: int, message: String) -> Dictionary:
-	return Reply.fail("INVALID_ARGS", message, "Events: {\"key\": \"Space\"}, {\"action\": \"jump\"}, {\"mouse_button\": \"left\", \"position\": [x, y]}, {\"mouse_move\": [x, y]}, {\"joypad_button\": 0}, {\"joypad_axis\": 0, \"value\": -1}, {\"wait\": 0.5}.", {"event": index})
+	return Reply.fail("INVALID_ARGS", message, _HINT, {"event": index})
 
 
-## {press, release} input events for one step, or a message saying what is wrong.
-func _events_of(step: Dictionary) -> Variant:
+## {timed: [[seconds from the event's start, InputEvent]], duration}, or a message.
+func _plan(step: Dictionary) -> Variant:
+	if step.has("wait"):
+		var wait: Variant = _seconds(step["wait"])
+		return "wait is 0 to %d seconds." % int(MAX_HOLD_SECONDS) if wait == null else {"timed": [], "duration": wait}
+	if step.has("text"):
+		return _plan_text(step["text"])
+	if step.has("drag"):
+		return _plan_drag(step)
+	if step.has("mouse_move"):
+		var target: Variant = _vector(step["mouse_move"])
+		if target == null:
+			return "mouse_move is [x, y] in the window."
+		var hold: Variant = _seconds(step.get("hold", 0.0))
+		if hold == null:
+			return "hold is 0 to %d seconds." % int(MAX_HOLD_SECONDS)
+		return {"timed": [[0.0, _motion(target, 0)]], "duration": hold}
+	var made: Variant = _press_release(step)
+	if made is String:
+		return made
+	var held: Variant = _seconds(step.get("hold", DEFAULT_TAP_SECONDS))
+	if held == null:
+		return "hold is 0 to %d seconds." % int(MAX_HOLD_SECONDS)
+	var timed := [[0.0, made[0]], [held, made[1]]]
+	# The mouse goes to the place first, so hover and focus follow as with a real one.
+	if made[0] is InputEventMouseButton:
+		timed.push_front([0.0, _motion(made[0].position, 0)])
+	return {"timed": timed, "duration": held}
+
+
+func _seconds(value: Variant) -> Variant:
+	if not (value is float or value is int) or value < 0.0 or value > MAX_HOLD_SECONDS:
+		return null
+	return float(value)
+
+
+## [pressed event, released event] for a key, action, mouse button or gamepad input.
+func _press_release(step: Dictionary) -> Variant:
 	if step.has("key"):
 		var key: Variant = _key(step["key"])
 		if key == null:
 			return "Not a key name (\"Space\", \"A\", \"Ctrl+S\", \"Left\")."
 		var up: InputEventKey = key.duplicate()
 		up.pressed = false
-		return {"press": key, "release": up}
+		return [key, up]
 	if step.has("action"):
 		if not step["action"] is String or not InputMap.has_action(step["action"]):
 			return "The project has no such input action."
@@ -99,41 +137,28 @@ func _events_of(step: Dictionary) -> Variant:
 		down.strength = clampf(strength, 0.0, 1.0)
 		var released := InputEventAction.new()
 		released.action = step["action"]
-		return {"press": down, "release": released}
+		return [down, released]
 	if step.has("mouse_button"):
-		var button: Variant = _MOUSE_BUTTONS.get(step["mouse_button"], step["mouse_button"])
+		var button: Variant = _button(step["mouse_button"])
 		var position: Variant = _vector(step.get("position", null))
-		if not (button is int or button is float) or int(button) < 1 or int(button) > 9 or position == null:
+		if button == null or position == null:
 			return "mouse_button is left, right, middle, wheel_up, wheel_down or 1 to 9, with position [x, y] in the window."
-		var click := InputEventMouseButton.new()
-		click.button_index = int(button) as MouseButton
-		click.position = position
-		click.global_position = position
-		click.pressed = true
-		var let_go: InputEventMouseButton = click.duplicate()
-		let_go.pressed = false
-		return {"press": click, "release": let_go}
-	if step.has("mouse_move"):
-		var target: Variant = _vector(step["mouse_move"])
-		if target == null:
-			return "mouse_move is [x, y] in the window."
-		var motion := InputEventMouseMotion.new()
-		var from := _tree.root.get_mouse_position()
-		motion.position = target
-		motion.global_position = target
-		motion.relative = target - from
-		return {"press": motion, "release": null}
+		var click := _click(button, position, true)
+		return [click, _click(button, position, false)]
+	var device: Variant = step.get("device", 0)
+	if not (device is int or device is float) or int(device) < 0 or int(device) > MAX_DEVICE:
+		return "device is 0 to %d." % MAX_DEVICE
 	if step.has("joypad_button"):
 		var index: Variant = step["joypad_button"]
 		if not (index is int or index is float) or int(index) < 0 or int(index) > 127:
 			return "joypad_button is 0 to 127 (0 is the bottom face button)."
 		var push := InputEventJoypadButton.new()
 		push.button_index = int(index) as JoyButton
-		push.device = int(step.get("device", 0))
+		push.device = int(device)
 		push.pressed = true
 		var lift: InputEventJoypadButton = push.duplicate()
 		lift.pressed = false
-		return {"press": push, "release": lift}
+		return [push, lift]
 	if step.has("joypad_axis"):
 		var axis: Variant = step["joypad_axis"]
 		var value: Variant = step.get("value", 1.0)
@@ -142,11 +167,78 @@ func _events_of(step: Dictionary) -> Variant:
 		var tilt := InputEventJoypadMotion.new()
 		tilt.axis = int(axis) as JoyAxis
 		tilt.axis_value = clampf(value, -1.0, 1.0)
-		tilt.device = int(step.get("device", 0))
+		tilt.device = int(device)
 		var centre: InputEventJoypadMotion = tilt.duplicate()
 		centre.axis_value = 0.0
-		return {"press": tilt, "release": centre}
-	return "The event names no key, action, mouse_button, mouse_move, joypad_button, joypad_axis or wait."
+		return [tilt, centre]
+	return "The event names no key, text, action, mouse_button, drag, mouse_move, joypad_button, joypad_axis or wait."
+
+
+## Each character typed as a key with its character, so a focused LineEdit
+## receives it.
+func _plan_text(text: Variant) -> Variant:
+	if not text is String or text == "" or text.length() > MAX_TYPED_CHARS:
+		return "text is 1 to %d characters to type." % MAX_TYPED_CHARS
+	var timed := []
+	for index in text.length():
+		var character: String = text[index]
+		var down := InputEventKey.new()
+		down.unicode = character.unicode_at(0)
+		var keycode: int = OS.find_keycode_from_string(character.to_upper()) & KEY_CODE_MASK
+		down.keycode = keycode as Key
+		down.physical_keycode = keycode as Key
+		down.shift_pressed = character != character.to_lower()
+		down.pressed = true
+		var up: InputEventKey = down.duplicate()
+		up.pressed = false
+		timed.append([index * TYPED_CHAR_SECONDS, down])
+		timed.append([index * TYPED_CHAR_SECONDS + TYPED_CHAR_SECONDS / 2.0, up])
+	return {"timed": timed, "duration": text.length() * TYPED_CHAR_SECONDS}
+
+
+## Press at the first point, move to the second with the button held, release there.
+func _plan_drag(step: Dictionary) -> Variant:
+	var points: Variant = step["drag"]
+	var from: Variant = _vector(points[0]) if points is Array and points.size() == 2 else null
+	var to: Variant = _vector(points[1]) if from != null else null
+	var button: Variant = _button(step.get("button", "left"))
+	var hold: Variant = _seconds(step.get("hold", DEFAULT_DRAG_SECONDS))
+	if to == null or button == null or hold == null:
+		return "drag is [[x1, y1], [x2, y2]] in the window, with button (default left) and hold (seconds, default 0.3)."
+	var mask: int = 1 << (int(button) - 1)
+	var timed := [[0.0, _motion(from, 0)], [0.0, _click(button, from, true)]]
+	var steps := 4
+	for index in range(1, steps + 1):
+		timed.append([hold * index / (steps + 1), _motion(from.lerp(to, float(index) / steps), mask)])
+	timed.append([hold, _click(button, to, false)])
+	return {"timed": timed, "duration": hold}
+
+
+func _button(value: Variant) -> Variant:
+	var button: Variant = _MOUSE_BUTTONS.get(value, value) if value is String else value
+	if not (button is int or button is float) or int(button) < 1 or int(button) > 9:
+		return null
+	return int(button)
+
+
+func _click(button: int, position: Vector2, pressed: bool) -> InputEventMouseButton:
+	var click := InputEventMouseButton.new()
+	click.button_index = button as MouseButton
+	click.position = position
+	click.global_position = position
+	click.pressed = pressed
+	click.button_mask = (1 << (button - 1)) if pressed else 0
+	return click
+
+
+func _motion(target: Vector2, mask: int) -> InputEventMouseMotion:
+	var motion := InputEventMouseMotion.new()
+	motion.position = target
+	motion.global_position = target
+	motion.relative = target - _mouse
+	motion.button_mask = mask
+	_mouse = target
+	return motion
 
 
 ## "Ctrl+S": the modifiers here, the key by the engine (as project_input_map_set reads them).
@@ -166,11 +258,20 @@ static func _key(text: Variant) -> InputEventKey:
 	key.keycode = keycode as Key
 	key.physical_keycode = keycode as Key
 	key.pressed = true
+	# A single character, or Space, also types itself into a focused text field.
+	if key_name.length() == 1:
+		key.unicode = key_name.to_lower().unicode_at(0)
+	elif key_name.to_lower() == "space":
+		key.unicode = 32
 	for part in parts:
 		var flag: String = _MODIFIERS.get(part.strip_edges().to_lower(), "")
 		if flag == "":
 			return null
 		key.set(flag, true)
+	if key.ctrl_pressed or key.alt_pressed or key.meta_pressed:
+		key.unicode = 0
+	elif key.shift_pressed and key_name.length() == 1:
+		key.unicode = key_name.to_upper().unicode_at(0)
 	return key
 
 
@@ -186,6 +287,11 @@ func _send_at(seconds: float, event: InputEvent) -> void:
 		Input.parse_input_event(event)
 		return
 	_tree.create_timer(seconds, false).timeout.connect(Input.parse_input_event.bind(event))
+
+
+# From the root viewport's coordinates to the window's pixels (the stretch mode's scale and offset).
+func _to_window(point: Vector2) -> Vector2:
+	return _tree.root.get_final_transform() * point
 
 
 # ---------------------------------------------------------------------------
@@ -210,44 +316,59 @@ func ui(args: Dictionary) -> Dictionary:
 	if start == null:
 		return Reply.fail("NODE_NOT_FOUND", "The node does not exist in the running game.", "Paths are relative to the root window; game_tree shows them.")
 	var found := []
-	var truncated := _collect_ui(start, found) if _ancestors_shown(start) else false
-	return Reply.ok({"elements": found, "truncated": truncated})
+	var truncated := _collect_ui(start, found, MAX_UI_ELEMENTS) if _ancestors_shown(start) else false
+	var described := []
+	for control in found:
+		described.append(_describe_control(control))
+	return Reply.ok({"elements": described, "truncated": truncated})
+
+
+## Whether a node is hidden by its own visibility: a CanvasItem, a CanvasLayer
+## or a Window (a dialog or popup) that is not shown.
+static func _hidden(node: Node) -> bool:
+	return (node is CanvasItem or node is CanvasLayer or node is Window) and not node.visible
 
 
 # Each node's own visibility, its parents' already judged on the way down
-# (is_visible_in_tree also asks the window, which a headless game hides).
-func _collect_ui(node: Node, found: Array) -> bool:
-	if (node is CanvasItem or node is CanvasLayer) and not node.visible:
+# (is_visible_in_tree also asks the window, which a headless game hides; the
+# root window is the game itself and counts as shown). Returns whether the
+# list was cut at `most`; most < 0 is no limit.
+func _collect_ui(node: Node, found: Array, most: int) -> bool:
+	if node != _tree.root and _hidden(node):
 		return false
 	if node is Control:
-		if found.size() >= MAX_UI_ELEMENTS:
+		if most >= 0 and found.size() >= most:
 			return true
-		found.append(_describe_control(node))
+		found.append(node)
 	for child in node.get_children():
-		if _collect_ui(child, found):
+		if _collect_ui(child, found, most):
 			return true
 	return false
 
 
 func _ancestors_shown(node: Node) -> bool:
 	var above := node.get_parent()
-	while above != null:
-		if (above is CanvasItem or above is CanvasLayer) and not above.visible:
+	while above != null and above != _tree.root:
+		if _hidden(above):
 			return false
 		above = above.get_parent()
 	return true
 
 
 func _describe_control(control: Control) -> Dictionary:
-	var rect := control.get_global_rect()
+	# Through canvas layers and cameras to the viewport, then to the window.
+	var to_window := _tree.root.get_final_transform() * control.get_global_transform_with_canvas()
+	var corner := to_window * Vector2.ZERO
+	var size := to_window.basis_xform(control.size).abs()
 	var entry := {
 		"path": TextSanitizer.clean_line(NodeRef.path_of(_tree.root, control)),
 		"type": control.get_class(),
-		"rect": [snappedf(rect.position.x, 0.1), snappedf(rect.position.y, 0.1), snappedf(rect.size.x, 0.1), snappedf(rect.size.y, 0.1)],
+		"rect": [snappedf(corner.x, 0.1), snappedf(corner.y, 0.1), snappedf(size.x, 0.1), snappedf(size.y, 0.1)],
+		"center": [snappedf(corner.x + size.x / 2.0, 0.1), snappedf(corner.y + size.y / 2.0, 0.1)],
 	}
-	var text := _text_of(control)
+	var text := _raw_text(control)
 	if text != "":
-		entry["text"] = text
+		entry["text"] = TextSanitizer.clean_line(text.substr(0, MAX_TEXT_CHARS))
 	if control is BaseButton:
 		entry["disabled"] = control.disabled
 		if control.toggle_mode:
@@ -259,20 +380,21 @@ func _describe_control(control: Control) -> Dictionary:
 	return entry
 
 
-func _text_of(control: Control) -> String:
-	var text := ""
+func _raw_text(control: Control) -> String:
 	if control is RichTextLabel:
-		text = control.get_parsed_text()
-	elif control is Label or control is Button or control is LineEdit or control is TextEdit:
-		text = str(control.get("text"))
-	return TextSanitizer.clean_line(text.substr(0, MAX_TEXT_CHARS))
+		return control.get_parsed_text()
+	if control is Label or control is Button or control is LineEdit or control is TextEdit:
+		return str(control.get("text"))
+	return ""
 
 
 # ---------------------------------------------------------------------------
 # Checks
 
 ## Each check: {path, property?, op, value?} or {text, op: exists|missing}.
-## All are judged; the reply says which held, with the actual values.
+## All are judged; the reply says which held, with the actual values. A check
+## that cannot be judged (no such property, a value of another kind) does not
+## hold, with the reason; only a malformed check stops the request.
 func expect(args: Dictionary) -> Dictionary:
 	var checks: Variant = args.get("checks")
 	if not checks is Array or checks.is_empty() or checks.size() > MAX_CHECKS:
@@ -305,52 +427,107 @@ func _judge(check: Variant) -> Dictionary:
 	var node := NodeRef.resolve(_tree.root, check["path"])
 	var described := {"path": TextSanitizer.clean_line(check["path"]), "op": op}
 	if op == "exists" or op == "missing":
+		if check.has("property"):
+			return {"error": "exists and missing are about the node; leave property out."}
 		described["passed"] = (node != null) == (op == "exists")
-		return described
-	if node == null:
-		described["passed"] = false
-		described["actual"] = null
-		described["reason"] = "no such node"
 		return described
 	if not check.get("property") is String:
 		return {"error": "A value check names a property (\"position\", or \"position:y\" for one component)."}
-	var actual: Variant = node.get_indexed(NodePath(check["property"]))
 	described["property"] = TextSanitizer.clean_line(check["property"])
+	if node == null:
+		return _not_held(described, "no such node")
+	if not _has_property(node, check["property"].get_slice(":", 0)):
+		return _not_held(described, "no such property")
+	var actual: Variant = node.get_indexed(NodePath(check["property"]))
 	described["actual"] = ValueCodec.encode(actual, _tree.root)
 	var expected: Variant = check.get("value")
-	var decoded: Dictionary = ValueDecoder.new(_tree.root).decode(expected, typeof(actual)) if actual != null else {"ok": true, "value": expected}
-	if not decoded["ok"] and op != "contains":
-		return {"error": "The value cannot be read as the property's type."}
-	described["passed"] = _compare(actual, op, decoded.get("value", expected), check.get("tolerance", 0.01))
+	var verdict := _compare(actual, op, expected, check.get("tolerance", 0.01))
+	if verdict is String:
+		return _not_held(described, verdict)
+	described["passed"] = verdict
 	return described
 
 
-func _compare(actual: Variant, op: String, expected: Variant, tolerance: Variant) -> bool:
-	match op:
-		"equals":
-			return typeof(actual) == typeof(expected) and actual == expected
-		"not_equals":
-			return not (typeof(actual) == typeof(expected) and actual == expected)
-		"approx":
-			var margin := float(tolerance) if tolerance is float or tolerance is int else 0.01
-			if (actual is float or actual is int) and (expected is float or expected is int):
-				return absf(float(actual) - float(expected)) <= margin
-			if actual is Vector2 or actual is Vector3:
-				return actual.distance_to(expected) <= margin
-			return false
-		"less":
-			return (actual is float or actual is int) and (expected is float or expected is int) and actual < expected
-		"greater":
-			return (actual is float or actual is int) and (expected is float or expected is int) and actual > expected
-		"contains":
-			return (actual is String or actual is StringName) and str(actual).contains(str(expected))
+func _not_held(described: Dictionary, reason: String) -> Dictionary:
+	described["passed"] = false
+	described["reason"] = reason
+	return described
+
+
+func _has_property(node: Node, name: String) -> bool:
+	for property in node.get_property_list():
+		if property["name"] == name:
+			return true
 	return false
 
 
+## true or false, or why the two cannot be compared.
+func _compare(actual: Variant, op: String, expected: Variant, tolerance: Variant) -> Variant:
+	var margin := float(tolerance) if tolerance is float or tolerance is int else 0.01
+	match op:
+		"less", "greater":
+			if not _is_number(actual) or not _is_number(expected):
+				return "less and greater compare numbers"
+			return float(actual) < float(expected) if op == "less" else float(actual) > float(expected)
+		"approx":
+			var have: Variant = _components(actual)
+			var want: Variant = _components(_decoded(expected, actual))
+			if have == null or want == null or have.size() != want.size():
+				return "approx compares numbers, vectors and colours of the same size"
+			for index in have.size():
+				if is_nan(have[index]) or is_nan(want[index]) or absf(have[index] - want[index]) > margin:
+					return false
+			return true
+		"contains":
+			if actual is String or actual is StringName:
+				return str(actual).contains(str(expected))
+			if actual is Array or actual is PackedStringArray or actual is PackedInt32Array or actual is PackedInt64Array or actual is PackedFloat32Array or actual is PackedFloat64Array:
+				return actual.has(_decoded(expected, actual[0]) if actual.size() > 0 else expected)
+			if actual is Dictionary:
+				return actual.has(expected)
+			return "contains looks in text, lists and dictionaries"
+		"equals", "not_equals":
+			var same: bool
+			if _is_number(actual) and _is_number(expected):
+				same = float(actual) == float(expected)
+			else:
+				var wanted: Variant = _decoded(expected, actual)
+				same = typeof(wanted) == typeof(actual) and wanted == actual
+			return same if op == "equals" else not same
+	return "unknown op"
+
+
+static func _is_number(value: Variant) -> bool:
+	return value is int or value is float
+
+
+# The expected value read as the actual one's type, when it can be; else as it was given.
+func _decoded(expected: Variant, actual: Variant) -> Variant:
+	if actual == null:
+		return expected
+	var decoded: Dictionary = ValueDecoder.new(_tree.root).decode(expected, typeof(actual))
+	return decoded["value"] if decoded["ok"] else expected
+
+
+static func _components(value: Variant) -> Variant:
+	if value is int or value is float:
+		return [float(value)]
+	if value is Vector2 or value is Vector2i:
+		return [float(value.x), float(value.y)]
+	if value is Vector3 or value is Vector3i:
+		return [float(value.x), float(value.y), float(value.z)]
+	if value is Vector4 or value is Vector4i:
+		return [float(value.x), float(value.y), float(value.z), float(value.w)]
+	if value is Color:
+		return [value.r, value.g, value.b, value.a]
+	return null
+
+
+# Every visible control, without the listing's limit: a missing text must not be missed.
 func _text_on_screen(text: String) -> bool:
 	var found := []
-	_collect_ui(_tree.root, found)
-	for element in found:
-		if str(element.get("text", "")).contains(text):
+	_collect_ui(_tree.root, found, -1)
+	for control in found:
+		if _raw_text(control).contains(text):
 			return true
 	return false
