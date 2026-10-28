@@ -16,7 +16,7 @@ function hasProjectFile(directory: string): boolean {
 
 /** --project, then GDCLI_PROJECT, then the nearest project.godot above the working directory. */
 export function findProject(context: Context, globals: GlobalOptions): string | EnvelopeError {
-  const explicit = globals.project ?? nonEmpty(context.io.env[PROJECT_ENV]);
+  const explicit = nonEmpty(globals.project) ?? nonEmpty(context.io.env[PROJECT_ENV]);
   if (explicit !== undefined) {
     const directory = resolve(context.cwd, explicit);
     const candidate = directory.endsWith(PROJECT_FILE) ? dirname(directory) : directory;

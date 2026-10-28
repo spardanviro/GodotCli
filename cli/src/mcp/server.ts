@@ -259,7 +259,7 @@ export class McpServer {
   }
 
   private toolNames(): string {
-    return [...this.commands.map((descriptor) => descriptor.name), ...OFFLINE_TOOLS.map((entry) => entry.tool.name)].join(",");
+    return JSON.stringify([...this.commands.map(toolOf), ...OFFLINE_TOOLS.map((entry) => entry.tool)]);
   }
 
   private async dispatch(request: Request): Promise<unknown> {
@@ -284,7 +284,7 @@ export class McpServer {
         this.canAnnounce = true;
         return { tools: [...this.commands.map(toolOf), ...OFFLINE_TOOLS.map((entry) => entry.tool)] };
       case "tools/call":
-        return this.call(objectOf(request.params));
+        return this.call(objectOf(request.params), request.id);
       default:
         throw new RpcError(METHOD_NOT_FOUND, "Unknown method.");
     }
@@ -331,7 +331,7 @@ export class McpServer {
     return next;
   }
 
-  private async call(params: Readonly<Record<string, unknown>>): Promise<unknown> {
+  private async call(params: Readonly<Record<string, unknown>>, id?: Id): Promise<unknown> {
     const name = params["name"];
     const given = params["arguments"];
     if (typeof name !== "string") {
@@ -379,7 +379,10 @@ export class McpServer {
       dryRun: asOption(DRY_RUN_ARG) && args[DRY_RUN_ARG] === true,
     };
     const run = (): Promise<Envelope> => invokeBridge(this.context, globals, name, own).then((result) => result.envelope);
-    const envelope = (descriptor.risk ?? "write") === "read" ? await run() : await this.inOrder(run);
+    // Waiting behind earlier changes, a change the client gave up on is dropped before it starts.
+    const runUnlessCancelled = (): Promise<Envelope> =>
+      id !== undefined && this.cancelled.has(id) ? Promise.resolve(failure(name, [errorOf("COMMAND_FAILED", "Cancelled by the client before it started.")])) : run();
+    const envelope = (descriptor.risk ?? "write") === "read" ? await run() : await this.inOrder(runUnlessCancelled);
     return this.resultOf(envelope);
   }
 

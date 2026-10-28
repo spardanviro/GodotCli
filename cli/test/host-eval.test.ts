@@ -31,6 +31,16 @@ describe("gd eval", () => {
     expect(JSON.parse(call?.body ?? "{}")).toEqual({ args: { code: "return 6 * 7" }, confirm: true, dry_run: false });
   });
 
+  test("takes code that starts with a dash after --", async () => {
+    const home = tempDir();
+    const project = makeProject(home);
+    const bridge = await fakeBridge({ home, project });
+
+    await harness({ homeDir: home, cwd: project }).json("eval", "--", "-1 + 2");
+
+    expect(JSON.parse(bridge.requests.at(-1)?.body ?? "{}")).toMatchObject({ args: { code: "-1 + 2" } });
+  });
+
   test("reads the code from a file", async () => {
     const home = tempDir();
     const project = makeProject(home);

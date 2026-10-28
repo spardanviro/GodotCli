@@ -472,6 +472,16 @@ function configured(client: string, extra: readonly string[] = [], files: Record
   return { home, project, run: (...argv: string[]) => h.json("mcp", "configure", client, ...extra, ...argv) };
 }
 
+describe("gd mcp configure: options that do not apply", () => {
+  test("--dir is refused for Codex, whose file lives in the user's home", async () => {
+    const { run } = configured("codex");
+
+    const result = await run("--dir", "elsewhere");
+
+    expect(result.exitCode).toBe(ExitCode.Usage);
+  });
+});
+
 describe("gd mcp configure: --dry-run", () => {
   test("--dry-run with --yes still writes nothing", async () => {
     const { project, run } = configured("claude");
@@ -667,7 +677,8 @@ describe("gd mcp configure: Codex's config.toml", () => {
     ["a header with a comment", '[mcp_servers.gdcli] # mine\ncommand = "old"\n'],
     ["a header with spaces and quotes", '[ mcp_servers . "gdcli" ]\ncommand = "old"\n'],
   ])("replaces the server's table written as %s", (_label, old) => {
-    const merged = mergeToml(`model = "x"\n\n${old}\n[other]\nkey = 1\n`, "gdcli", entry) as string;
+    const merged = mergeToml(`model = "x"\n\n${old}\n# the other server, by hand\n[other]\nkey = 1\n`, "gdcli", entry) as string;
+    expect(merged).toContain("# the other server, by hand\n[other]");
 
     expect(merged).not.toContain('"old"');
     expect(merged).toContain("[other]\nkey = 1");

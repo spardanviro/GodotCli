@@ -260,6 +260,15 @@ describe("offline preconditions", () => {
 });
 
 describe("gd run", () => {
+  test("a game that ends by itself with a failure code and no error line is a failure", async () => {
+    const { gd } = fixture((call) => (call.args.includes("--path") ? { code: 134, stdout: "" } : {}));
+
+    const { exitCode, envelope } = await gd.json("run");
+
+    expect(exitCode).toBe(ExitCode.CommandFailed);
+    expect(envelope.errors[0]?.message).toContain("failure exit code");
+  });
+
   test("says that unsaved editor changes are not part of the run when an editor has the project open", async () => {
     const { gd, project } = fixture();
     const quiet = await gd.json("run");

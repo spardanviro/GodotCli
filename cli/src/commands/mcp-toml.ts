@@ -146,6 +146,10 @@ export function mergeToml(old: string, name: string, entry: TomlEntry): string |
   let removing = false;
   let multiline: string | undefined;
   let depth = 0;
+  // Comments and blank lines met while removing gd's table: kept if what
+  // follows is the next table (they are its heading), dropped if more of
+  // gd's keys follow.
+  let pending: string[] = [];
   for (const line of lines) {
     if (multiline !== undefined || depth > 0) {
       // Inside a value that started on an earlier line: it belongs where that line did.
@@ -159,6 +163,17 @@ export function mergeToml(old: string, name: string, entry: TomlEntry): string |
       continue;
     }
     const code = withoutComment(line).trim();
+    if (removing && code === "") {
+      pending.push(line);
+      continue;
+    }
+    if (removing && code.startsWith("[")) {
+      const next = keyParts(code.replace(/^\[\[?/u, "").replace(/\]\]?$/u, ""));
+      if (!isServer(next, name)) {
+        kept.push(...pending);
+      }
+    }
+    pending = [];
     if (code.startsWith("[[")) {
       table = keyParts(code.replace(/^\[\[/u, "").replace(/\]\]$/u, ""));
       if (isServer(table, name)) {

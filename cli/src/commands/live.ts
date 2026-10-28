@@ -314,14 +314,16 @@ export const evalCommand: CommandHandler = async (context, globals, args) => {
     return usage("eval", parsed);
   }
   const file = parsed.values["file"];
-  const inline = parsed.positionals[0];
-  if ((typeof file === "string") === (inline !== undefined) || parsed.positionals.length > 1) {
-    return usage("eval", "Give the code as one argument, or --file <path>.");
+  // After "--" the code may start with "-" (gd eval -- "-1 + 2").
+  const pieces = [...parsed.positionals, ...parsed.passthrough];
+  const inline = pieces[0];
+  if ((typeof file === "string") === (inline !== undefined) || pieces.length > 1) {
+    return usage("eval", "Give the code as one argument (after -- when it starts with -), or --file <path>.");
   }
   let code = inline ?? "";
   if (typeof file === "string") {
     try {
-      code = readFileSync(resolve(context.cwd, file), "utf8");
+      code = readFileSync(resolve(context.cwd, file), "utf8").replace(/^\uFEFF/u, "");
     } catch {
       return fail("eval", errorOf("RESOURCE_NOT_FOUND", "The file given to --file could not be read.", undefined, { file }));
     }

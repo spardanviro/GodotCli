@@ -36,9 +36,10 @@ function mergeJson(old: string, key: string, value: unknown): string | Error {
   let root: unknown = {};
   if (old.trim() !== "") {
     try {
-      root = JSON.parse(old);
+      root = JSON.parse(old.replace(/^\uFEFF/u, ""));
     } catch {
-      return new Error("The existing file is not valid JSON; fix or remove it first.");
+      // VS Code's mcp.json allows comments; rewriting it would lose them.
+      return new Error("The existing file is not plain JSON (comments or trailing commas, as VS Code allows, are not rewritten by gd); add the entry by hand, or remove the comments first.");
     }
   }
   if (typeof root !== "object" || root === null || Array.isArray(root)) {
@@ -184,6 +185,10 @@ async function configure(context: Context, globals: GlobalOptions, args: readonl
     return fail("mcp", project);
   }
   const dir = parsed.values["dir"];
+  // A client configured per user (Codex) has one file in its own home: a folder would be ignored without a word.
+  if (typeof dir === "string" && format.userScope) {
+    return usage("mcp", `--dir does not apply to ${client}: its configuration lives in the user's home.`);
+  }
   const folder = typeof dir === "string" ? resolve(context.cwd, dir) : project;
   const file = format.file(folder, context);
   const link = linkOnTheWay(file, format.userScope ? context.homeDir : folder);

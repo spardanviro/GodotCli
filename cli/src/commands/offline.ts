@@ -136,6 +136,11 @@ export const runCommand: CommandHandler = async (context, globals, args) => {
     const error = errorOf("COMMAND_FAILED", "The project printed errors while running.", "See data.diagnostics for file, line and message.");
     return { envelope: { ...failureWithData("run", data, [error]), warnings }, human };
   }
+  // Ended by itself with a failure code and nothing printed: a crash, or quit(1).
+  if (!result.timedOut && result.code !== null && result.code !== 0) {
+    const error = errorOf("COMMAND_FAILED", "The game ended with a failure exit code without printing an error.", "It may have crashed; see data.output_tail.");
+    return { envelope: { ...failureWithData("run", data, [error]), warnings }, human };
+  }
   return { envelope: success("run", data, {}, warnings), human };
 };
 

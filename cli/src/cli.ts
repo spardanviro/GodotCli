@@ -69,7 +69,7 @@ Without an editor (starts the Godot binary):
 
 The manual (a copy of the Godot documentation on this machine):
   docs search <words> [--limit N] [--classes]
-  docs page <page> [--section <heading>]
+  docs page <page> [--section <heading>] [--max-chars <n>]
   docs install [4.5]         Download the manual for your Godot version (text only; needs git)
   docs use <folder> | docs where
 
@@ -79,7 +79,7 @@ For other agents (Model Context Protocol):
                              Add that server to claude, codex, cursor, vscode or gemini
                              (shows the change; writes it with --yes)
   skills list                The skills gd ships (the Claude plugin's), for other agents
-  skills install codex | --dir <folder>
+  skills install codex | --dir <folder>   (codex: under $CODEX_HOME, default ~/.codex)
                              Copy them where the agent reads skills (with --yes)
 
 Setup:
@@ -93,7 +93,8 @@ Global options:
   --project <path>           Project folder (env: GDCLI_PROJECT); default: nearest project.godot
   --godot <path>             Godot editor binary (env: GODOT_BIN)
   --instance <id>            Pick an editor when several have the project open
-  --timeout <seconds>        Give up after this long
+  --timeout <seconds>        How long to wait for the editor, or for check/exec/import/export
+                             (gd run uses its own --seconds)
   --yes                      Confirm overwriting or destructive actions
   --dry-run                  Report what would change without doing it
   -V, --version              Print the version and protocol number
@@ -205,7 +206,8 @@ function resolveTimeout(raw: string | undefined): number | undefined | Error {
   const seconds = /^\d+(\.\d+)?$/u.test(raw) ? Number(raw) : Number.NaN;
   return Number.isNaN(seconds) || seconds <= 0 || seconds > MAX_TIMEOUT_SECONDS
     ? new Error(`--timeout must be a number of seconds between 0 and ${MAX_TIMEOUT_SECONDS}.`)
-    : Math.round(seconds * MS_PER_SECOND);
+    : // A tiny value still means "wait a little", not "do not wait at all".
+      Math.max(1, Math.round(seconds * MS_PER_SECOND));
 }
 
 function emit(result: CommandResult, format: OutputFormat, io: Io): ExitCode {
