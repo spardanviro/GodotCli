@@ -73,6 +73,7 @@ arguments. Search that file for the command you need.
 | Animate | `animation_create`, `animation_list`, `sprite_frames_create`, `animation_state_machine_create`, `animation_blend_space_create` |
 | Build a tile level | `tileset_add_atlas`, `tileset_set_collision`, `tileset_set_terrain`, `tilemap_set_cells`, `tilemap_get` |
 | Bake navigation | `navigation_bake` |
+| Change how a file is imported | `import_settings_get`, `import_settings_set` (texture compression and mipmaps, a sound's loop, a model's root type) |
 | Change the project | `project_settings_set`, `project_input_map_set`, `fs_move`, `fs_delete`, `fs_scan` |
 | Take a step back | `edit_undo`, `edit_redo` |
 | Run and check | `gd run`, `gd check`, `editor_play`, `editor_stop`, `editor_errors` |
@@ -96,6 +97,14 @@ Things worth knowing before you use them:
   script variable) can be asked for by name.
 - `node_connect_signal` needs the method to exist in the target's script: write and attach the script first.
 - A new input action is registered with `project_input_map_set` before a script reads it.
+- Import options are the Import dock's: `import_settings_get --path res://art/hero.png` lists them with their
+  values (a new file has them once `fs_scan` has imported it), `import_settings_set` changes some and imports the
+  file again. Only switches and numbers can be changed (the reply's `changeable` lists them); text and list
+  options, which can name files or classes, stay with the Import dock. Choices are stored as numbers
+  (`compress/mode: 2`), so read the current ones first; the reply's `previous` puts them back, and a failed import
+  puts the earlier settings back by itself. Never edit a `.import` file by hand. A pixel-art texture's
+  blurriness is not an import option: it is the project setting
+  `rendering/textures/canvas_textures/default_texture_filter` (0 is Nearest) or a node's `texture_filter`.
 - Do not guess a property or method name: `gd api class <Name>` lists them for the installed Godot version.
 - For how something is meant to be done (not just what a class has), the manual: `gd docs search one way
   collision`, then `gd docs page tutorials/physics/using_character_body_2d --section "Platformer movement"`.

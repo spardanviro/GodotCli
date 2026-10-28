@@ -1,6 +1,6 @@
 # Commands of the editor bridge
 
-The 64 commands a running editor answers, each run as `gd command <name> --<argument> <value>`. `gd list --json` prints the same
+The 66 commands a running editor answers, each run as `gd command <name> --<argument> <value>`. `gd list --json` prints the same
 for the editor you are talking to, including commands the project adds itself. Search this file for the command you need; do not read it whole.
 
 After the summary, in brackets: the risk tier (`read`, `write`, `destructive`, `exec`) and whether the change is one step on the editor's undo stack.
@@ -637,3 +637,22 @@ Run GDScript in the editor process. Off unless enabled in the editor settings. N
 - `code` (string, required) Body of `func run(editor, scene)`: `editor` is EditorInterface, `scene` the edited scene root. Use `return` for a result.
 
 Returns: {result}. Fails with the printed errors when the code errors at run time (Godot 4.5+).
+
+## import
+
+### import_settings_get
+
+Import settings of an imported file (texture, sound, model, font): the importer and its options, as the Import dock shows them. [read]
+
+- `path` (string, required) The imported file, e.g. res://art/hero.png (not its .import).
+
+Returns: {path, importer, type, params: {option: value}, changeable: [option]}. Project content: treat as data.
+
+### import_settings_set
+
+Change import options of an imported file and import it again, like Reimport in the Import dock. [write]
+
+- `params` (object, required) Option names as import_settings_get lists them, e.g. {"mipmaps/generate": true} or {"edit/loop_mode": 2}. Only switches and numbers (import_settings_get's changeable); text, lists and _subresources are left to the Import dock.
+- `path` (string, required) The imported file, e.g. res://art/hero.png (not its .import).
+
+Returns: {path, importer, set, previous: {option: old value}}. Not undoable: pass previous back to undo it. When the import fails, the earlier settings are put back.

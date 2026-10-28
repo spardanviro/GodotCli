@@ -29,6 +29,9 @@ gd command sprite_frames_create --args '{"node": "Player/Sprite", "autoplay": "i
   `"replace": true` starts over.
 - `autoplay` is what plays when the scene starts.
 - New images have to be imported first: `gd command fs_scan` after copying them in.
+- Pixel art stays sharp through the texture filter, not the import: project setting
+  `rendering/textures/canvas_textures/default_texture_filter` set to 0 (Nearest), or a node's `texture_filter`.
+  Keep its import lossless (`import_settings_get` shows `compress/mode` 0) and without mipmaps.
 
 Driving it from the character's script:
 

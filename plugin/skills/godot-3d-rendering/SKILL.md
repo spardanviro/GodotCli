@@ -139,7 +139,12 @@ The language is close to GLSL ES 3.0 but is its own: `shader_type spatial` (3D),
 - Put the file (`.glb` is the format to prefer; `.gltf`, `.fbx`, `.blend`, `.obj`) into the project, then
   `gd command fs_scan` (or `gd import` without an editor). The editor imports it as a scene.
 - Use it with `gd command node_instantiate_scene --scene res://models/crate.glb`. Do not edit the imported scene:
-  it is regenerated on every reimport. To change it, instance it in a scene of your own, or change import settings.
+  it is regenerated on every reimport. To change it, instance it in a scene of your own, or change import settings
+  with `import_settings_get` and `import_settings_set` (switches and numbers such as `meshes/generate_lods`,
+  `animation/fps`). The root type, per-mesh and per-material options are set in the Import dock.
+- A texture's import: `compress/mode` (0 lossless, 1 lossy, 2 VRAM compressed, the one for 3D textures,
+  3 VRAM uncompressed, 4 Basis Universal),
+  `mipmaps/generate` (on for textures seen at a distance), `process/size_limit`.
 - An imported model has no collision. Add a body and shape around it; trimesh collision is for static level
   geometry only.
 - Textures that repeat should be power-of-two sized. Mobile devices cap at 4096 pixels.

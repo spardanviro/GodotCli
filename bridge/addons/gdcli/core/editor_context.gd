@@ -130,6 +130,15 @@ func scan_files() -> void:
 		filesystem.scan()
 
 
+func is_scanning() -> bool:
+	return EditorInterface.get_resource_filesystem().is_scanning()
+
+
+## Imports files again with the settings now in their .import files.
+func reimport(paths: Array) -> void:
+	EditorInterface.get_resource_filesystem().reimport_files(PackedStringArray(paths))
+
+
 func play(scene: String) -> void:
 	if scene == "":
 		EditorInterface.play_main_scene()

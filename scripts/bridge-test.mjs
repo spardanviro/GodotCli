@@ -761,6 +761,28 @@ const ATLAS = "res://tests/fixtures/tiles.png";
  * Runs on the fixture scene, which is the edited one here.
  * @param {Instance} instance
  */
+// Import settings of a fixture image: changed, imported again, and put back.
+async function checkImportSettings(instance) {
+  const file = join(projectDir, "tests", "fixtures", "tiles.png.import");
+  const original = readFileSync(file, "utf8");
+  try {
+    const before = await command(instance, "import_settings_get", { path: ATLAS });
+    check(before.status === 200 && before.body?.data?.importer === "texture" && before.body?.data?.params?.["mipmaps/generate"] === false, "import_settings_get reads a texture's options", before.body);
+    const set = await command(instance, "import_settings_set", { path: ATLAS, params: { "mipmaps/generate": true } });
+    check(set.status === 200 && set.body?.data?.previous?.["mipmaps/generate"] === false, "import_settings_set changes an option", set.body);
+    const imported = readFileSync(file, "utf8");
+    check(/mipmaps\/generate=true/.test(imported) && /\[remap\][^]*importer="texture"/.test(imported), "and the editor imported the file with it", imported);
+    const refused = await command(instance, "import_settings_set", { path: ATLAS, params: { "roughness/src_normal": "C:/outside/normal.png" } });
+    check(refused.body?.errors?.[0]?.code === "PATH_NOT_ALLOWED", "a text option (a file read on import) is left to the Import dock", refused.body);
+    const back = await command(instance, "import_settings_set", { path: ATLAS, params: set.body?.data?.previous ?? {} });
+    check(back.status === 200 && /mipmaps\/generate=false/.test(readFileSync(file, "utf8")), "passing previous back undoes it", back.body);
+  } finally {
+    if (readFileSync(file, "utf8") !== original) {
+      writeFileSync(file, original);
+    }
+  }
+}
+
 async function checkContentCommands(instance) {
   await command(instance, "node_create", { type: "TileMapLayer", name: "Tiles" });
   const atlas = await command(instance, "tileset_add_atlas", { layer: "Tiles", texture: ATLAS, collision: true });
@@ -1052,6 +1074,7 @@ async function endToEnd(godot) {
     await checkHandshake(instance);
     await checkRequestGuards(instance);
     await checkCommands(instance);
+    await checkImportSettings(instance);
     // Before the edits: running the project saves scenes with unsaved changes.
     await checkGame(instance);
     await checkInputEvents(instance);

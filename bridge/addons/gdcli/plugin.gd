@@ -17,6 +17,7 @@ const FsCommands = preload("commands/fs_commands.gd")
 const FsEditCommands = preload("commands/fs_edit_commands.gd")
 const GameCommands = preload("commands/game_commands.gd")
 const GameDebugCommands = preload("commands/game_debug_commands.gd")
+const ImportCommands = preload("commands/import_commands.gd")
 const GameLink = preload("core/game_link.gd")
 const NodeCommands = preload("commands/node_commands.gd")
 const NavigationCommands = preload("commands/navigation_commands.gd")
@@ -91,6 +92,7 @@ func _enter_tree() -> void:
 		TilesetCommands.new(context),
 		SpriteCommands.new(context),
 		NavigationCommands.new(context),
+		ImportCommands.new(context),
 		GameCommands.new(context),
 		GameDebugCommands.new(context),
 	]

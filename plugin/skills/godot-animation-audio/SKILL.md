@@ -159,7 +159,10 @@ gd command node_create --type AudioStreamPlayer2D --parent Player --name JumpSou
 
 - Formats: WAV for short effects (cheap to play), Ogg Vorbis for music (small). Audio files are imported like any
   asset: copy them in, then `gd command fs_scan`.
-- Looping is a setting of the imported file (or of the stream resource), not of the player.
+- Looping is a setting of the imported file (or of the stream resource), not of the player. Ogg and MP3:
+  `gd command import_settings_set --path res://audio/theme.ogg --params '{"loop": true}'`. WAV:
+  `{"edit/loop_mode": 2}` (0 detect from the file, 1 off, 2 forward, 3 ping-pong, 4 backward). Check the
+  names with `import_settings_get` first.
 - Volume is in decibels: 0 is full, -6 about half as loud, -80 silent. A 0..1 slider value goes through
   `linear_to_db()`.
 - One player plays one sound at a time; playing again restarts it. For overlapping copies of the same sound raise

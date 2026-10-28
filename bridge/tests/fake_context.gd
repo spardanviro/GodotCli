@@ -93,6 +93,18 @@ func scan_files() -> void:
 	scans += 1
 
 
+var scanning := false
+var reimported: Array = []
+
+
+func is_scanning() -> bool:
+	return scanning
+
+
+func reimport(paths: Array) -> void:
+	reimported.append_array(paths)
+
+
 func play(scene: String) -> void:
 	played.append(scene)
 	playing = true
