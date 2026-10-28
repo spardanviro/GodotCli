@@ -189,6 +189,23 @@ func test_game_request_keeps_the_games_wording_out_of_the_message() -> void:
 	equal(third["code"], "COMMAND_FAILED", "an answer that is not a reply")
 
 
+func test_game_inspector_performance_reads_the_monitors() -> void:
+	var inspector := _inspector()
+	Performance.add_custom_monitor("game/enemies", func() -> int: return 7)
+	Performance.add_custom_monitor("game/label", func() -> String: return "not a number")
+
+	var reply: Dictionary = inspector.handle("performance", {})
+	Performance.remove_custom_monitor("game/enemies")
+	Performance.remove_custom_monitor("game/label")
+
+	check(reply["ok"], "answered")
+	var data: Dictionary = reply["data"]
+	check(data["objects"]["objects"] is int and data["objects"]["objects"] >= 1 and data["memory"]["static_mb"] > 0, "counts and memory: %s" % data)
+	check(data["time"].has("fps") and data["render"].has("draw_calls_in_frame") and data["physics_2d"].has("active_objects"), "every group is there")
+	equal(data["custom"], {"game/enemies": 7}, "the game's own monitors, numbers only")
+	equal(data["headless"], true, "the tests run without a window")
+
+
 func test_game_inspector_tree_starts_at_the_root_window() -> void:
 	var inspector := _inspector()
 

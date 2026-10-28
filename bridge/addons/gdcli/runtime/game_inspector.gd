@@ -25,6 +25,26 @@ const _INDIRECT_METHODS: Array[String] = [
 	"connect", "add_user_signal", "rpc", "rpc_id", "rpc_config", "notification",
 ]
 
+# What the Monitors tab of the debugger shows, by group: [name, monitor, scale].
+# Times are reported in milliseconds and sizes in megabytes.
+const _MS := 1000.0
+const _MB := 1.0 / (1024.0 * 1024.0)
+const _MONITORS := {
+	"time": [["fps", Performance.TIME_FPS, 1.0], ["process_ms", Performance.TIME_PROCESS, _MS], ["physics_ms", Performance.TIME_PHYSICS_PROCESS, _MS], ["navigation_ms", Performance.TIME_NAVIGATION_PROCESS, _MS]],
+	"memory": [["static_mb", Performance.MEMORY_STATIC, _MB], ["static_max_mb", Performance.MEMORY_STATIC_MAX, _MB]],
+	"objects": [["objects", Performance.OBJECT_COUNT, 1.0], ["resources", Performance.OBJECT_RESOURCE_COUNT, 1.0], ["nodes", Performance.OBJECT_NODE_COUNT, 1.0], ["orphan_nodes", Performance.OBJECT_ORPHAN_NODE_COUNT, 1.0]],
+	"render": [
+		["objects_in_frame", Performance.RENDER_TOTAL_OBJECTS_IN_FRAME, 1.0], ["primitives_in_frame", Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME, 1.0],
+		["draw_calls_in_frame", Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME, 1.0], ["video_mem_mb", Performance.RENDER_VIDEO_MEM_USED, _MB],
+		["texture_mem_mb", Performance.RENDER_TEXTURE_MEM_USED, _MB], ["buffer_mem_mb", Performance.RENDER_BUFFER_MEM_USED, _MB],
+	],
+	"physics_2d": [["active_objects", Performance.PHYSICS_2D_ACTIVE_OBJECTS, 1.0], ["collision_pairs", Performance.PHYSICS_2D_COLLISION_PAIRS, 1.0], ["islands", Performance.PHYSICS_2D_ISLAND_COUNT, 1.0]],
+	"physics_3d": [["active_objects", Performance.PHYSICS_3D_ACTIVE_OBJECTS, 1.0], ["collision_pairs", Performance.PHYSICS_3D_COLLISION_PAIRS, 1.0], ["islands", Performance.PHYSICS_3D_ISLAND_COUNT, 1.0]],
+	"audio": [["output_latency_ms", Performance.AUDIO_OUTPUT_LATENCY, _MS]],
+}
+const _MAX_CUSTOM_MONITORS := 200
+const _DECIMALS := 0.001
+
 var _tree: SceneTree
 
 
@@ -48,6 +68,8 @@ func handle(method: String, args: Dictionary) -> Dictionary:
 			return _screenshot()
 		"call":
 			return _call_method(args)
+		"performance":
+			return _performance()
 	return Reply.fail("INVALID_ARGS", "The game helper does not know this request.")
 
 
@@ -181,6 +203,27 @@ func _send_action(action: String, pressed: bool, strength: float) -> void:
 	# a breakpoint answers commands, and running its input handlers then would
 	# run its scripts inside the break. Stopped, it sees the key on resuming.
 	Input.parse_input_event(event)
+
+
+func _performance() -> Dictionary:
+	var groups := {}
+	for group in _MONITORS:
+		var values := {}
+		for entry in _MONITORS[group]:
+			var value: float = Performance.get_monitor(entry[1]) * entry[2]
+			# Counts are whole numbers; times and sizes keep three decimals.
+			values[entry[0]] = int(value) if entry[2] == 1.0 and entry[0] != "fps" else snappedf(value, _DECIMALS)
+		groups[group] = values
+	# Monitors the game adds itself (Performance.add_custom_monitor); only numbers are reported.
+	var custom := {}
+	var names := Performance.get_custom_monitor_names()
+	for index in mini(names.size(), _MAX_CUSTOM_MONITORS):
+		var value: Variant = Performance.get_custom_monitor(names[index])
+		if value is int or value is float:
+			custom[TextSanitizer.clean_line(str(names[index]))] = value
+	groups["custom"] = custom
+	groups["headless"] = DisplayServer.get_name() == "headless"
+	return Reply.ok(groups)
 
 
 func _screenshot() -> Dictionary:

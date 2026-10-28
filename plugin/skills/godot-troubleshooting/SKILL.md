@@ -111,6 +111,17 @@ Do not rewrite a script because it "looks wrong" while the actual values have no
 - The node was freed while playing.
 - Sound cannot be heard from here. Say what was checked and what the user should hear.
 
+### Slow, stutters, or uses more and more memory
+
+- Measure first: run it from the editor and `gd command game_performance` (details in the `godot-cli` skill,
+  `references/running-game.md`). Read it twice, some seconds of play apart.
+- `process_ms` or `physics_ms` high: work done every frame in `_process`/`_physics_process` (searching the tree
+  with `get_node`/`find_child`, creating objects, loading resources); cache the references in `_ready`.
+- `orphan_nodes` or `objects` growing: nodes removed but not freed (`queue_free()`), or bullets and effects that
+  never leave the tree.
+- `draw_calls_in_frame` in the thousands: many separate meshes or sprites with different materials; share
+  materials, use MultiMeshInstance for repeated objects, TileMapLayer for tiles.
+
 ### "Invalid call. Nonexistent function", "Invalid access to property ... on a base object of type 'Nil'"
 
 - Something is null. `game_debug` and `game_locals` at the halt show which variable.

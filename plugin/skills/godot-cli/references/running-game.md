@@ -53,6 +53,18 @@ gd command game_input --action jump --hold 0.1
 gd command game_screenshot                                # path of a PNG you can open; not in a headless game
 ```
 
+### How fast it runs
+
+```bash
+gd command game_performance      # fps, process_ms and physics_ms per frame, memory, nodes, orphan_nodes, draw calls
+```
+
+One reading of the debugger's Monitors tab; `fps` is the average of the last second. To see a trend, read it, play
+for a while (`game_input`), and read again. `orphan_nodes` that keeps growing is a leak: nodes removed from the tree
+with `remove_child` but never freed. `process_ms` near or above 16.7 is what makes a 60 fps game stutter. Render
+numbers are 0 in a game without a window. A game's own counters show up under `custom` once its code calls
+`Performance.add_custom_monitor("game/enemies", func(): return enemy_count)`.
+
 `game_input` presses an action of the input map, as a player would: the game gets an input event, so code that polls
 `Input`, `_input`/`_unhandled_input` handlers and a focused button (`ui_accept`) all see it. A sequence that tests
 behaviour: read a value, press, wait, read again, compare.

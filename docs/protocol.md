@@ -534,7 +534,9 @@ JSON 能直接表示的类型原样传。其余类型：
 | tilemap | `tilemap_get` | read | 4.5 |
 | tilemap | `tileset_add_atlas`、`tileset_set_collision`、`tileset_set_terrain`、`tilemap_set_cells`（可撤销） | write | 4.5 |
 | navigation | `navigation_bake`（可撤销） | write | 4.5 |
-| game | `game_tree`、`game_node_get`、`game_errors`、`game_output`、`game_debug`、`game_locals`（第 6.7 节） | read | 3 |
+| import | `import_settings_get` | read | 6 |
+| import | `import_settings_set`（第 6.5.1 节） | write | 6 |
+| game | `game_tree`、`game_node_get`、`game_errors`、`game_output`、`game_debug`、`game_locals`、`game_performance`（第 6.7 节） | read | 3 |
 | game | `game_node_set`、`game_call`、`game_input`、`game_screenshot`、`game_breakpoint`、`game_pause`、`game_step`、`game_continue`（第 6.7 节） | write | 3 |
 
 表里是命令的基础等级。目标落在第 4.4 节的敏感路径上时，`fs_write_text` 等命令按 `destructive` 处理；覆盖已有文件同样如此。
@@ -634,6 +636,7 @@ gd ──HTTP──▶ 桥接（编辑器进程）──调试器消息 gdcli:re
 - **节点路径相对根窗口**，主场景通常是第一段：`Main/Player`。`game_tree` 返回的 `current_scene` 给出当前场景的路径和文件。自动加载项也在这棵树里。
 - `game_node_get` 能读到检视面板不显示的属性（`velocity`、`global_position`、脚本变量）；不带 `properties` 时返回检视面板属性加脚本变量。`game_node_set` 同样能写这些属性，值按第 6.4 节转换；改的只是运行中的游戏，场景文件和编辑器里的场景都不变。
 - `game_input` 按下或松开输入映射里的一个动作，相当于玩家操作。它发送一个输入事件（`InputEventAction`），游戏在下一帧处理：用 `Input.is_action_pressed` 轮询的代码、写在 `_input` 或 `_unhandled_input` 里的处理、有焦点的按钮（`ui_accept`）都能收到。游戏停在断点上时，事件等继续运行后才处理，不在断点里执行游戏脚本；`hold` 是按住的秒数（游戏时间，0 表示一直按着直到再发一次 `pressed=false`），上限 10 秒。
+- `game_performance` 读游戏里的 `Performance` 监视器，就是调试器“监视”页的那些：帧率（取最近一秒的平均）、每帧处理和物理用的毫秒数、内存、对象和节点数（孤立节点多半是泄漏）、每帧的绘制调用和图元、显存、2D 和 3D 物理的活动对象，以及游戏自己用 `Performance.add_custom_monitor` 加的监视器（只报数字，最多 200 个）。每次调用是一个瞬间的读数；要看变化，隔一段时间再读一次。无头运行时渲染相关的数都是 0，`headless` 为真。
 - `game_screenshot` 的图片由游戏发给编辑器、由编辑器写到 `~/.gdcli/screenshots/`（先检查是 PNG）；游戏不写文件。游戏以无头方式运行时没有画面，返回 `PRECONDITION_FAILED`。
 - **等待**：答案要过几帧才到，桥接保持 HTTP 连接，最多等 5 秒。游戏还没启动完（辅助节点还没报到）时会在这 5 秒内等它；始终没报到返回 `PRECONDITION_FAILED`，发出请求后没有回答返回 `TIMEOUT`。游戏停在调试器里时照常应答（见下）。
 - **信任**：游戏是项目代码，它发回的内容按项目文本对待：只保留 JSON 值，字符串全部清洗；失败时错误码只接受固定的几种，`message` 用桥接自己的文案，游戏给的文字放进 `details.reported_message`。

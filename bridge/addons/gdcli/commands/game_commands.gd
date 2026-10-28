@@ -109,6 +109,13 @@ func register(registry: RefCounted) -> void:
 		"returns": "{action, pressed, released_after}",
 	}, _input)
 	registry.register({
+		"name": "game_performance",
+		"summary": "Performance of the running game, as the debugger's Monitors tab shows it: frame rate and frame times, memory, object and node counts (orphan nodes are leaks), draw calls, video memory, physics, and the game's own custom monitors.",
+		"risk": AccessPolicy.RISK_READ,
+		"requires": ["playing"],
+		"returns": "{time: {fps, process_ms, physics_ms, navigation_ms}, memory: {static_mb, static_max_mb}, objects: {objects, resources, nodes, orphan_nodes}, render: {objects_in_frame, primitives_in_frame, draw_calls_in_frame, video_mem_mb, texture_mem_mb, buffer_mem_mb}, physics_2d, physics_3d: {active_objects, collision_pairs, islands}, audio: {output_latency_ms}, custom: {name: number}, headless}. fps is averaged over the last second; render numbers are 0 without a window.",
+	}, _performance)
+	registry.register({
 		"name": "game_screenshot",
 		"summary": "Save a picture of the running game's window.",
 		# It writes a file, so it is not available in read-only mode.
@@ -154,6 +161,10 @@ func _input(args: Dictionary, options: Dictionary) -> Dictionary:
 	if options["dry_run"]:
 		return Edit.planned({"action": TextSanitizer.clean_line(args["action"]), "pressed": args["pressed"], "hold": args["hold"]})
 	return _ask("input", args)
+
+
+func _performance(_args: Dictionary) -> Dictionary:
+	return _ask("performance", {})
 
 
 func _screenshot(_args: Dictionary, options: Dictionary) -> Dictionary:

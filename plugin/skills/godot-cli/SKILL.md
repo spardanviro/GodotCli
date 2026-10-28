@@ -77,7 +77,7 @@ arguments. Search that file for the command you need.
 | Change the project | `project_settings_set`, `project_input_map_set`, `fs_move`, `fs_delete`, `fs_scan` |
 | Take a step back | `edit_undo`, `edit_redo` |
 | Run and check | `gd run`, `gd check`, `gd test`, `editor_play`, `editor_stop`, `editor_errors` |
-| Look into the running game | `game_tree`, `game_node_get`, `game_output`, `game_errors`, `game_input`, `game_call`, `game_screenshot`, the debugger commands |
+| Look into the running game | `game_tree`, `game_node_get`, `game_output`, `game_errors`, `game_input`, `game_call`, `game_screenshot`, `game_performance`, the debugger commands |
 | Look up the engine's API | `gd api class <Name>`, `gd api class <Name> --member <m>`, `gd api search <text>` |
 | Read the manual | `gd docs search <words>`, `gd docs page <page> --section <heading>`; `gd docs install` the first time |
 

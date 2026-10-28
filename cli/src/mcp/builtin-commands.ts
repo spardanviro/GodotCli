@@ -782,6 +782,22 @@ export const BUILTIN_COMMANDS: readonly Descriptor[] = [
   },
   {
     "group": "game",
+    "name": "game_performance",
+    "params": {
+      "properties": {},
+      "type": "object"
+    },
+    "requires": [
+      "playing"
+    ],
+    "returns": "{time: {fps, process_ms, physics_ms, navigation_ms}, memory: {static_mb, static_max_mb}, objects: {objects, resources, nodes, orphan_nodes}, render: {objects_in_frame, primitives_in_frame, draw_calls_in_frame, video_mem_mb, texture_mem_mb, buffer_mem_mb}, physics_2d, physics_3d: {active_objects, collision_pairs, islands}, audio: {output_latency_ms}, custom: {name: number}, headless}. fps is averaged over the last second; render numbers are 0 without a window.",
+    "risk": "read",
+    "since": 1,
+    "summary": "Performance of the running game, as the debugger's Monitors tab shows it: frame rate and frame times, memory, object and node counts (orphan nodes are leaks), draw calls, video memory, physics, and the game's own custom monitors.",
+    "undoable": false
+  },
+  {
+    "group": "game",
     "name": "game_screenshot",
     "params": {
       "properties": {},

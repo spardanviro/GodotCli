@@ -638,6 +638,12 @@ async function checkGame(instance) {
   check(missing.status === 422 && missing.body?.errors?.[0]?.code === "NODE_NOT_FOUND", "a node the game does not have", missing.body);
   const input = await command(instance, "game_input", { action: "ui_accept", hold: 0.1 });
   check(input.status === 200 && input.body?.data?.pressed === true, "game_input", input.body);
+  const performance = await command(instance, "game_performance");
+  check(
+    performance.status === 200 && performance.body?.data?.objects?.nodes >= 1 && typeof performance.body?.data?.time?.fps === "number" && performance.body?.data?.headless === true,
+    "game_performance reads the running game's monitors",
+    performance.body,
+  );
   const picture = await command(instance, "game_screenshot");
   check(picture.body?.errors?.[0]?.code === "PRECONDITION_FAILED", "no screenshot from a game without a window", picture.body);
 

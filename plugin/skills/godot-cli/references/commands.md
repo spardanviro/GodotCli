@@ -1,6 +1,6 @@
 # Commands of the editor bridge
 
-The 66 commands a running editor answers, each run as `gd command <name> --<argument> <value>`. `gd list --json` prints the same
+The 67 commands a running editor answers, each run as `gd command <name> --<argument> <value>`. `gd list --json` prints the same
 for the editor you are talking to, including commands the project adds itself. Search this file for the command you need; do not read it whole.
 
 After the summary, in brackets: the risk tier (`read`, `write`, `destructive`, `exec`) and whether the change is one step on the editor's undo stack.
@@ -591,6 +591,14 @@ Halt the running game in the debugger at the next line of script it runs. [write
 No arguments.
 
 Returns: The same as game_debug.
+
+### game_performance
+
+Performance of the running game, as the debugger's Monitors tab shows it: frame rate and frame times, memory, object and node counts (orphan nodes are leaks), draw calls, video memory, physics, and the game's own custom monitors. [read] Needs the game running from the editor (editor_play).
+
+No arguments.
+
+Returns: {time: {fps, process_ms, physics_ms, navigation_ms}, memory: {static_mb, static_max_mb}, objects: {objects, resources, nodes, orphan_nodes}, render: {objects_in_frame, primitives_in_frame, draw_calls_in_frame, video_mem_mb, texture_mem_mb, buffer_mem_mb}, physics_2d, physics_3d: {active_objects, collision_pairs, islands}, audio: {output_latency_ms}, custom: {name: number}, headless}. fps is averaged over the last second; render numbers are 0 without a window.
 
 ### game_screenshot
 
