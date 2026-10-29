@@ -2172,7 +2172,7 @@ export const BUILTIN_COMMANDS: readonly Descriptor[] = [
     "requires": [
       "scene_open"
     ],
-    "returns": "{node, animations: [{name, frames, fps, loop}]} for all animations the node has afterwards; meta.undo names the undo step.",
+    "returns": "{node, animations: [{name, frames, fps, loop}], animation, autoplay}: all animations the node has afterwards, the one the editor shows, and the one that plays when the scene starts (\"\" for none); meta.undo names the undo step.",
     "risk": "write",
     "since": 1,
     "summary": "Give an AnimatedSprite2D or AnimatedSprite3D frame animations cut from sprite sheets or made of single images.",

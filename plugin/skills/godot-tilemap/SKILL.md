@@ -33,6 +33,11 @@ gd command scene_save
   rectangle; `--cells` takes single cells; both may be given. One call paints one tile: a level with five kinds of
   tile is five or more calls.
 - `--erase true` clears cells. `tilemap_get` lists the sources and the painted cells (`--rect` to look at a part).
+- "Along the bottom of the screen" needs the screen size in tiles: `gd command project_settings_get --prefix
+  display/window/size/` gives `viewport_width` and `viewport_height` (1152 by 648 when the project has not changed
+  them). Divide by the tile size and round down: with 16-pixel tiles, 648 / 16 = 40.5, so the last row that is
+  fully on screen is y = 39, and 1152 / 16 = 72 tiles fill the width (`--rect '[0, 39, 72, 1]'`). This holds for a
+  layer at the scene's origin, with no camera moving the view.
 - A new image has to be imported before it can be used: `gd command fs_scan` after copying it in.
 
 ## Collision
@@ -136,9 +141,18 @@ other project settings for pixel art, are in the `godot-sprite-animation` skill.
 
 ## Checking it
 
+`tilemap_set_cells` answers with the layer's `used_rect` and `tilemap_get` lists the painted cells: that shows the
+tiles are where they should be. For tiles painted as asked, saving and one run are the check:
+
 ```bash
 gd command scene_save
 gd run --seconds 3 --headless
+```
+
+Whether a character stands on them needs a character. When the scene has one, play the game and ask once it has
+had time to land:
+
+```bash
 gd command editor_play
 gd command game_call --path Level/Player --method is_on_floor       # true once it has landed on the tiles
 gd command game_screenshot                                           # what it looks like; needs a window

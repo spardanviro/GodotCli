@@ -154,9 +154,20 @@ gd command project_settings_set --name display/window/size/window_height_overrid
 
 ## Checking it
 
+`sprite_frames_create` answers with every animation of the node (frames, fps, loop), the `animation` the editor
+shows and the `autoplay` one: read that instead of asking for them again. With `autoplay` set, the animation
+plays when the scene starts; there is no need to start the game to see that it does. For frames added to a node,
+saving and one run are the check:
+
 ```bash
 gd command scene_save
 gd run --seconds 3 --headless
+```
+
+Start the game only when the animation has to change with what the character does (run while it moves, jump in the
+air), and read each value once:
+
+```bash
 gd command editor_play
 gd command game_node_get --path Level/Player/Sprite --properties '["animation", "frame"]'
 gd command game_input --action move_right --hold 1

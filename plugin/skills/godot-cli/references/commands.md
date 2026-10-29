@@ -346,7 +346,7 @@ Give an AnimatedSprite2D or AnimatedSprite3D frame animations cut from sprite sh
 - `autoplay` (string, default "") Animation to play when the scene starts.
 - `replace` (boolean, default false) Drop the animations the node already has instead of adding to them.
 
-Returns: {node, animations: [{name, frames, fps, loop}]} for all animations the node has afterwards; meta.undo names the undo step.
+Returns: {node, animations: [{name, frames, fps, loop}], animation, autoplay}: all animations the node has afterwards, the one the editor shows, and the one that plays when the scene starts ("" for none); meta.undo names the undo step.
 
 ## tilemap
 

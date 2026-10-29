@@ -46,7 +46,7 @@ func register(registry: RefCounted) -> void:
 			},
 			"required": ["node", "animations"],
 		},
-		"returns": "{node, animations: [{name, frames, fps, loop}]} for all animations the node has afterwards; meta.undo names the undo step.",
+		"returns": "{node, animations: [{name, frames, fps, loop}], animation, autoplay}: all animations the node has afterwards, the one the editor shows, and the one that plays when the scene starts (\"\" for none); meta.undo names the undo step.",
 	}, _create)
 
 
@@ -102,7 +102,12 @@ func _create(args: Dictionary, options: Dictionary) -> Dictionary:
 		undo.add_do_property(node, "autoplay", autoplay)
 		undo.add_undo_property(node, "autoplay", node.autoplay)
 	undo.commit_action()
-	return Edit.done({"node": TextSanitizer.clean_line(NodeRef.path_of(_root(), node)), "animations": _describe(frames)}, action)
+	return Edit.done({
+		"node": TextSanitizer.clean_line(NodeRef.path_of(_root(), node)),
+		"animations": _describe(frames),
+		"animation": TextSanitizer.clean_line(str(node.animation)),
+		"autoplay": TextSanitizer.clean_line(str(node.autoplay)),
+	}, action)
 
 
 func _describe(frames: SpriteFrames) -> Array:

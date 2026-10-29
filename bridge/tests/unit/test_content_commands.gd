@@ -215,6 +215,7 @@ func test_sprite_frames_create_cuts_sheets_and_takes_single_images() -> void:
 	], "the animations, without the empty default one")
 	equal(third.region, Rect2(32, 16, 16, 16), "a frame is its cell of the sheet, counted row by row")
 	equal([str(hero.animation), hero.autoplay], ["walk", "walk"], "shown in the editor and played at the start")
+	equal([reply["data"]["animation"], reply["data"]["autoplay"]], ["walk", "walk"], "and the answer says so, so nothing has to be read back")
 
 	var more := _run("sprite_frames_create", {"node": "Hero", "animations": [{"name": "walk", "sheet": ATLAS, "hframes": 2}]})
 	equal([more["ok"], hero.sprite_frames.get_frame_count("walk"), hero.sprite_frames.has_animation("idle")], [true, 2, true], "an animation of the same name is replaced, the others stay")
@@ -234,6 +235,7 @@ func test_sprite_frames_create_replaces_everything_when_asked() -> void:
 
 	equal(reply["data"]["animations"], [{"name": "walk", "frames": 2, "fps": 10.0, "loop": true}], "only the new animation is left")
 	equal(hero.autoplay, "", "and autoplay no longer names one that is gone")
+	equal([reply["data"]["animation"], reply["data"]["autoplay"]], ["walk", ""], "the answer shows what plays: nothing at the start")
 	_context.undo.undo()
 	equal([hero.autoplay, hero.sprite_frames.has_animation("run")], ["idle", true], "undo brings both back")
 	_context.undo.redo()

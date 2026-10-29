@@ -9,13 +9,16 @@ description: Drive a Godot 4 editor and project from the shell with the `gd` com
 Godot itself for one-off jobs. Changes made through it are real editor actions: the person at the editor sees
 them happen and can undo them with Ctrl+Z.
 
-## Before the first command
+## When a command cannot get through
+
+Start with the command you need; there is nothing to check first. If it fails because something is missing
+(`NO_PROJECT`, `NO_EDITOR`, no bridge, no Godot), the error's `hint` says what to do, and
 
 ```bash
 gd doctor
 ```
 
-It checks the Godot binary, the project, the bridge addon and whether an editor is reachable, and says what to do
+checks the Godot binary, the project, the bridge addon and whether an editor is reachable, and says what to do
 about anything that is missing. The usual fixes:
 
 - No project yet (`NO_PROJECT`): `gd new <folder>` creates one with the bridge in it; the `godot-new-project`
@@ -31,6 +34,10 @@ about anything that is missing. The usual fixes:
   `cd` or a second command on the same line (use `--json` and read the whole answer instead of piping to `head`).
 
 `gd status` lists the editors `gd` can reach. Run `gd` from inside the project folder, or pass `--project <folder>`.
+
+To see where you are, one call each is enough: `editor_status` (the scene being edited, the open ones, whether
+the game runs) and `scene_tree` (that scene's nodes). Several reads that do not depend on each other can go on one
+line, `gd command editor_status && gd command scene_tree` (not in a sandboxed shell, see above).
 
 ## How to call it
 
@@ -188,7 +195,11 @@ gd test                                # the project's GUT or gdUnit4 tests, if 
 whose name contains it) and lists each failed test with its message. It needs GUT or gdUnit4 installed in the
 project; if neither is, say so rather than installing one unasked. Like `gd run` it uses the files on disk.
 
-To see the game behave, run it from the editor and look inside (details in `references/running-game.md`):
+Check as far as the request goes. A node, resource or setting that was asked for: the command's answer already
+shows what it made, so save and `gd run` once (it loads everything and reports errors); that is the check.
+Run the game from the editor and look inside only when the request is about what happens while it runs (it moves,
+lands, collects, switches animation, reacts to a key), and read each value once rather than starting the game
+again to read it a second time. Details in `references/running-game.md`:
 
 ```bash
 gd command editor_play
